@@ -1,0 +1,86 @@
+# dataset CLI 설정 예시.
+#
+# 실행 전 DSN 환경변수를 설정한다:
+#   export RDFP_DB_DSN="postgresql://rdfp@localhost:5432/rdfp"
+#
+# 실행:
+#   ros2 run rdfp dataset init-db --config dataset_config.yaml
+#   ros2 run rdfp dataset import  --config dataset_config.yaml
+#   ros2 run rdfp dataset stats   --config dataset_config.yaml
+#
+# 스키마 상세는 docs/rosbag2/데이터셋 후처리기 설계서.md 4.3 절 참조.
+
+
+# ── 입출력 경로 ─────────────────────────────────────────────────────
+rosbag_dir:     /data/rdfp/rosbag        # rosbag2 MCAP 루트 (운영 방안 4장 구조)
+output_mp4_dir: /data/rdfp/videos        # 에피소드별 mp4/metadata.json/frames.jsonl 저장 경로 (import 전용)
+
+
+# ── DB 접속 (DSN 은 환경변수로 주입) ───────────────────────────────
+db:
+  dsn_env: RDFP_DB_DSN
+  schema: public
+
+
+# ── 대상 토픽 화이트리스트 (비우면 rosbag 의 모든 토픽) ────────────
+#   /session 은 자동 포함되므로 누락해도 무방하다.
+topics:
+  - /session
+
+  # MoveIt arm관련 토픽 (end-effector pose)
+  - /servo_node/delta_twist_cmds
+  - /ee_pose
+
+  # MoveIt arm관련 토픽 (joint delta)
+  - /servo_node/delta_joint_cmds
+
+  # MoveIt arm관련 토픽 (joint 좌표)
+  - /target_joint_states
+  - /joint_states
+
+  # MoveIt hand관련 토픽
+  - /gripper_control/gripper_cmds
+  - /gripper_control/gripper_states
+
+  # Camera 관련 토픽
+  - /camera/image_raw
+  - /camera/image_compressed
+
+
+# ── 에피소드 필터 ──────────────────────────────────────────────────
+episode_filter:
+  task_labels_include: []          # 포함할 task_label 목록 (빈 목록 = 제한 없음)
+  task_labels_exclude: []          # 제외할 task_label 목록
+  min_duration_sec: 0.0            # 이 시간보다 짧은 에피소드는 건너뜀
+
+
+# ── 세션 사전 필터 ─────────────────────────────────────────────────
+session_filter:
+  dates: []                        # YYYY-MM-DD 목록 (빈 목록 = 모든 날짜)
+
+
+# ── 중복 에피소드 처리 정책 ────────────────────────────────────────
+#   skip     : 이미 존재하는 에피소드는 건너뜀 (기본)
+#   replace  : 기존 DB 행 + mp4 디렉터리를 삭제하고 재적재
+#   error    : 중복 발견 시 즉시 실패
+on_existing_episode: skip
+
+
+# ── MP4 인코딩 ─────────────────────────────────────────────────────
+mp4:
+  codec: h264                       # h264 / (향후 확장)
+  nominal_fps: 30                   # CFR 로 선언할 프레임 레이트
+
+
+# ── 운영 통합 (선택) ──────────────────────────────────────────────
+#   1 = 단일 프로세스. 2 이상이면 에피소드 단위 병렬 처리.
+parallelism: 1
+
+quality_gate:
+  stamp_regression: true            # header.stamp 역행 감지
+  idle_gap_sec: 0.0                 # >0 시 토픽별 유휴 갭 감지 (초)
+
+# rosbag 을 임시 스테이징으로 운용할 때: import 성공 후 사용된 split
+# (.mcap) 을 제거하고, metadata.yaml 만 남은 세션 디렉터리도 정리한다.
+# dry-run 모드에서는 무시된다.
+delete_splits_after_import: false
