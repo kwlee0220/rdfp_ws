@@ -1,0 +1,59 @@
+# dataset CLI 설정 샘플.
+#
+# 실행 전 DSN 환경변수를 설정한다:
+#   export RDFP_DB_DSN="postgresql://rdfp@localhost:5432/rdfp"
+#
+# 실행:
+#   ros2 run rdfp dataset init-db --config dataset_config.yaml
+#   ros2 run rdfp dataset import  --config dataset_config.yaml
+#   ros2 run rdfp dataset stats   --config dataset_config.yaml
+#
+# 스키마 상세는 docs/rosbag2/데이터셋 후처리기 설계서.md 4.3 절 참조.
+
+
+# ── 입출력 경로 ─────────────────────────────────────────────────────
+rosbag_dir:     /data/rosbag                 # rosbag2 MCAP 루트
+output_mp4_dir: /data/postproc/videos        # 에피소드별 mp4/metadata.json/frames.jsonl (import 전용)
+
+
+# ── DB 접속 (DSN 은 환경변수로 주입) ───────────────────────────────
+db:
+  dsn_env: RDFP_DB_DSN
+  schema:  public
+
+
+# ── 대상 토픽 화이트리스트 (비우면 rosbag 의 모든 토픽) ────────────
+topics: []
+
+
+# ── 에피소드 필터 ──────────────────────────────────────────────────
+episode_filter:
+  task_labels_include: []
+  task_labels_exclude: []
+  min_duration_sec: 0.0
+
+
+# ── 세션 사전 필터 ─────────────────────────────────────────────────
+session_filter:
+  dates: []
+
+
+# ── 중복 에피소드 처리 정책 ────────────────────────────────────────
+on_existing_episode: skip
+
+
+# ── MP4 인코딩 ─────────────────────────────────────────────────────
+mp4:
+  codec: h264
+  nominal_fps: 30
+
+
+# ── 운영 통합 (선택) ──────────────────────────────────────────────
+catalog_index_path: null
+parallelism: 1
+
+quality_gate:
+  stamp_regression: true
+  idle_gap_sec: 0.0
+
+delete_splits_after_import: false

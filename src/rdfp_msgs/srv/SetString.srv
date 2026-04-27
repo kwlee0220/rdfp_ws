@@ -1,0 +1,9 @@
+# task_label 설정 요청.
+# 빈 문자열('')을 전달하면 기존 task_label 이 제거된다 (task clear).
+# <task_label> 은 알파벳 대소문자, 숫자, 언더스코어(_)로 구성된 문자열을 가정한다.
+string task_label
+---
+# 명령이 현재 상태에서 유효하게 처리되었으면 true, 아니면 false.
+bool success
+# 성공 시: '' (빈 문자열). 실패 시: 'invalid command'.
+string message

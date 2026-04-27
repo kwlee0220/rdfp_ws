@@ -1,0 +1,43 @@
+# ROS2 build outputs
+build/
+install/
+log/
+
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor files
+.vscode/
+.idea/
+.github/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.orig
+*.backup
+
+# Large binary files that Claude doesn't need to read
+*.bag
+*.so
+*.dll
+*.dylib
+
+# Documentation build outputs
+docs/_build/
+docs/build/
+
+# Test coverage
+.coverage
+htmlcov/
+
+# RDFP rosbag directory
+rdfp_rosbag/

@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rdfp</name>
+  <version>0.0.1</version>
+  <description>Franka Panda Cartesian path planning and execution using MoveIt2</description>
+  <maintainer email="kwlee@todo.todo">kwlee</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>control_msgs</depend>
+  <exec_depend>moveit_py</exec_depend>
+  <depend>moveit_msgs</depend>
+  <depend>tf_transformations</depend>
+  <depend>tf2_ros</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>trajectory_msgs</depend>
+  <exec_depend>rdfp_msgs</exec_depend>
+
+  <!-- dataset.ingest 런타임 의존성 (apt 가용) -->
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>ffmpeg</exec_depend>
+
+  <!--
+    pip-only 의존성 (apt 버전 부재 또는 구버전):
+      mcap, mcap-ros2-support, pydantic>=2, psycopg[binary]>=3
+    설치 방법은 rdfp/README.md "Post-processor 의존성" 섹션 참조.
+  -->
+
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

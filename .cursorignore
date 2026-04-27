@@ -1,0 +1,25 @@
+# colcon / ROS2 워크스페이스 산출물 (인덱싱·검색 부담 감소)
+build/
+install/
+log/
+
+# colcon 메타데이터
+.colcon/
+
+# Python 바이트코드 및 테스트 캐시
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# rosbag2 (대용량 녹화 데이터)
+**/*.db3
+**/*.db3-shm
+**/*.db3-wal
+**/*.mcap
+
+# 에디터·OS 잡파일
+**/.DS_Store
+**/Thumbs.db

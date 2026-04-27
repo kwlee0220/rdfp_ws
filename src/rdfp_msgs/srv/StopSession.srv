@@ -1,0 +1,7 @@
+# 녹화 세션 종료 요청 (요청 필드 없음).
+# finalize timeout 은 노드 내부에서 5.0 초로 고정된다.
+---
+# 성공 여부. 녹화 중이 아니거나 recorder.stop() 이 FAILED 로 종료되면 false.
+bool success
+# 성공 시 finalize 된 MP4 파일의 절대 경로. 실패 시 빈 문자열.
+string mp4_path

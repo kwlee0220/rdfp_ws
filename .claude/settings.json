@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(colcon *)",
+      "Read(//home/kwlee/.claude/**)",
+      "Bash(python -m:*)",
+      "Bash(python3 -m:*)",
+      "Bash(source *)",
+      "Bash(cd /home/kwlee/*)",
+      "Bash(ffmpeg -version)",
+      "Bash(mkdir -p /home/kwlee/development/ros/rdfp_ws/src/rdfp/rdfp/recorder/tests)",
+      "Bash(mv test_ffmpeg_command.py test_encoder_probe.py test_state.py test_ffmpeg_mp4_recorder.py test_integration.py tests/)",
+      "Bash(pkill -INT -f \"rdfp session_control_node\")"
+    ],
+    "additionalDirectories": [
+      "/home/kwlee/.claude"
+    ]
+  }
+}

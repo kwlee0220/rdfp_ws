@@ -1,0 +1,34 @@
+ros2_control:
+  hardware_type: mock_components
+  controller_manager_name: /controller_manager
+
+log_level: info
+
+ee_pose:
+  base_frame: panda_link0
+  ee_frame: panda_hand
+  publish_rate: 50.0
+
+camera:
+  enabled: true
+  id: "/home/kwlee/tmp/shibuya_7_8.mp4"
+  # id: 4
+  image_topic: /camera/image_raw
+  info_topic: /camera/camera_info
+  status_topic: /camera/camera_status
+  fps: 10
+  resolution: 1280x720
+  frame_id: camera_link
+  compress_image: false
+
+image_viewer:
+  enabled: true
+
+image_recorder:
+  enabled: true
+  fps: 10
+  output_dir: /tmp/recordings
+  auto_start: true
+
+target_joint_states:
+  input_topic: /panda_arm_controller/joint_trajectory

@@ -1,0 +1,6 @@
+# SessionControlNode 의 현재 상태와 task_label 을 조회한다 (요청 필드 없음).
+---
+# 현재 상태 이름 ('IDLE' | 'IN_SESSION' | 'IN_EPISODE').
+string state
+# 내부 task_label 변수 값 (초기값 '').
+string task_label

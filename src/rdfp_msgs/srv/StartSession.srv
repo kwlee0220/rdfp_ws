@@ -1,0 +1,7 @@
+# 녹화 세션 시작 요청 (요청 필드 없음).
+# 세션 설정은 ImageRecorderNode 의 파라미터로부터 결정된다.
+---
+# 성공 여부. 이미 녹화 중이거나 recorder.start() 가 실패하면 false.
+bool success
+# 성공 시 생성된 MP4 파일의 절대 경로. 실패 시 빈 문자열.
+string mp4_path
