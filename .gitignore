@@ -39,6 +39,6 @@ Thumbs.db
 
 # Workspace-local config (사용자별 절대 경로 / DSN 들어감 — 공유 금지).
 # 패키지 안의 sample 은 정상 추적; 워크스페이스 root 의 인스턴스만 제외.
-/dataset_config.yaml
-/rosbag_config.yaml
-/rdfp_panda_mock.yaml
+# /dataset_config.yaml
+# /rosbag_config.yaml
+# /rdfp_panda_mock.yaml
