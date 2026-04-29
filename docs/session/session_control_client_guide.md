@@ -283,7 +283,7 @@ client.is_ready() -> bool
 | 타이머 콜백 내부 | **비동기** | 타이머 블로킹 금지, 동기 호출은 executor 재귀 spin 야기 |
 | 서비스/구독 콜백 내부 | **비동기** | 위와 동일한 이유 |
 | 별도 스레드에서 호출 | **비동기 권장** | 동기는 `rclpy.spin_until_future_complete` 의 executor 경합 위험 |
-| `keyboard_twist_teleop` 같이 이미 spin 중인 노드 | **비동기** | 동기 호출은 데드락 |
+| `teleop_keyboard` 같이 이미 spin 중인 노드 | **비동기** | 동기 호출은 데드락 |
 
 ### 동기 API 의 구체적 동작
 

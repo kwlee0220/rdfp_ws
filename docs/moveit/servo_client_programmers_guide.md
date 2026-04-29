@@ -268,13 +268,13 @@ class ServoStatus(IntEnum):
 
 ### 패턴 1: 텔레옵 시작 직전 헬스체크
 
-[src/rdfp/rdfp/teleop/keyboard_twist_teleop.py:172](../../teleop/keyboard_twist_teleop.py#L172)에서
+[src/rdfp/rdfp/teleop/teleop_keyboard.py:172](../../teleop/teleop_keyboard.py#L172)에서
 사용되는 패턴입니다.
 
 ```python
 class TeleopNode(Node):
     def __init__(self) -> None:
-        super().__init__("keyboard_twist_teleop")
+        super().__init__("teleop_keyboard")
         self.servo = ServoClient.create(self, "/servo_node")
 
         # Servo가 준비되지 않으면 노드 자체 기동을 막음
@@ -498,7 +498,7 @@ ros2 topic hz /servo_node/delta_twist_cmds
 
 호출자 쪽 경합이 의심되면 메인 스레드에서만 `ServoClient`를 호출하도록 바꾸세요.
 
-### 5. `keyboard_twist_teleop` 기동 시 `auto_start` 실패
+### 5. `teleop_keyboard` 기동 시 `auto_start` 실패
 
 **원인**: 대개는 launch 순서 문제입니다. `panda_mock.launch.py`는 컨트롤러 chain이
 모두 뜬 **후에** `servo_node`를 기동하므로, teleop을 너무 일찍 실행하면 Servo가
@@ -512,7 +512,7 @@ ros2 topic hz /servo_node/delta_twist_cmds
 ## 관련 파일/문서
 
 - [servo_client.py](../servo_client.py) — 본 문서가 설명하는 소스
-- [src/rdfp/rdfp/teleop/keyboard_twist_teleop.py](../../teleop/keyboard_twist_teleop.py) —
+- [src/rdfp/rdfp/teleop/teleop_keyboard.py](../../teleop/teleop_keyboard.py) —
   유일한 실제 사용처
 - [src/rdfp/launch/panda_mock.launch.py](../../../launch/panda_mock.launch.py) —
   실제 `servo_node` 프로세스를 기동하는 launch 파일

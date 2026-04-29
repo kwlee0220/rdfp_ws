@@ -758,5 +758,5 @@ state-based 완료 대기 패턴을 함께 사용하면 안정적인 pick-and-pl
 구성할 수 있습니다.
 
 추가 질문이나 기능 제안이 있다면 본 저장소 이슈로 보고하거나
-[`keyboard_twist_teleop.py`](../teleop/keyboard_twist_teleop.py) 의 호출 예를
+[`teleop_keyboard.py`](../teleop/teleop_keyboard.py) 의 호출 예를
 참고하시기 바랍니다.

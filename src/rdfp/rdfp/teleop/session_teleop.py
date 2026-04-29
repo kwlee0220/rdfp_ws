@@ -3,7 +3,7 @@
 """SessionTeleop 모듈.
 
 키보드 입력으로 세션/에피소드 라이프사이클과 태스크 라벨을 제어하는 ROS2 노드.
-keyboard_twist_teleop 에서 세션·태스크 관련 기능만 분리한 경량 버전이다.
+teleop_keyboard 에서 세션·태스크 관련 기능만 분리한 경량 버전이다.
 세션 제어는 SessionControlClient 의 비동기 API 를 활용한다.
 
 키 바인딩:

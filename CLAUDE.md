@@ -44,7 +44,7 @@ ros2 run rdfp replay   42 --config dataset_config.yaml   # ROS-dep
 ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
 ```
 
-Other notable scripts: `image_recorder_node`, `rdfp_image_recorder`, `camera_node`, `session_control_node`, `replay_gui` (Tk replay control GUI), `keyboard_twist_teleop`, `session_teleop`, `target_joint_states_publisher`, `target_joint_states_executor`, `gripper_control_node`, `ee_pose_node`.
+Other notable scripts: `image_recorder_node`, `rdfp_image_recorder`, `camera_node`, `session_control_node`, `replay_gui` (Tk replay control GUI), `teleop_keyboard`, `session_teleop`, `target_joint_states_publisher`, `target_joint_states_executor`, `gripper_control_node`, `ee_pose_node`.
 
 ## Tests
 
@@ -94,7 +94,7 @@ Top-level `rdfp/` (Python source root):
 | `camera/` | `camera_node` (OpenCV → ROS), `image_viewer_node`, capture/reconnect helpers. |
 | `recorder/` | `FFMpegMp4Recorder` (ffmpeg subprocess MP4 sink) + `image_recorder_node` (ROS adapter wrapping the recorder). |
 | `session/` | `session_control_node` — state machine (IDLE → IN_SESSION → IN_EPISODE) on a transient-local topic so late subscribers see current state. |
-| `teleop/` | `keyboard_twist_teleop`, `session_teleop`. |
+| `teleop/` | `teleop_keyboard`, `session_teleop`. |
 | `rosbag/` | rosbag2 MCAP catalog/discovery (`catalog.discover_splits`, `merged_stream`, `mcap_reader`) + `rosbag` CLI for inspecting splits/episodes without DB. |
 | `dataset/` | DB schema + ingestion pipeline + replay. See "Dataset pipeline" below. Includes `replay_gui_cmd.py` — Tk GUI (`replay_gui` console_script) that orchestrates `Mp4ImageReplayer` + `TopicMessageReplayer` against a running MoveIt stack. |
 | `samples/` | Manual sample/demo scripts (not entry_points). |

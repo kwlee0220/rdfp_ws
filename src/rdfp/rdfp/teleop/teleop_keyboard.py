@@ -132,7 +132,7 @@ _DEFAULT_RATE_HZ = 100.0
 _DEFAULT_DEADMAN_TTL_SEC = 0.1
 
 
-class KeyboardTwistTeleop(Node):
+class TeleopKeyboard(Node):
     """Publishes TwistStamped, gripper commands, and dataset/task events."""
 
     # Safety velocity limits (absolute maximum values)
@@ -144,7 +144,7 @@ class KeyboardTwistTeleop(Node):
     EMERGENCY_ANGULAR_LIMIT = 3.14  # rad/s - absolute emergency stop limit (π)
 
     def __init__(self):
-        super().__init__("keyboard_twist_teleop")
+        super().__init__("teleop_keyboard")
 
         # --- Parameters ---
         self.declare_parameter("frame_id", "panda_link0")
@@ -840,7 +840,7 @@ Valid Keys:
 def main():
     if not sys.stdin.isatty():
         print(
-            "keyboard_twist_teleop requires an interactive TTY stdin. "
+            "teleop_keyboard requires an interactive TTY stdin. "
             "Please run it from a terminal.",
             file=sys.stderr,
         )
@@ -849,7 +849,7 @@ def main():
     rclpy.init()
 
     with TerminalRawMode():
-        node = KeyboardTwistTeleop()
+        node = TeleopKeyboard()
         try:
             rclpy.spin(node)
         except KeyboardInterrupt:

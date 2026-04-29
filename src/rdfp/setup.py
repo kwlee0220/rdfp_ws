@@ -29,7 +29,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'keyboard_twist_teleop = rdfp.teleop.keyboard_twist_teleop:main',
+            'teleop_keyboard = rdfp.teleop.teleop_keyboard:main',
             'session_teleop = rdfp.teleop.session_teleop:main',
             'camera_node = rdfp.camera.camera_node:main',
             'rdfp_camera_node = rdfp.camera.rdfp_camera_node:main',

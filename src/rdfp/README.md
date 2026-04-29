@@ -23,7 +23,7 @@ rdfp/
     ├── camera/                # camera_node, image_viewer, OpenCV capture 헬퍼
     ├── recorder/              # FFMpegMp4Recorder + image_recorder_node (ROS adapter)
     ├── session/               # session_control_node — IDLE / IN_SESSION / IN_EPISODE 상태 머신
-    ├── teleop/                # keyboard_twist_teleop, session_teleop
+    ├── teleop/                # teleop_keyboard, session_teleop
     ├── rosbag/                # MCAP catalog/discovery + `rosbag` CLI
     ├── dataset/               # DB 스키마 + ingestion 파이프라인 + `import`/`stats`/`list`/`init-db`/`replay` CLI
     │                          # (replay_gui_cmd — Tk GUI 도 여기 포함)

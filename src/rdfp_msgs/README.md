@@ -32,7 +32,7 @@ source install/setup.bash
 | 타입 | 사용처 | 요약 |
 |---|---|---|
 | `SessionCommand` | `session_control_node` 의 `session` 토픽 | 세션 상태 머신 (`IDLE` / `IN_SESSION` / `IN_EPISODE`) 와 `task_label` 을 발행. `header.stamp` 는 발행 시각. |
-| `GripperCommand` | `keyboard_twist_teleop` / `session_teleop` → gripper 토픽 | `'open'` / `'close'` 명령을 텍스트 필드로 전송. |
+| `GripperCommand` | `teleop_keyboard` / `session_teleop` → gripper 토픽 | `'open'` / `'close'` 명령을 텍스트 필드로 전송. |
 | `GripperState` | `gripper_control_node` 가 액션 피드백을 토픽으로 재발행 | `position`, `effort`, `stalled`, `reached_goal` (`control_msgs/action/GripperCommand` Feedback 과 동일한 필드 구성). |
 | `TargetJointStates` | `target_joint_states_publisher` / `target_joint_states_executor` | 단일 `trajectory_msgs/JointTrajectoryPoint` 에 `Header` 를 부여한 timestamped joint setpoint. |
 

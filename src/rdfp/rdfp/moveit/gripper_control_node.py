@@ -8,7 +8,7 @@
 2. `/panda_hand_controller/gripper_cmd` 액션에 실제 goal 을 전송한다.
 3. 액션 feedback 을 `_on_feedback` 에서 `/teleop/gripper_states` 로 재발행한다.
 
-KeyboardTwistTeleop 등 클라이언트는 본 노드의 두 서비스를 호출하여 gripper 를
+TeleopKeyboard 등 클라이언트는 본 노드의 두 서비스를 호출하여 gripper 를
 제어한다.
 """
 
