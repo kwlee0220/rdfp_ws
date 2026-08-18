@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 
-from rdfp.moveit import MoveGroupClient, pose
+from rdfp.moveit import create_move_group_client, pose
 
 
 def main(args=None):
@@ -9,7 +9,7 @@ def main(args=None):
     node = None
     try:
         node = Node('move_to_cartesian_points')
-        with MoveGroupClient(node) as client:
+        with create_move_group_client(node) as client:
             client.wait_until_ready()
 
             # Trajectory 1: 사각형 경로

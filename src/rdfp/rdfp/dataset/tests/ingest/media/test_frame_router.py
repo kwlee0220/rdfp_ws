@@ -2,6 +2,9 @@
 
 ffmpeg 인코딩 / DB 적재는 통합 테스트에서 다룬다. 여기서는 라우팅 동작과
 fail-fast 정책, 에피소드 수명 주기만 검증한다.
+
+`frame_router` 가 `sensor_msgs` 를 전이 의존하므로, ROS sourcing 이 안 된
+환경에서는 전체 테스트를 skip 한다.
 """
 
 from __future__ import annotations
@@ -9,7 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rdfp.dataset.ingest.media.frame_router import FrameRouter, UnsupportedImageError
+pytest.importorskip('sensor_msgs', reason='requires ROS 2 runtime (transitive dependency)')
+
+from rdfp.dataset.ingest.media.frame_router import (                 # noqa: E402
+    FrameRouter, UnsupportedImageError)
 
 
 class _StubConn:

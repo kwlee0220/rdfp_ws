@@ -13,7 +13,7 @@ from typing import Optional
 
 from .readers.base import ReaderBase
 from .readers.gripper_command import GripperCommandReader
-from .readers.gripper_state import GripperStateReader
+from .readers.gripper_action_state import GripperActionStateReader
 from .readers.joint_jog import JointJogReader
 from .readers.joint_state import JointStateReader
 from .readers.pose_stamped import PoseStampedReader
@@ -21,7 +21,7 @@ from .readers.target_joint_states import TargetJointStatesReader
 from .readers.twist_stamped import TwistStampedReader
 from .writers.base import WriterBase
 from .writers.gripper_command import GripperCommandWriter
-from .writers.gripper_state import GripperStateWriter
+from .writers.gripper_action_state import GripperActionStateWriter
 from .writers.joint_jog import JointJogWriter
 from .writers.joint_state import JointStateWriter
 from .writers.pose_stamped import PoseStampedWriter
@@ -94,12 +94,12 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
         writer_cls=GripperCommandWriter,
         reader_cls=GripperCommandReader,
     ),
-    # 관련 토픽: /gripper_control/gripper_states
+    # 관련 토픽: /gripper_control/gripper_action_states
     #   - 그리퍼 상태. (열림/닫힘 정도)
-    'rdfp_msgs/msg/GripperState': TypeBinding(
-        table='gripper_states',
-        writer_cls=GripperStateWriter,
-        reader_cls=GripperStateReader,
+    'rdfp_msgs/msg/GripperActionState': TypeBinding(
+        table='gripper_action_states',
+        writer_cls=GripperActionStateWriter,
+        reader_cls=GripperActionStateReader,
     ),
 }
 

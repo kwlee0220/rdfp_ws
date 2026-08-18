@@ -494,7 +494,10 @@ def test_write_bytes_size_matches_channel_count(
 def test_write_drops_oldest_when_queue_full(
     patched_popen: None, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rec = _make_recorder(queue_size=2)
+    # overflow_policy 를 반드시 넘겨야 한다. 기본값은 'wait' 이고 그 정책은 큐가 차면
+    # 블로킹 put 을 하는데, 아래에서 writer 스레드를 일부러 붙잡아 두므로 메인 스레드가
+    # 영원히 풀리지 않는다 (writer 는 pause 해제를 기다리고 메인은 큐 자리를 기다린다).
+    rec = _make_recorder(queue_size=2, overflow_policy='drop_oldest')
     # writer thread 가 큐를 소비하지 못하도록 stdin 을 블록시킬 수는 없으므로,
     # writer 스레드 시작을 지연시키는 방식 대신 start() 직후 즉시 대량 enqueue
     rec.start(str(tmp_path / "out.mp4"))

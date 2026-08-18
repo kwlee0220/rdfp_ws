@@ -20,6 +20,10 @@ import time
 
 import pytest
 
+# 대상 모듈(`topic_message_replayer`)이 최상단에서 `builtin_interfaces` 를 import 하므로
+# DB/publisher 를 전부 stub 해도 ROS sourcing 없이는 돌지 않는다.
+pytest.importorskip('builtin_interfaces', reason='requires ROS 2 runtime')
+
 
 # --------------------------------------------------------------------------
 # DB / message fakes

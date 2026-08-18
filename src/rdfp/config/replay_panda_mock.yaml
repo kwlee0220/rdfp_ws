@@ -1,0 +1,50 @@
+# replay_panda_mock.launch.py 설정.
+#
+# 여기의 값은 launch argument 의 **기본값**이 된다. CLI 에서 `arg:=value` 로 개별
+# 덮어쓰기가 가능하고, `config_file:=<path>` 로 다른 YAML 을 지정할 수 있다.
+# YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
+#
+# panda_robot.yaml 과 **별도 파일**인 이유
+# --------------------------------------------
+# replay 스택은 camera / ee_pose_publisher / session_control / image_recorder /
+# target_joint_cmds_publisher 를 기동하지 않는다 (해당 토픽을 재생 도구가 공급한다).
+# 공유 YAML 을 쓰던 시절에는 `camera.id` 나 `image_recorder.output_dir` 을 고쳐도
+# 아무 일이 일어나지 않으면서 경고도 없었다. 이 파일에는 **실제로 동작하는 키만**
+# 둔다 — 없는 블록은 replay 가 그 노드를 안 띄운다는 뜻이다.
+
+ros2_control:
+  hardware_type: mock_components
+
+log_level: info
+
+# ee_pose_publisher 는 띄우지 않지만(재생 도구가 /ee_pose 를 공급), ee_twist
+# 경로의 ee_twist_publisher 가 두 프레임 이름을 파라미터로 받는다.
+ee_pose:
+  base_frame: panda_link0
+  ee_frame: panda_hand
+
+# 재생된 이미지 토픽을 구독해 오버레이를 입혀 보여준다. camera_node 는 안 띄운다.
+image_viewer:
+  enabled: true
+  image_topic: /camera/image_raw
+
+# --- arm 재생 경로 ---
+# 두 경로가 동시에 /panda_arm_controller/joint_trajectory 를 쓰면 명령이 충돌하므로
+# arm_path 로 **배타 선택**한다. 경로별 특성 비교: docs/replay/replay_mock_stack_guide.md
+replay:
+  # ee_twist        : /ee_pose -> 유한 차분 -> servo   (개루프, 드리프트 있음)
+  # target_joint_cmds: /target_joint_cmds -> executor  (위치 폐루프, 여유자유도 재현)
+  # none            : arm 구동 노드 없음 (외부 클라이언트로 구동)
+  arm_path: ee_twist
+
+  # arm_path=ee_twist 일 때만 쓰인다.
+  ee_twist:
+    source_topic: /ee_pose
+    output_topic: /servo_node/delta_twist_cmds
+    linear_gain: 2.5     # 1/scale.linear     (servo 가 command_in_type: unitless)
+    angular_gain: 1.25   # 1/scale.rotational
+    max_dt: 1.0          # 이보다 큰 샘플 공백 뒤에는 속도 스파이크를 피해 한 주기 건너뛴다
+
+  # servo 는 start_servo 호출 전까지 입력을 조용히 버린다. replay 스택에는 호출
+  # 주체가 없으므로 servo_auto_start_node 가 대신 부른다 (arm_path=ee_twist).
+  servo_start_timeout: 30.0

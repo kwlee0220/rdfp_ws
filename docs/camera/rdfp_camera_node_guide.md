@@ -302,5 +302,5 @@ ros2 topic hz /rdfp/image_raw
 
 ## 관련 문서
 
-- [RdfpImageRecorder Guide](../../docs/recorder/rdfp_image_recorder_guide.md) — 이미지 녹화 노드
+- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 이미지 녹화 노드
 - [SessionControlNode Guide](../../docs/session/session_control_guide.md) — 세션 제어 노드

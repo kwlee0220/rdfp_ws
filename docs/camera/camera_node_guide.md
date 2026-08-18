@@ -441,6 +441,6 @@ Launch 의 `respawn=True` 또는 systemd `Restart=on-failure` 유닛으로 복�
 
 - [ImageViewerNode Guide](./image_viewer_node_guide.md) — 발행된 이미지 토픽 미리보기
 - [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드
-- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_guide.md) — 세션 기반 이미지 녹화 노드
+- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 세션 기반 이미지 녹화 노드
 - [OpenCvCamera Guide](./opencv_camera_guide.md) — 내부 카메라 래퍼
 - [launch/camera_launch_helper.py](../../src/rdfp/launch/camera_launch_helper.py) — 재사용 가능한 launch 헬퍼

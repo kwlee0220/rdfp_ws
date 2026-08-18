@@ -116,24 +116,28 @@ CFR + passthrough 전략에서 각 프레임의 출력 presentation time 은
 
 ```
 rdfp/recorder/
-├── __init__.py              # 공개 API export
-├── exceptions.py            # 예외 계층
-├── state.py                 # RecorderState / RecorderStateMachine
-├── encoder_probe.py         # GPU 인코더 probe 로직
-├── ffmpeg_command.py        # ffmpeg 커맨드 빌더
-├── ffmpeg_mp4_recorder.py   # FFMpegMp4Recorder 본체
-├── README.md                # ← 본 문서
-├── tests/                   # 단위/통합 테스트
-│   ├── __init__.py
-│   ├── test_ffmpeg_command.py
-│   ├── test_encoder_probe.py
-│   ├── test_state.py
-│   ├── test_ffmpeg_mp4_recorder.py
-│   └── test_integration.py
-└── docs/
-    ├── prompt.md            # 원 요구사항
-    └── ffmpeg_mp4_recorder_plan.md  # 개발 계획서
+├── __init__.py                    # 공개 API export
+├── exceptions.py                  # 예외 계층
+├── state.py                       # RecorderState / RecorderStateMachine
+├── encoder_probe.py               # GPU 인코더 probe 로직
+├── ffmpeg_command.py              # ffmpeg 커맨드 빌더
+├── ffmpeg_mp4_recorder.py         # FFMpegMp4Recorder 본체
+├── image_recorder_node.py         # ROS adapter: 서비스 기반 start/stop
+├── rdfp_image_recorder_node.py    # ROS adapter: /session 기반 자동 녹화
+├── README.md                      # ← 본 문서
+└── tests/                         # 단위/통합 테스트
+    ├── __init__.py
+    ├── test_ffmpeg_command.py
+    ├── test_encoder_probe.py
+    ├── test_state.py
+    ├── test_ffmpeg_mp4_recorder.py
+    └── test_integration.py
 ```
+
+> 본 문서는 ROS2 비의존인 `FFMpegMp4Recorder` 코어만 다룹니다. 두 ROS
+> 어댑터 노드(`image_recorder_node`, `rdfp_image_recorder`)의 동작·파라미터·
+> 서비스 호출은 패키지 README ([`../../README.md`](../../README.md)) 및
+> 워크스페이스 가이드([docs/recorder/](../../../../docs/recorder/))를 참고하세요.
 
 ## 테스트 실행
 

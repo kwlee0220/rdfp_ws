@@ -1,0 +1,46 @@
+# Gazebo (ign_ros2_control) 백엔드용 ros2_control 컨트롤러 설정.
+#
+# moveit_resources_panda_moveit_config 의 ros2_controllers.yaml 과 동일하되,
+# panda_arm_controller 에 allow_nonzero_velocity_at_trajectory_end: false 를
+# 추가한다.
+#
+# 이유: MoveIt Servo 는 매 주기 단일-포인트 JointTrajectory 를 발행하는데, 그
+# 끝점 속도가 0 이 아니다. JTC 의 allow_nonzero_velocity_at_trajectory_end 기본값
+# (true)에서는 trajectory 가 끝나도 그 속도를 유지하며 계속 진행(드리프트)한다.
+# 그 결과 키를 한 번만 눌러도 로봇이 멈추지 않는다. false 로 두면 trajectory 가
+# 끝나는 즉시 정지하므로, 입력이 끊기면 로봇도 멈춘다(저깅 중에는 다음 trajectory
+# 가 계속 들어와 갱신되므로 끊김 없이 부드럽게 움직인다).
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    panda_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    panda_hand_controller:
+      type: position_controllers/GripperActionController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+
+panda_arm_controller:
+  ros__parameters:
+    allow_nonzero_velocity_at_trajectory_end: false
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    joints:
+      - panda_joint1
+      - panda_joint2
+      - panda_joint3
+      - panda_joint4
+      - panda_joint5
+      - panda_joint6
+      - panda_joint7
+
+panda_hand_controller:
+  ros__parameters:
+    joint: panda_finger_joint1

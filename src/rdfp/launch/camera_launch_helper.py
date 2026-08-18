@@ -1,4 +1,10 @@
-"""카메라 노드 및 파라미터 설정."""
+"""카메라 노드 및 파라미터 설정.
+
+argument 기본값은 :mod:`image_pipeline_launch_helper` 를 통해
+``config/image_pipeline.yaml`` 에서 온다. 예전에는 이 파일이 기본값을
+하드코딩했는데, 같은 카메라를 쓰는 launch 들끼리 값이 갈라지는 문제가 있었다
+(앱 계열 ``640x480`` / ``id: 4`` vs panda 계열 YAML ``1280x720`` / mp4 경로).
+"""
 
 from __future__ import annotations
 
@@ -7,56 +13,21 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from image_pipeline_launch_helper import (
+    declare_camera_arguments as _declare_camera_arguments_from,
+    load_config,
+)
+
 
 def declare_camera_arguments() -> list[DeclareLaunchArgument]:
-    """카메라 관련 launch argument들을 선언한다."""
-    return [
-        DeclareLaunchArgument(
-            "enable_camera_node",
-            default_value="true",
-            description="Whether to start rdfp camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_id",
-            default_value="4",
-            description="Camera device index or URI/path for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_image_topic",
-            default_value="/camera/image_raw",
-            description="Remap target for base image topic ('image')",
-        ),
-        DeclareLaunchArgument(
-            "camera_info_topic",
-            default_value="/camera/camera_info",
-            description="Remap target for base camera_info topic ('camera_info')",
-        ),
-        DeclareLaunchArgument(
-            "camera_status_topic",
-            default_value="/camera/image_raw/status",
-            description="Remap target for camera status topic ('image/status')",
-        ),
-        DeclareLaunchArgument(
-            "camera_fps",
-            default_value="30",
-            description="Target FPS for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_resolution",
-            default_value="640x480",
-            description="Target resolution for camera_node (e.g. 640x480)",
-        ),
-        DeclareLaunchArgument(
-            "camera_frame_id",
-            default_value="camera_link",
-            description="frame_id for published Image/CameraInfo",
-        ),
-        DeclareLaunchArgument(
-            "camera_compress_image",
-            default_value="false",
-            description="Publish JPEG compressed image when true",
-        ),
-    ]
+    """카메라 관련 launch argument들을 선언한다 (기본 YAML 의 값을 기본값으로 사용).
+
+    설정 파일을 바꿔 끼워야 하면 이 함수 대신
+    ``image_pipeline_launch_helper.declare_camera_arguments(load_config(path))`` 를
+    쓴다 — 그러려면 ``config_file`` 이 resolve 된 뒤여야 하므로 launch 쪽에서
+    ``OpaqueFunction`` 이 필요하다.
+    """
+    return _declare_camera_arguments_from(load_config())
 
 
 def create_camera_node() -> Node:

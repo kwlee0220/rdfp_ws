@@ -60,15 +60,25 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription                                     # noqa: E402
-from launch.actions import DeclareLaunchArgument                         # noqa: E402
+from launch.actions import DeclareLaunchArgument, OpaqueFunction         # noqa: E402
 from launch.conditions import IfCondition                                # noqa: E402
+from launch.launch_context import LaunchContext                          # noqa: E402
 from launch.substitutions import LaunchConfiguration, TextSubstitution   # noqa: E402
 from launch_ros.actions import Node                                      # noqa: E402
 
-from camera_launch_helper import declare_camera_arguments                # noqa: E402
+from image_pipeline_launch_helper import (                               # noqa: E402
+    declare_config_file_argument,
+    declare_image_pipeline_arguments,
+    load_config as load_image_pipeline_config,
+)
 
 
-def generate_launch_description() -> LaunchDescription:
+def _build_actions(context: LaunchContext) -> list:
+    """`config_file` 이 resolve 된 뒤 YAML 을 로드해 argument/노드를 구성한다."""
+    image_config = load_image_pipeline_config(
+        LaunchConfiguration("config_file").perform(context)
+    )
+
     log_level = DeclareLaunchArgument(
         "log_level",
         default_value="info",
@@ -90,11 +100,16 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # 카메라 / 뷰어 / 레코더 argument 는 config/image_pipeline.yaml 에서 온다.
+    # `image_recorder_auto_start` 만 제외한다 — RdfpImageRecorderNode 는 /session
+    # 상태로 녹화를 시작하므로 그 파라미터를 받지 않는다 (선언해도 소비자가 없다).
+    image_pipeline_arguments = declare_image_pipeline_arguments(
+        image_config, include_auto_start=False
+    )
+
     # 카메라 노드 (RdfpCameraNode): 세션 토픽(/session)의 IN_EPISODE 구간에만
-    # 이미지를 발행. launch/camera_launch_helper.py 의 argument 선언은 그대로 재사용한다
+    # 이미지를 발행. `enable_camera_node:=false` 로 비활성화 가능
     # (compress_image 는 RdfpCameraNode 가 지원하지 않아 사용하지 않음).
-    # `enable_camera_node:=false` 로 비활성화 가능.
-    camera_arguments = declare_camera_arguments()
     camera_node = Node(
         package="rdfp",
         executable="rdfp_camera_node",
@@ -119,12 +134,6 @@ def generate_launch_description() -> LaunchDescription:
     # 오버레이한다. 카메라가 발행하는 토픽을 그대로 구독하도록 `image` ->
     # camera_image_topic 으로 remap. session 토픽은 기본 /session 이므로 remap
     # 불필요. 헤드리스 환경에서는 `enable_image_viewer_node:=false` 로 끄고 사용.
-    enable_image_viewer_node = DeclareLaunchArgument(
-        "enable_image_viewer_node",
-        default_value="true",
-        description="Whether to start rdfp_image_viewer_node",
-    )
-
     image_viewer_node = Node(
         package="rdfp",
         executable="rdfp_image_viewer_node",
@@ -140,21 +149,6 @@ def generate_launch_description() -> LaunchDescription:
     # 이미지 녹화 노드 (RdfpImageRecorderNode): 세션 토픽(/session) 기반 자동
     # 제어. fps / resolution 은 카메라 설정을 그대로 사용해 파라미터 불일치로
     # 인한 프레임 drop 을 방지. session 토픽은 기본 /session 이라 remap 불필요.
-    enable_image_recorder_node = DeclareLaunchArgument(
-        "enable_image_recorder_node",
-        default_value="true",
-        description="Whether to start rdfp_image_recorder_node",
-    )
-    image_recorder_fps = DeclareLaunchArgument(
-        "image_recorder_fps",
-        default_value="10",
-        description="Target FPS for rdfp_image_recorder_node",
-    )
-    image_recorder_output_dir = DeclareLaunchArgument(
-        "image_recorder_output_dir",
-        default_value="/tmp/recordings",
-        description="Output directory for rdfp_image_recorder_node MP4 files",
-    )
 
     image_recorder_node = Node(
         package="rdfp",
@@ -173,34 +167,44 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # servo_node 가 발행하는 JointTrajectory 의 header.stamp 를 현재 시각으로
-    # 갱신하여 /relay/timed_joint_trajectory 로 재발행한다. 입력 토픽은 remap 으로
-    # /servo_node/joint_trajectory 에 연결한다.
-    target_joint_states_publisher = Node(
+    # servo_node 가 발행하는 JointTrajectory 의 마지막 point 를 뽑아 현재 시각을
+    # header.stamp 로 채운 `sensor_msgs/JointState` 로 변환해 `target_joint_cmds`
+    # 토픽에 재발행한다 — 학습 데이터의 action(명령값) 채널이다. 입력 토픽은 remap
+    # 으로 /servo_node/joint_trajectory 에 연결한다.
+    target_joint_cmds_publisher = Node(
         package="rdfp",
-        executable="target_joint_states_publisher",
-        name="target_joint_states_publisher",
+        executable="target_joint_cmds_publisher",
+        name="target_joint_cmds_publisher",
         output="screen",
         emulate_tty=True,
+        parameters=[{
+            "source": "joint_trajectory",
+        }],
         remappings=[
             ("joint_trajectory", "/servo_node/joint_trajectory"),
         ],
     )
 
-    return LaunchDescription(
-        [
-            # --- launch arguments ---
-            log_level,
-            *camera_arguments,
-            enable_image_viewer_node,
-            enable_image_recorder_node,
-            image_recorder_output_dir,
-            image_recorder_fps,
-            # --- 노드 ---
-            session_control_node,
-            camera_node,
-            image_viewer_node,
-            image_recorder_node,
-            target_joint_states_publisher,
-        ]
-    )
+    return [
+        # --- launch arguments (config_file resolve 후 결정) ---
+        log_level,
+        *image_pipeline_arguments,
+        # --- 노드 ---
+        session_control_node,
+        camera_node,
+        image_viewer_node,
+        image_recorder_node,
+        target_joint_cmds_publisher,
+    ]
+
+
+def generate_launch_description() -> LaunchDescription:
+    # `config_file` 만 declaration 시점에 노출하고, 그 값에 의존하는 YAML 로딩과
+    # 나머지 argument / 노드 생성은 `OpaqueFunction` 안에서 수행한다.
+    return LaunchDescription([
+        declare_config_file_argument(
+            "config_file",
+            extra="본 launch 는 이미지 파이프라인 설정만 사용한다.",
+        ),
+        OpaqueFunction(function=_build_actions),
+    ])

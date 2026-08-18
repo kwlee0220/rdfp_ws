@@ -4,7 +4,8 @@
 ffmpeg 로 생성하는지, sidecar 정보 (image_streams / image_frames) 가
 DBMS INSERT 호출로 전달되는지 확인한다. 실 PostgreSQL 의존을 피하기 위해
 ``executemany`` / ``execute`` 호출만 기록하는 fake conn 을 사용한다.
-시스템 ffmpeg 가 없으면 자동으로 skip.
+시스템 ffmpeg 가 없으면 자동으로 skip 하며, ROS sourcing 이 안 된 환경에서도
+(`sensor_msgs` 전이 의존) 전체를 skip 한다.
 """
 
 from __future__ import annotations
@@ -14,13 +15,15 @@ import subprocess
 
 import pytest
 
-from rdfp.rosbag.mcap_reader import iter_split_messages
-from rdfp.rosbag.tests.fixtures.make_synth_bag import (
+pytest.importorskip('sensor_msgs', reason='requires ROS 2 runtime (transitive dependency)')
+
+from rdfp.rosbag.mcap_reader import iter_split_messages               # noqa: E402
+from rdfp.rosbag.tests.fixtures.make_synth_bag import (               # noqa: E402
     ImageEventSpec,
     SessionEventSpec,
     write_synth_bag,
 )
-from rdfp.dataset.ingest.media.frame_router import FrameRouter
+from rdfp.dataset.ingest.media.frame_router import FrameRouter        # noqa: E402
 
 
 pytestmark = pytest.mark.skipif(

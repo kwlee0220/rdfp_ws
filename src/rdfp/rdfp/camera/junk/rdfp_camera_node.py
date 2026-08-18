@@ -33,11 +33,11 @@ from std_msgs.msg import String
 
 from rdfp_msgs.msg import SessionCommand  # type: ignore[import-not-found]
 
-from ..ros2_utils import get_optional_parameter, get_parameter, log_periodic, \
+from ...ros2_utils import get_optional_parameter, get_parameter, log_periodic, \
                         parse_stripped_str, SYSTEM_QOS
-from ..types import Fps, Resolution
-from .camera_utils import parse_camera_id, mask_camera_id_for_log
-from .opencv_camera import OpenCvCamera
+from ...types import Fps, Resolution
+from ..camera_utils import parse_camera_id, mask_camera_id_for_log
+from ..opencv_camera import OpenCvCamera
 
 
 _READ_FAIL_LOG_INTERVAL_SEC: float = 5.0
@@ -363,7 +363,7 @@ def main(args: Optional[list[str]] = None) -> None:
     """
     rclpy.init(args=args)
 
-    from ..logging_bridge import configure_logging_bridge
+    from ...logging_bridge import configure_logging_bridge
     configure_logging_bridge(package_logger_name='rdfp')
 
     node: Optional[RdfpCameraNode] = None

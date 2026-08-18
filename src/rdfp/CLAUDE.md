@@ -16,20 +16,20 @@ When in doubt, the in-tree READMEs are the source of truth — CLAUDE.md is a
 hint sheet, not a spec.
 
 - [README.md](README.md) — full package walkthrough: `MoveGroupClient` API
-  surface, `camera_node`/`image_recorder_node` parameter tables, the
-  `session_control_node` state machine + topic QoS, the dataset CLI reference,
-  and the replay GUI overview. Update this file (not just CLAUDE.md) when
-  public behavior changes.
+  surface, `camera_node`/`image_recorder_node`/`rdfp_image_recorder` parameter
+  tables, the `session_control_node` state machine + topic QoS, the dataset
+  CLI reference, and the replay GUI overview. Update this file (not just
+  CLAUDE.md) when public behavior changes.
 - [launch/README.md](launch/README.md) — per-launch / per-helper inventory and
   the Panda startup ordering rationale.
 - [rdfp/recorder/README.md](rdfp/recorder/README.md) — `FFMpegMp4Recorder`
-  internals and the `image_recorder_node` ROS adapter.
+  internals; the two ROS adapter nodes (`image_recorder_node`,
+  `rdfp_image_recorder`) are documented in the package-level README.
 
-> Note: README.md links to `rdfp/recorder/docs/image_recorder_node_srs.md`,
-> `rdfp/session/session_control_srs.md`, and `session_control_plan.md` as
-> "상세 명세 / 개발 절차" but **none of these files currently exist** in the
-> tree (`recorder/docs/` only has `prompt.md`; `session/` has no `.md` at
-> all). Treat those links as aspirational placeholders until restored.
+Detailed user/dev guides live under the workspace `docs/` tree (not in the
+package), e.g. [docs/recorder/](../../docs/recorder/),
+[docs/session/](../../docs/session/),
+[docs/rosbag2/](../../docs/rosbag2/).
 
 ## Adding a console script
 
@@ -53,7 +53,7 @@ The `data_files` list installs three globs into `share/rdfp/`:
 | Source glob | Installed to | Purpose |
 |---|---|---|
 | `launch/*.py` | `share/rdfp/launch/` | launch entry points + helper modules |
-| `config/*` | `share/rdfp/config/` | YAML / RViz configs (`rdfp_panda_mock.yaml`, `panda.rviz`) |
+| `config/*` | `share/rdfp/config/` | YAML / RViz configs (`image_pipeline.yaml`, `panda_robot.yaml`, `replay_panda_mock.yaml`, `teleop_mirror.yaml`, `panda.rviz`) |
 | `rdfp/dataset/sql/*.sql` | `share/rdfp/dataset/sql/` | DB schema bootstrap scripts used by `init-db` |
 
 If you add a new top-level config directory or a new SQL file location, extend
@@ -75,6 +75,40 @@ pip install --user 'mcap' 'mcap-ros2-support' 'pydantic>=2' 'psycopg[binary]>=3'
 `rosdep install` will not catch these. New code under `rdfp/dataset/` or
 `rdfp/rosbag/` that pulls in additional pip-only deps should also be documented
 in the README.md "Post-processor 의존성" section, not just installed locally.
+
+## Two image recorder nodes — don't confuse them
+
+There are **two** `sensor_msgs/Image` → MP4 recorder nodes in the package, both
+backed by `FFMpegMp4Recorder` but with different control surfaces:
+
+- `image_recorder_node` (`rdfp.recorder.image_recorder_node`) — external
+  start/stop services (`/image_recorder/start_session`,
+  `/image_recorder/stop_session`); single recording per service call. Used by
+  `rdfp_panda_mock.launch.py`.
+- `rdfp_image_recorder` (`rdfp.recorder.rdfp_image_recorder_node`) —
+  subscribes `/session` (`SessionCommand`) and **auto-records IN_EPISODE
+  windows**, timestamp-based segmentation via a `pending_image_queue`. Also
+  emits a per-frame `.jsonl` sidecar and per-prefix `metadata.json`. Used by
+  `rdfp_advanced.launch.py`.
+
+Both names show up across the codebase — match the launch file to the right
+node when reviewing changes.
+
+## rosbag2 sessions without metadata.yaml are silently skipped
+
+`rdfp.rosbag.catalog.discover_splits` treats any session directory without a
+`metadata.yaml` as "still recording or abnormally terminated" and excludes it
+from import. Consequence: if `rosbag2` was killed with SIGKILL (or crashed),
+`ros2 run rdfp import` finishes successfully with an **empty summary** and no
+error. To recover, run:
+
+```bash
+ros2 bag reindex -s mcap /data/rdfp/rosbag/<YYYY-MM-DD>/<session_dir>
+```
+
+This rebuilds `metadata.yaml` from the `.mcap` file order; the bag is then
+importable. If `import` ever logs `found 0 finalized split(s)` despite the
+rosbag_dir containing `.mcap` files, this is almost always the cause.
 
 ## Replay subsystem coupling
 
@@ -99,15 +133,36 @@ The "Topics to replay" listbox in the GUI starts with **all entries
 unchecked** by design; do not flip the default back to `BooleanVar(value=True)`
 without rationale.
 
+`replay_panda_mock.launch.py` spawns exactly one arm adapter, selected by the
+`replay_arm_path` argument — `ee_twist` (default), `target_joint_cmds`, or
+`none`. Both non-`none` paths end at `/panda_arm_controller/joint_trajectory`,
+so they must never run together; the launch enforces this in `_build_actions`
+and raises `RuntimeError` on an unknown value. The `ee_twist` path additionally
+needs `servo_auto_start_node` because `moveit_servo` ignores input until
+`start_servo` is called. Full structure / usage / pitfalls:
+[docs/replay/replay_mock_stack_guide.md](../../docs/replay/replay_mock_stack_guide.md).
+
 ## Tests live next to source
 
-Subpackage tests are colocated under `rdfp/<sub>/tests/` (not under the
-top-level `test/` dir, which is reserved for ament linters only). When adding
+Subpackage tests are colocated under `rdfp/<sub>/tests/` — six suites
+(`camera`, `dataset`, `recorder`, `rosbag`, `teleop`, `twin`). The `test/` dir
+that `package.xml` and `setup.py` still reference **does not exist**, so the
+ament linters never run; see the workspace CLAUDE.md "Tests". When adding
 tests:
 
 - Pure-Python tests (no `rclpy` / `sensor_msgs`) should stay importable without
   sourcing ROS — many existing dataset tests guard ROS imports behind
-  `pytest.importorskip` so `PYTHONPATH=. pytest …` works in a clean shell.
+  `pytest.importorskip` so `PYTHONPATH=.:$PYTHONPATH pytest …` works in a clean
+  shell. **Always append `:$PYTHONPATH`**; a bare `PYTHONPATH=.` replaces the
+  ROS entry and breaks ROS imports even in a sourced shell (workspace CLAUDE.md
+  "Tests").
 - ROS-dependent tests should `pytest.importorskip('rclpy')` (or the specific
   message package) at module top so they self-skip outside a sourced env rather
-  than erroring during collection.
+  than erroring during collection — an unguarded module aborts the **whole run**,
+  not just itself. Put the guard **above** the `rdfp.*` imports and mark those
+  `# noqa: E402`; use `pytest.mark.skipif` on a single test when the rest of the
+  module is ROS-free (`test_dataset_import_cmd.py`).
+- Check the dependency *transitively*, not by what the test file imports:
+  `ingest/test_filters.py` exercises pure-Python filter logic but `pipeline`
+  pulls in `sensor_msgs`, and `test_topic_message_replayer.py` stubs every ROS
+  object while the module under test imports `builtin_interfaces` at top level.

@@ -122,8 +122,11 @@ def create_servo_node(moveit_config, servo_params: dict[str, Any]) -> Node:
     )
 
 
-def create_rviz_node(moveit_config) -> Node:
-    """RViz2 노드를 생성한다."""
+def create_rviz_node(moveit_config, condition=None) -> Node:
+    """RViz2 노드를 생성한다.
+
+    condition 을 주면 해당 조건이 참일 때만 기동한다 (예: enable_rviz 토글).
+    """
     rviz_config_file = os.path.join(
         get_package_share_directory("rdfp"),
         "config",
@@ -134,6 +137,7 @@ def create_rviz_node(moveit_config) -> Node:
         executable="rviz2",
         name="rviz2",
         output="log",
+        condition=condition,
         arguments=["-d", rviz_config_file],
         parameters=[
             moveit_config.robot_description,

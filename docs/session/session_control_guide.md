@@ -4,7 +4,6 @@
 프로그래머** 관점에서 작성되었습니다. 내부 구현 세부사항이 아니라, 이 노드를
 실행하고 서비스/토픽으로 통신하는 외부 클라이언트가 알아야 할 사항을 다룹니다.
 
-상세한 요구사항 명세는 [session_control_srs.md](./session_control_srs.md),
 소스 코드는 [session_control_node.py](../../src/rdfp/rdfp/session/session_control_node.py) 를 참고하세요.
 
 ---
@@ -50,16 +49,24 @@
 
 ### 2.2 상태 다이어그램
 
-```
-        start_session            start_episode
-  ┌──────────────────────▶ ┌──────────────────▶
-IDLE                    IN_SESSION           IN_EPISODE
-  ◀──────────────────────┘ ◀──────────────────┘
-        stop_session              stop_episode
-                                       │
-                                       │ stop_session
-                                       ▼
-                                    (IDLE)
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    [*] --> IDLE
+
+    IDLE --> IN_SESSION : start_session
+    IN_SESSION --> IDLE : stop_session
+
+    IN_SESSION --> IN_EPISODE : start_episode
+    IN_EPISODE --> IN_SESSION : stop_episode
+
+    IN_EPISODE --> IN_SESSION : stop_session (1단계)
+    IN_SESSION --> IDLE : stop_session (2단계)
+
+    note right of IN_EPISODE
+        set_task_label 은 거부된다
+    end note
 ```
 
 - `IN_EPISODE` 에서 `stop_session` 을 받으면 **한 번의 서비스 호출로**
@@ -548,6 +555,5 @@ if __name__ == '__main__':
 
 ## 12. 관련 문서
 
-- [session_control_srs.md](./session_control_srs.md) — 소프트웨어 요구사항 명세서
 - [session_control_node.py](../../src/rdfp/rdfp/session/session_control_node.py) — 노드 구현 소스
 - [../../src/rdfp/README.md](../../src/rdfp/README.md) — `rdfp` 패키지 전체 README (세션 제어 노드 섹션 포함)

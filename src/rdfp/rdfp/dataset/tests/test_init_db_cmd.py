@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
+import rdfp.dataset.cli_common as cli_common
 import rdfp.dataset.init_db_cmd as init_db_cmd_mod
 
 
@@ -83,15 +82,15 @@ def test_uses_config_db_section(monkeypatch, tmp_path) -> None:
     assert captured == [('postgresql://example', 'custom', False)]
 
 
-def test_auto_uses_cwd_dataset_config(monkeypatch, tmp_path) -> None:
-    """--config 미지정 + cwd 의 dataset_config.yaml 존재 → 자동 로드."""
+def test_auto_uses_default_config(monkeypatch, tmp_path) -> None:
+    """--config 미지정 + 기본 경로의 dataset_config.yaml 존재 → 자동 로드."""
     cfg_path = tmp_path / 'dataset_config.yaml'
     cfg_path.write_text(
         'rosbag_dir: /tmp/x\n'
         'output_mp4_dir: /tmp/y\n'
         'db: {dsn_env: AUTO_DSN, schema: auto_schema}\n'
     )
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_common, 'DEFAULT_CONFIG_FILE_PATH', cfg_path)
     monkeypatch.setenv('AUTO_DSN', 'postgresql://auto')
     captured: list = []
     monkeypatch.setattr(

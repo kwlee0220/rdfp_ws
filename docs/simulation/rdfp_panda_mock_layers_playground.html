@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rdfp_panda_mock.launch.py — Layer Explorer</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff;
+    --app:#1f6feb; --moveit:#8957e5; --periph:#1f9d6b; --viz:#9e6a03;
+    --backend:#d2691e; --hw:#da3633;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+  .wrap{display:grid;grid-template-columns:300px 1fr;grid-template-rows:1fr auto;height:100vh}
+  /* sidebar */
+  .side{grid-row:1/3;background:var(--panel);border-right:1px solid var(--border);
+    padding:16px;overflow-y:auto}
+  .side h1{font-size:15px;margin:0 0 2px}
+  .side .sub{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:16px}
+  .group{margin-bottom:18px}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:0 0 8px;font-weight:600}
+  .presets{display:flex;flex-wrap:wrap;gap:6px}
+  .presets button{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:6px 9px;font-size:11px;cursor:pointer}
+  .presets button:hover{border-color:var(--accent)}
+  .presets button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  label.row{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0;cursor:pointer}
+  label.row input{accent-color:var(--accent)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .gz-toggle{display:flex;align-items:center;gap:10px;background:var(--panel2);
+    border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer}
+  .gz-toggle.on{border-color:var(--hw);background:#2a1316}
+  .gz-toggle .t{font-size:12px;font-weight:600}
+  .gz-toggle .d{font-size:10px;color:var(--muted)}
+  .switch{width:34px;height:19px;border-radius:10px;background:#30363d;position:relative;flex:0 0 auto;transition:.15s}
+  .switch::after{content:"";position:absolute;width:15px;height:15px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.15s}
+  .gz-toggle.on .switch{background:var(--hw)}
+  .gz-toggle.on .switch::after{left:17px}
+  .comments .c{background:var(--panel2);border:1px solid var(--border);border-radius:6px;
+    padding:8px;margin-bottom:6px;font-size:11px}
+  .comments .c .ct{color:var(--accent);font-family:var(--mono);font-size:10px;margin-bottom:3px}
+  .comments .c .cx{color:var(--text)}
+  .comments .c .del{float:right;color:var(--muted);cursor:pointer;font-size:13px;line-height:1}
+  .empty{font-size:11px;color:var(--muted);font-style:italic}
+  /* canvas */
+  .main{position:relative;overflow:hidden;background:
+    radial-gradient(circle at 50% 0,#11161f,#0d1117 70%)}
+  .toolbar{position:absolute;top:10px;right:12px;z-index:5;display:flex;gap:6px}
+  .toolbar button{width:30px;height:30px;border-radius:6px;background:var(--panel2);
+    color:var(--text);border:1px solid var(--border);cursor:pointer;font-size:15px}
+  .toolbar button:hover{border-color:var(--accent)}
+  svg{width:100%;height:100%}
+  .node{cursor:pointer}
+  .node rect{transition:opacity .2s,stroke .15s}
+  .node .nlabel{font-size:13px;font-weight:600;fill:#fff;pointer-events:none}
+  .node .nsub{font-size:9.5px;fill:#cdd9e5;opacity:.85;font-family:var(--mono);pointer-events:none}
+  .node.dim{opacity:.16}
+  .node.sel rect{stroke:#fff;stroke-width:2.5}
+  .node.has-c rect{stroke:#f0c000;stroke-width:2.5}
+  .band-label{font-size:11px;fill:var(--muted);font-weight:600;letter-spacing:.04em}
+  .band-bg{fill:#ffffff05;stroke:#ffffff10;rx:10}
+  .conn{fill:none;stroke:var(--accent);stroke-width:1.6;opacity:.55}
+  .conn.dim{opacity:.06}
+  .legend{position:absolute;bottom:10px;left:12px;background:#0d1117cc;border:1px solid var(--border);
+    border-radius:8px;padding:9px 11px;font-size:10px;backdrop-filter:blur(4px)}
+  .legend .lr{display:flex;align-items:center;gap:7px;margin:2px 0;color:var(--muted)}
+  /* detail panel */
+  .detail{position:absolute;top:10px;left:12px;width:288px;background:var(--panel);
+    border:1px solid var(--border);border-radius:10px;padding:14px;z-index:6;display:none;
+    box-shadow:0 12px 40px #000a}
+  .detail.show{display:block}
+  .detail .dx{position:absolute;top:8px;right:10px;color:var(--muted);cursor:pointer;font-size:16px}
+  .detail h3{margin:0 0 2px;font-size:14px}
+  .detail .pkg{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-bottom:8px}
+  .detail .tag{display:inline-block;font-size:9.5px;padding:2px 7px;border-radius:10px;margin:0 4px 8px 0}
+  .detail .role{font-size:12px;line-height:1.5;color:var(--text);margin-bottom:9px}
+  .detail .conns{font-size:11px;color:var(--muted);margin-bottom:10px}
+  .detail .conns b{color:var(--text)}
+  .detail textarea{width:100%;height:54px;background:var(--panel2);border:1px solid var(--border);
+    border-radius:6px;color:var(--text);font-size:11px;padding:6px;resize:vertical;font-family:inherit}
+  .detail .save{margin-top:6px;width:100%;background:var(--accent);color:#fff;border:none;
+    border-radius:6px;padding:7px;font-size:12px;cursor:pointer;font-weight:600}
+  /* prompt */
+  .promptbar{grid-column:2;background:var(--panel);border-top:1px solid var(--border);padding:12px 14px;
+    display:flex;gap:12px;align-items:flex-start;max-height:170px}
+  .promptbar .ptxt{flex:1;font-size:11.5px;line-height:1.55;color:#cdd9e5;white-space:pre-wrap;
+    overflow-y:auto;max-height:146px;font-family:var(--mono)}
+  .promptbar .copy{flex:0 0 auto;background:var(--accent);color:#fff;border:none;border-radius:7px;
+    padding:9px 14px;font-size:12px;cursor:pointer;font-weight:600;align-self:center}
+  .promptbar .copy:hover{filter:brightness(1.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- ───────── sidebar ───────── -->
+  <aside class="side">
+    <h1>Layer Explorer</h1>
+    <div class="sub">rdfp_panda_mock.launch.py</div>
+
+    <div class="group">
+      <h2>프리셋 보기</h2>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="group">
+      <h2>핵심 모드</h2>
+      <div class="gz-toggle" id="gzToggle" onclick="toggleGazebo()">
+        <div class="switch"></div>
+        <div>
+          <div class="t">🔁 Gazebo로 교체하면?</div>
+          <div class="d">바뀌는 레이어만 강조, 나머지는 흐리게</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>레이어 표시</h2>
+      <div id="layerToggles"></div>
+    </div>
+
+    <div class="group">
+      <h2>코멘트 <span id="cCount" style="color:var(--muted)"></span></h2>
+      <div class="comments" id="commentList"><div class="empty">노드를 클릭해 코멘트를 추가하면 아래 프롬프트에 반영됩니다.</div></div>
+    </div>
+  </aside>
+
+  <!-- ───────── canvas ───────── -->
+  <main class="main">
+    <div class="toolbar">
+      <button onclick="zoom(0.1)">+</button>
+      <button onclick="zoom(-0.1)">−</button>
+      <button onclick="resetZoom()">⤢</button>
+    </div>
+
+    <div class="detail" id="detail">
+      <span class="dx" onclick="closeDetail()">✕</span>
+      <h3 id="dTitle"></h3>
+      <div class="pkg" id="dPkg"></div>
+      <div id="dTag"></div>
+      <div class="role" id="dRole"></div>
+      <div class="conns" id="dConns"></div>
+      <textarea id="dComment" placeholder="이 노드에 대한 질문/요청/메모…"></textarea>
+      <button class="save" onclick="saveComment()">코멘트 저장</button>
+    </div>
+
+    <svg id="svg" viewBox="0 0 1080 620" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <g id="viewport">
+        <g id="gConns"></g>
+        <g id="gBands"></g>
+        <g id="gNodes"></g>
+      </g>
+    </svg>
+
+    <div class="legend" id="legend"></div>
+  </main>
+
+  <!-- ───────── prompt ───────── -->
+  <div class="promptbar">
+    <div class="ptxt" id="promptOut"></div>
+    <button class="copy" onclick="copyPrompt()" id="copyBtn">프롬프트 복사</button>
+  </div>
+</div>
+
+<script>
+// ───────────────── 데이터 모델 ─────────────────
+const LAYERS = {
+  app:    {name:'A · rdfp 애플리케이션', color:'#1f6feb', backendIndependent:true,  y:30},
+  moveit: {name:'B · MoveIt2 / 모션 추상화', color:'#8957e5', backendIndependent:true, y:140},
+  pv:     {name:'P/V · 주변장치 & 시각화', color:'#1f9d6b', backendIndependent:'mixed', y:250},
+  backend:{name:"B' · 로봇 제어 백엔드 (mock 전용)", color:'#d2691e', backendIndependent:false, y:372},
+  hw:     {name:'C · 하드웨어 인터페이스 (진짜 "mock")', color:'#da3633', backendIndependent:false, y:498},
+};
+
+// changesInGazebo: Gazebo 백엔드로 교체 시 바뀌는 노드
+const NODES = [
+  // Layer A
+  {id:'session', label:'session_control', sub:'rdfp/session_control_node', layer:'app', x:30,  w:175,
+   role:'세션 상태머신(IDLE→IN_SESSION→IN_EPISODE). TRANSIENT_LOCAL /session 토픽으로 상태 발행, start_session/stop_session 서비스 제공.'},
+  {id:'viewer',  label:'image_viewer', sub:'rdfp/rdfp_image_viewer_node', layer:'app', x:225, w:175,
+   role:'카메라 이미지를 구독해 세션 상태를 오버레이로 덧입혀 표시.'},
+  {id:'recorder',label:'image_recorder', sub:'rdfp/image_recorder_node', layer:'app', x:420, w:175,
+   role:'서비스 기반 MP4 녹화 노드. /session 과 독립적으로 start/stop 으로 구동.'},
+  {id:'tjs',     label:'target_joint_states_pub', sub:'rdfp/target_joint_states_publisher', layer:'app', x:615, w:215,
+   role:"servo 가 발행한 JointTrajectory 의 마지막 point 를 TargetJointStates 로 재발행(dataset 기록용)."},
+
+  // Layer B (MoveIt)
+  {id:'movegroup',label:'move_group', sub:'moveit_ros_move_group/move_group', layer:'moveit', x:70, w:230,
+   role:'모션 플래닝(OMPL·PILZ·CHOMP). FollowJointTrajectory 액션으로 컨트롤러에 실행 위임. 백엔드를 전혀 모름.'},
+  {id:'servo',   label:'servo_node', sub:'moveit_servo', layer:'moveit', x:410, w:200,
+   role:'실시간 Cartesian/joint 저깅. /panda_arm_controller/joint_trajectory 로 trajectory 출력.'},
+  {id:'eepose',  label:'ee_pose_publisher', sub:'rdfp/ee_pose_node', layer:'moveit', x:720, w:200,
+   role:'TF(panda_link0→panda_hand)에서 엔드이펙터 포즈 계산·발행. TF 기반이라 백엔드 무관.'},
+
+  // Layer P/V
+  {id:'camera',  label:'camera', sub:'rdfp/camera_node', layer:'pv', x:70, w:200, changesInGazebo:true,
+   role:'OpenCV 웹캠 → /camera/image_raw. mock 에선 실제 USB 카메라(하드웨어 종속). Gazebo 에선 시뮬 카메라 센서로 대체.'},
+  {id:'gripper', label:'gripper_control', sub:'rdfp/gripper_control_node', layer:'pv', x:400, w:210,
+   role:'그리퍼 명령을 panda_hand_controller 액션으로 전달.'},
+  {id:'rviz',    label:'rviz2', sub:'rviz2', layer:'pv', x:730, w:190,
+   role:'MoveIt MotionPlanning UI. 시뮬레이터가 아니라 단순 뷰어 — mock 의 실체가 아님.'},
+
+  // Layer B' (backend, mock-specific)
+  {id:'cm',      label:'controller_manager', sub:'controller_manager/ros2_control_node', layer:'backend', x:25,  w:175, changesInGazebo:true,
+   role:'컨트롤러 호스팅, ros2_controllers.yaml 로드. Gazebo 에선 ign_ros2_control 플러그인이 이 역할을 대신함(별도 노드 없음).'},
+  {id:'jsb',     label:'joint_state_broadcaster', sub:'spawner', layer:'backend', x:212, w:175, changesInGazebo:true,
+   role:'/joint_states 발행(관절 관측값 소스).'},
+  {id:'armctl',  label:'panda_arm_controller', sub:'JointTrajectoryController', layer:'backend', x:399, w:175, changesInGazebo:true,
+   role:'팔 trajectory 실행(position 인터페이스).'},
+  {id:'handctl', label:'panda_hand_controller', sub:'GripperActionController', layer:'backend', x:586, w:175, changesInGazebo:true,
+   role:'그리퍼 제어.'},
+  {id:'rsp',     label:'robot_state_publisher', sub:'robot_state_publisher', layer:'backend', x:773, w:175, changesInGazebo:true,
+   role:'URDF robot_description 로부터 TF 발행. (Gazebo 에서도 쓰이지만 description 분기가 바뀜)'},
+  {id:'stf',     label:'static_tf', sub:'tf2_ros/static_transform_publisher', layer:'backend', x:960, w:95, changesInGazebo:true,
+   role:'world → panda_link0 고정 TF. Gazebo 에선 URDF world 고정 조인트로 대체.'},
+
+  // Layer C (hardware)
+  {id:'mock',    label:'mock_components/GenericSystem', sub:'ros2_control hardware plugin', layer:'hw', x:360, w:360, changesInGazebo:true,
+   role:'명령을 그대로 상태로 되돌려주는 가짜 하드웨어 — 물리 없음. 이게 진짜 "mock"의 정체. Gazebo 백엔드에선 이 한 레이어가 Gazebo Fortress + ign_ros2_control/IgnitionSystem 으로 통째 교체된다.'},
+];
+
+const CONNS = [
+  {from:'servo', to:'armctl', label:'/…/joint_trajectory'},
+  {from:'servo', to:'tjs', label:'subscribe'},
+  {from:'movegroup', to:'armctl', label:'FollowJointTrajectory'},
+  {from:'gripper', to:'handctl'},
+  {from:'armctl', to:'mock', label:'command'},
+  {from:'handctl', to:'mock'},
+  {from:'mock', to:'jsb', label:'state'},
+  {from:'jsb', to:'rsp', label:'/joint_states'},
+  {from:'stf', to:'rsp'},
+  {from:'rsp', to:'eepose', label:'TF'},
+  {from:'rsp', to:'movegroup', label:'TF'},
+  {from:'cm', to:'armctl', label:'hosts'},
+  {from:'cm', to:'handctl'},
+  {from:'cm', to:'jsb'},
+  {from:'camera', to:'viewer', label:'/camera/image_raw'},
+  {from:'camera', to:'recorder'},
+  {from:'session', to:'viewer', label:'/session'},
+];
+
+const NODE_H = 50;
+const PRESETS = {
+  '전체 시스템': {layers:['app','moveit','pv','backend','hw'], gz:false},
+  '백엔드 교체 경계': {layers:['app','moveit','pv','backend','hw'], gz:true},
+  'MoveIt(백엔드 무관)': {layers:['app','moveit','pv'], gz:false},
+  '제어 데이터흐름': {layers:['moveit','backend','hw'], gz:false},
+};
+
+// ───────────────── 상태 ─────────────────
+const state = {
+  layers:{app:true,moveit:true,pv:true,backend:true,hw:true},
+  gz:false, selected:null, comments:[], zoom:1, preset:'전체 시스템'
+};
+const nodeById = Object.fromEntries(NODES.map(n=>[n.id,n]));
+
+// ───────────────── 렌더 ─────────────────
+function nodeY(n){ return LAYERS[n.layer].y; }
+function center(n){ return {x:n.x+n.w/2, y:nodeY(n)+NODE_H/2}; }
+
+function renderBands(){
+  const g=document.getElementById('gBands'); g.innerHTML='';
+  for(const [key,L] of Object.entries(LAYERS)){
+    if(!state.layers[key]) continue;
+    const dim = state.gz && L.backendIndependent===true;
+    const op = dim?0.12:1;
+    g.insertAdjacentHTML('beforeend',
+      `<rect class="band-bg" x="14" y="${L.y-20}" width="1052" height="${NODE_H+30}" rx="10" style="opacity:${op}"/>
+       <text class="band-label" x="22" y="${L.y-6}" style="opacity:${op}">${L.name}</text>`);
+  }
+}
+
+function renderConns(){
+  const g=document.getElementById('gConns'); g.innerHTML='';
+  CONNS.forEach(c=>{
+    const a=nodeById[c.from], b=nodeById[c.to];
+    if(!state.layers[a.layer]||!state.layers[b.layer]) return;
+    const p1=center(a), p2=center(b);
+    const dim = state.gz && !(a.changesInGazebo||b.changesInGazebo);
+    const my=(p1.y+p2.y)/2;
+    const d=`M ${p1.x} ${p1.y} C ${p1.x} ${my}, ${p2.x} ${my}, ${p2.x} ${p2.y}`;
+    g.insertAdjacentHTML('beforeend',
+      `<path class="conn ${dim?'dim':''}" d="${d}" marker-end="url(#arrow)"/>`);
+  });
+}
+
+function renderNodes(){
+  const g=document.getElementById('gNodes'); g.innerHTML='';
+  NODES.forEach(n=>{
+    if(!state.layers[n.layer]) return;
+    const col=LAYERS[n.layer].color;
+    const dim = state.gz && !n.changesInGazebo;
+    const hasC = state.comments.some(c=>c.target===n.id);
+    const sel = state.selected===n.id;
+    const cls=['node']; if(dim)cls.push('dim'); if(sel)cls.push('sel'); if(hasC)cls.push('has-c');
+    const y=nodeY(n);
+    g.insertAdjacentHTML('beforeend',
+      `<g class="${cls.join(' ')}" onclick="selectNode('${n.id}')">
+        <rect x="${n.x}" y="${y}" width="${n.w}" height="${NODE_H}" rx="9"
+              fill="${col}" fill-opacity="0.9" stroke="${col}" stroke-width="1"/>
+        <text class="nlabel" x="${n.x+12}" y="${y+22}">${n.label}</text>
+        <text class="nsub" x="${n.x+12}" y="${y+38}">${n.sub}</text>
+        ${n.changesInGazebo?`<text x="${n.x+n.w-16}" y="${y+20}" font-size="13">🔁</text>`:''}
+      </g>`);
+  });
+}
+
+function renderAll(){ renderBands(); renderConns(); renderNodes(); }
+
+// ───────────────── 상호작용 ─────────────────
+function selectNode(id){
+  state.selected=id; const n=nodeById[id];
+  document.getElementById('dTitle').textContent=n.label;
+  document.getElementById('dPkg').textContent=n.sub;
+  const indep = LAYERS[n.layer].backendIndependent;
+  const isIndep = indep===true || (indep==='mixed' && !n.changesInGazebo);
+  const tag = isIndep
+    ? `<span class="tag" style="background:#163d2b;color:#3fb950">백엔드 독립</span>`
+    : `<span class="tag" style="background:#3a1d12;color:#f0883e">mock 전용 (교체 대상)</span>`;
+  document.getElementById('dTag').innerHTML = tag +
+    (n.changesInGazebo?`<span class="tag" style="background:#2a1316;color:#f85149">🔁 Gazebo 시 변경</span>`:'');
+  document.getElementById('dRole').textContent=n.role;
+  const ins=CONNS.filter(c=>c.to===id).map(c=>nodeById[c.from].label);
+  const outs=CONNS.filter(c=>c.from===id).map(c=>nodeById[c.to].label);
+  document.getElementById('dConns').innerHTML=
+    (ins.length?`<b>← 입력:</b> ${ins.join(', ')}<br>`:'')+
+    (outs.length?`<b>→ 출력:</b> ${outs.join(', ')}`:'');
+  document.getElementById('dComment').value='';
+  document.getElementById('detail').classList.add('show');
+  renderNodes();
+}
+function closeDetail(){ state.selected=null; document.getElementById('detail').classList.remove('show'); renderNodes(); }
+
+function saveComment(){
+  const t=document.getElementById('dComment').value.trim();
+  if(!t||!state.selected) return;
+  const n=nodeById[state.selected];
+  state.comments.push({id:Date.now(),target:n.id,label:n.label,sub:n.sub,text:t});
+  document.getElementById('dComment').value='';
+  renderComments(); renderNodes(); updatePrompt();
+}
+function delComment(id){ state.comments=state.comments.filter(c=>c.id!==id); renderComments(); renderNodes(); updatePrompt(); }
+
+function renderComments(){
+  const el=document.getElementById('commentList');
+  document.getElementById('cCount').textContent=state.comments.length?`(${state.comments.length})`:'';
+  if(!state.comments.length){ el.innerHTML='<div class="empty">노드를 클릭해 코멘트를 추가하면 아래 프롬프트에 반영됩니다.</div>'; return; }
+  el.innerHTML=state.comments.map(c=>
+    `<div class="c"><span class="del" onclick="delComment(${c.id})">✕</span>
+      <div class="ct">${c.label}</div><div class="cx">${c.text.replace(/</g,'&lt;')}</div></div>`).join('');
+}
+
+function toggleGazebo(){ state.gz=!state.gz; document.getElementById('gzToggle').classList.toggle('on',state.gz); renderAll(); updatePrompt(); }
+
+function setLayer(k,v){ state.layers[k]=v; renderAll(); updatePrompt(); }
+
+function applyPreset(name){
+  state.preset=name; const p=PRESETS[name];
+  for(const k of Object.keys(state.layers)) state.layers[k]=p.layers.includes(k);
+  state.gz=p.gz;
+  document.getElementById('gzToggle').classList.toggle('on',state.gz);
+  document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('active',b.textContent===name));
+  document.querySelectorAll('#layerToggles input').forEach(i=>i.checked=state.layers[i.dataset.k]);
+  renderAll(); updatePrompt();
+}
+
+// zoom
+function applyZoom(){ document.getElementById('viewport').setAttribute('transform',`scale(${state.zoom})`); }
+function zoom(d){ state.zoom=Math.max(0.5,Math.min(2,state.zoom+d)); applyZoom(); }
+function resetZoom(){ state.zoom=1; applyZoom(); }
+
+// ───────────────── 프롬프트 ─────────────────
+function updatePrompt(){
+  const parts=[];
+  parts.push('rdfp_panda_mock.launch.py (Franka Panda + MoveIt2 mock 스택)의 계층 구조를 보고 있다.');
+  const shown=Object.entries(state.layers).filter(([,v])=>v).map(([k])=>LAYERS[k].name);
+  if(shown.length<5) parts.push(`현재 표시 중인 레이어: ${shown.join(' / ')}.`);
+  if(state.gz){
+    parts.push('“Gazebo 교체” 모드: 바뀌는 레이어는 백엔드(B\' controller/controllers/robot_state/static_tf)와 하드웨어(C: mock_components→Gazebo Fortress+ign_ros2_control), 그리고 camera(웹캠→시뮬 센서)뿐이다. 애플리케이션(A)·MoveIt(B)·RViz(V)는 그대로 유지된다.');
+  }
+  if(state.comments.length){
+    parts.push('\n특정 노드에 대한 질문/요청:');
+    state.comments.forEach(c=>parts.push(`\n**${c.label}** (${c.sub}):\n${c.text}`));
+  } else {
+    parts.push('\n노드를 클릭하면 역할·연결을 보고, 코멘트를 달아 이 프롬프트에 질문을 모을 수 있다.');
+  }
+  document.getElementById('promptOut').textContent=parts.join('\n');
+}
+function copyPrompt(){
+  navigator.clipboard.writeText(document.getElementById('promptOut').textContent).then(()=>{
+    const b=document.getElementById('copyBtn'); const o=b.textContent; b.textContent='복사됨!';
+    setTimeout(()=>b.textContent=o,1200);
+  });
+}
+
+// ───────────────── 초기화 ─────────────────
+function initSidebar(){
+  document.getElementById('presets').innerHTML=
+    Object.keys(PRESETS).map(n=>`<button onclick="applyPreset('${n}')">${n}</button>`).join('');
+  document.getElementById('layerToggles').innerHTML=
+    Object.entries(LAYERS).map(([k,L])=>
+      `<label class="row"><input type="checkbox" data-k="${k}" ${state.layers[k]?'checked':''}
+        onchange="setLayer('${k}',this.checked)">
+       <span class="swatch" style="background:${L.color}"></span>${L.name}</label>`).join('');
+  document.getElementById('legend').innerHTML=
+    `<div class="lr"><span class="swatch" style="background:#3fb950"></span>백엔드 독립 (mock/Gazebo/real 공통)</div>
+     <div class="lr"><span class="swatch" style="background:#f0883e"></span>mock 전용 백엔드 (교체 대상)</div>
+     <div class="lr">🔁 = Gazebo 교체 시 바뀌는 노드</div>
+     <div class="lr"><span style="color:#58a6ff">→</span> 데이터 흐름</div>`;
+}
+
+initSidebar();
+applyPreset('전체 시스템');
+renderComments();
+updatePrompt();
+applyZoom();
+</script>
+</body>
+</html>

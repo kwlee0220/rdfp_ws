@@ -9,20 +9,27 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StartSession.srv"
   "srv/StopSession.srv"
   "srv/SetString.srv"
   "srv/GetSessionState.srv"
+  "srv/StopEpisode.srv"
   "msg/SessionCommand.msg"
   "msg/GripperCommand.msg"
-  "msg/GripperState.msg"
+  "msg/GripperActionState.msg"
   "msg/TargetJointStates.msg"
-  DEPENDENCIES std_msgs trajectory_msgs
+  "msg/ClutchState.msg"
+  "msg/SceneObject.msg"
+  "msg/SceneObjects.msg"
+  "msg/SceneCommand.msg"
+  "msg/SceneCommandResult.msg"
+  DEPENDENCIES std_msgs trajectory_msgs geometry_msgs
 )
 
-ament_export_dependencies(rosidl_default_runtime std_msgs trajectory_msgs)
+ament_export_dependencies(rosidl_default_runtime std_msgs trajectory_msgs geometry_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

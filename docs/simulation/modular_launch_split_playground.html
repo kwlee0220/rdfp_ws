@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modular Launch Split — rdfp_panda_mock</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--panel2:#1c2330;--border:#30363d;
+    --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+    --backend:#d2691e;--moveit:#8957e5;--app:#1f9d6b;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+  .wrap{display:grid;grid-template-columns:320px 1fr;grid-template-rows:1fr auto;height:100vh}
+  .side{grid-row:1/3;background:var(--panel);border-right:1px solid var(--border);padding:16px;overflow-y:auto}
+  .side h1{font-size:15px;margin:0 0 2px}
+  .side .sub{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:14px}
+  .group{margin-bottom:18px}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;font-weight:600}
+  .variants{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .variants button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px;cursor:pointer;text-align:left}
+  .variants button:hover{border-color:var(--accent)}
+  .variants button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .variants button .vs{display:block;font-size:9px;opacity:.8;font-family:var(--mono);margin-top:2px}
+  .files .f{background:var(--panel2);border:1px solid var(--border);border-left-width:3px;border-radius:6px;padding:8px 10px;margin-bottom:7px}
+  .files .f .fn{font-family:var(--mono);font-size:11px;font-weight:600;margin-bottom:3px}
+  .files .f .fc{font-size:10px;color:var(--muted);line-height:1.5}
+  .files .f .fbadge{float:right;font-size:8.5px;padding:1px 6px;border-radius:8px}
+  .swap{background:#3a1d12;color:#f0883e}
+  .keep{background:#163d2b;color:#3fb950}
+  .concern{font-size:10.5px;color:var(--muted);line-height:1.5;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px}
+  .concern b{color:var(--text)}
+  .main{position:relative;overflow:hidden;background:radial-gradient(circle at 50% 0,#11161f,#0d1117 70%)}
+  svg{width:100%;height:100%}
+  .toolbar{position:absolute;top:10px;right:12px;z-index:5;display:flex;gap:6px}
+  .toolbar button{width:30px;height:30px;border-radius:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);cursor:pointer;font-size:15px}
+  .node{cursor:pointer}
+  .node rect{transition:opacity .2s,stroke .15s}
+  .node .nlabel{font-size:12.5px;font-weight:600;fill:#fff;pointer-events:none}
+  .node .nsub{font-size:9px;fill:#cdd9e5;opacity:.85;font-family:var(--mono);pointer-events:none}
+  .node.dim{opacity:.18}.node.sel rect{stroke:#fff;stroke-width:2.5}.node.has-c rect{stroke:#f0c000;stroke-width:2.5}
+  .filebox{fill:none;stroke-dasharray:5 4;stroke-width:1.4;rx:12}
+  .filebox-label{font-size:11px;font-weight:700;font-family:var(--mono)}
+  .band-label{font-size:11px;fill:var(--muted);font-weight:600}
+  .legend{position:absolute;bottom:10px;left:12px;background:#0d1117cc;border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-size:10px;backdrop-filter:blur(4px)}
+  .legend .lr{display:flex;align-items:center;gap:7px;margin:2px 0;color:var(--muted)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .detail{position:absolute;top:10px;left:12px;width:290px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;z-index:6;display:none;box-shadow:0 12px 40px #000a}
+  .detail.show{display:block}
+  .detail .dx{position:absolute;top:8px;right:10px;color:var(--muted);cursor:pointer;font-size:16px}
+  .detail h3{margin:0 0 2px;font-size:14px}
+  .detail .pkg{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-bottom:8px}
+  .detail .tag{display:inline-block;font-size:9.5px;padding:2px 7px;border-radius:10px;margin:0 4px 8px 0}
+  .detail .role{font-size:12px;line-height:1.5;margin-bottom:8px}
+  .detail .meta{font-size:10.5px;color:var(--muted);line-height:1.6;margin-bottom:9px}
+  .detail .meta b{color:var(--text)}
+  .detail textarea{width:100%;height:50px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:6px;resize:vertical;font-family:inherit}
+  .detail .save{margin-top:6px;width:100%;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px;font-size:12px;cursor:pointer;font-weight:600}
+  .promptbar{grid-column:2;background:var(--panel);border-top:1px solid var(--border);padding:12px 14px;display:flex;gap:12px;align-items:flex-start;max-height:180px}
+  .promptbar .ptxt{flex:1;font-size:11px;line-height:1.55;color:#cdd9e5;white-space:pre-wrap;overflow-y:auto;max-height:156px;font-family:var(--mono)}
+  .promptbar .copy{flex:0 0 auto;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:9px 14px;font-size:12px;cursor:pointer;font-weight:600;align-self:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <h1>Modular Launch Split</h1>
+    <div class="sub">rdfp_panda_mock.launch.py → 3 layers</div>
+
+    <div class="group">
+      <h2>① 백엔드 변형 선택</h2>
+      <div class="variants" id="variants"></div>
+    </div>
+
+    <div class="group">
+      <h2>제안 launch 파일</h2>
+      <div class="files" id="files"></div>
+    </div>
+
+    <div class="group">
+      <h2>교차 관심사 (분리 시 주의)</h2>
+      <div id="concerns"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="toolbar">
+      <button onclick="zoom(0.1)">+</button><button onclick="zoom(-0.1)">−</button><button onclick="resetZoom()">⤢</button>
+    </div>
+    <div class="detail" id="detail">
+      <span class="dx" onclick="closeDetail()">✕</span>
+      <h3 id="dTitle"></h3><div class="pkg" id="dPkg"></div><div id="dTag"></div>
+      <div class="role" id="dRole"></div><div class="meta" id="dMeta"></div>
+      <textarea id="dComment" placeholder="이 노드/분리에 대한 질문·요청·메모…"></textarea>
+      <button class="save" onclick="saveComment()">코멘트 저장</button>
+    </div>
+    <svg id="svg" viewBox="0 0 1120 640" preserveAspectRatio="xMidYMid meet">
+      <defs><marker id="arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 9 3.5, 0 7" fill="#58a6ff"/></marker></defs>
+      <g id="viewport"><g id="gBoxes"></g><g id="gConns"></g><g id="gNodes"></g></g>
+    </svg>
+    <div class="legend" id="legend"></div>
+  </main>
+
+  <div class="promptbar">
+    <div class="ptxt" id="promptOut"></div>
+    <button class="copy" onclick="copyPrompt()" id="copyBtn">프롬프트 복사</button>
+  </div>
+</div>
+
+<script>
+// ───────────────── 변형 정의 ─────────────────
+const VARIANTS={
+  mock:  {name:'Mock', sub:'mock_components', sim_time:false,
+    hw:'mock_components/GenericSystem', cm:'controller_manager/ros2_control_node',
+    staticTf:true, simInfra:[], camera:'app',
+    desc:'무물리 가짜 하드웨어. 명령을 그대로 상태로 반환.'},
+  gazebo:{name:'Gazebo', sub:'ign_ros2_control', sim_time:true,
+    hw:'ign_ros2_control/IgnitionSystem', cm:'gz 플러그인 내장 CM (별도 노드 없음)',
+    staticTf:false, simInfra:['gz_sim','spawn_entity','clock_bridge'], camera:'backend',
+    desc:'Gazebo Fortress 물리. CM 은 gz 프로세스 내부 플러그인이 호스팅. world 고정은 URDF 조인트.'},
+  isaac: {name:'Isaac Sim', sub:'topic_based', sim_time:true,
+    hw:'topic_based_ros2_control/TopicBasedSystem', cm:'CM (Isaac bridge 측)',
+    staticTf:false, simInfra:['isaac_bridge'], camera:'backend',
+    desc:'외부 Isaac Sim 에 bridge 연결. /joint_states·명령을 토픽으로 교환.'},
+  mujoco:{name:'MuJoCo', sub:'mujoco_ros2_control', sim_time:true,
+    hw:'mujoco_ros2_control/MujocoSystemInterface', cm:'mujoco_ros2_control 노드 내장 CM',
+    staticTf:false, simInfra:['mujoco_node'], camera:'backend',
+    desc:'MuJoCo 물리(접촉 정밀). ros-controls/mujoco_ros2_control 노드가 MJCF 씬 로드+스텝+CM 호스팅, /clock 발행. 모델은 MJCF(XML) 필요.'},
+  real:  {name:'Real Panda', sub:'franka_hardware', sim_time:false,
+    hw:'franka_hardware/FrankaHardwareInterface', cm:'controller_manager (franka)',
+    staticTf:true, simInfra:[], camera:'app',
+    desc:'실물 Franka. FCI 통해 실제 하드웨어 제어.'},
+};
+
+// ───────────────── 고정 노드 (②MoveIt, ③App) ─────────────────
+const STATIC_NODES=[
+  // ② MoveIt — robot-independent
+  {id:'movegroup',label:'move_group',sub:'moveit_ros_move_group',band:'moveit',
+   role:'모션 플래닝(OMPL·PILZ·CHOMP). FollowJointTrajectory 로 실행 위임. 백엔드 무관.',
+   needs:['robot_description','robot_description_semantic','TF']},
+  {id:'servo',label:'servo_node',sub:'moveit_servo',band:'moveit',
+   role:'실시간 저깅 → /panda_arm_controller/joint_trajectory.',needs:['robot_description','/joint_states']},
+
+  // ③ App — 기타/응용
+  {id:'eepose',label:'ee_pose_publisher',sub:'rdfp/ee_pose_node',band:'app',
+   role:'TF(panda_link0→panda_hand)로 EE 포즈 발행. TF 기반이라 백엔드 무관.',needs:['TF']},
+  {id:'gripper',label:'gripper_control',sub:'rdfp/gripper_control_node',band:'app',
+   role:'그리퍼 명령 → panda_hand_controller 액션.',needs:['panda_hand_controller']},
+  {id:'rviz',label:'rviz2',sub:'rviz2',band:'app',
+   role:'MoveIt MotionPlanning UI. 시뮬레이터가 아니라 뷰어.',needs:['robot_description','TF']},
+  {id:'session',label:'session_control',sub:'rdfp/session_control_node',band:'app',
+   role:'세션 상태머신, TRANSIENT_LOCAL /session.',needs:[]},
+  {id:'viewer',label:'image_viewer',sub:'rdfp/rdfp_image_viewer_node',band:'app',
+   role:'카메라 이미지 + 세션 상태 오버레이.',needs:['/camera/image_raw','/session']},
+  {id:'recorder',label:'image_recorder',sub:'rdfp/image_recorder_node',band:'app',
+   role:'서비스 기반 MP4 녹화.',needs:['/camera/image_raw']},
+  {id:'tjs',label:'target_joint_states_pub',sub:'rdfp/target_joint_states_publisher',band:'app',
+   role:'servo JointTrajectory 마지막 point → TargetJointStates.',needs:['servo']},
+];
+
+// camera 는 변형에 따라 band 가 backend/app 로 바뀜
+const CAMERA={id:'camera',label:'camera',sub:'rdfp/camera_node',
+  role:'mock/real: OpenCV 웹캠(하드웨어 종속, app). gazebo/isaac: 시뮬 카메라 센서(backend) → /camera/image_raw.',
+  needs:['hardware or sim sensor']};
+
+// 변형별 backend 노드 생성
+function backendNodes(v){
+  const V=VARIANTS[v]; const ns=[];
+  ns.push({id:'rsp',label:'robot_state_publisher',sub:'robot_state_publisher',band:'backend',swap:true,
+    role:'URDF robot_description 로 TF 발행. robot_description 자체는 백엔드(하드웨어 분기)에 종속.',needs:['robot_description']});
+  ns.push({id:'cm',label:'controller_manager',sub:V.cm,band:'backend',swap:true,
+    role:'컨트롤러 호스팅. '+V.desc,needs:['robot_description','ros2_controllers.yaml']});
+  ns.push({id:'jsb',label:'joint_state_broadcaster',sub:'spawner',band:'backend',swap:true,role:'/joint_states 발행.',needs:[]});
+  ns.push({id:'armctl',label:'panda_arm_controller',sub:'JointTrajectoryController',band:'backend',swap:true,role:'팔 trajectory 실행.',needs:[]});
+  ns.push({id:'handctl',label:'panda_hand_controller',sub:'GripperActionController',band:'backend',swap:true,role:'그리퍼 제어.',needs:[]});
+  if(V.staticTf) ns.push({id:'stf',label:'static_tf',sub:'tf2_ros',band:'backend',swap:true,role:'world→panda_link0 고정 TF.',needs:[]});
+  V.simInfra.forEach(s=>{
+    const m={gz_sim:'ros_gz_sim/gz_sim',spawn_entity:'ros_gz_sim/create',clock_bridge:'ros_gz_bridge',isaac_bridge:'isaac ros2 bridge',mujoco_node:'mujoco_ros2_control (MJCF 씬+CM)'};
+    ns.push({id:s,label:s,sub:m[s]||'',band:'backend',swap:true,role:'시뮬레이터 인프라('+v+' 전용).',needs:[]});
+  });
+  ns.push({id:'hw',label:V.hw.split('/').pop(),sub:V.hw,band:'backend',swap:true,hw:true,
+    role:'ros2_control 하드웨어 플러그인 — 이 한 줄이 백엔드의 정체. URDF <hardware> 에 주입.',needs:[]});
+  return ns;
+}
+
+const BANDS={
+  app:{name:'③ App / 기타 — rdfp.launch.py (대부분 공유)',color:'#1f9d6b',file:'rdfp.launch.py'},
+  moveit:{name:'② MoveIt2 / 로봇 독립 — moveit.launch.py (불변)',color:'#8957e5',file:'moveit.launch.py'},
+  backend:{name:"① Backend / mock·sim·real — backend_<변형>.launch.py (교체 대상)",color:'#d2691e',file:'backend.launch.py'},
+};
+const BAND_ORDER=['app','moveit','backend'];
+
+// ───────────────── 상태 ─────────────────
+const state={variant:'mock',selected:null,comments:[],zoom:1};
+const CW=1120,NW=178,NH=48,ROWG=58,MAXROW=5;
+const GAP=18;
+
+function currentNodes(){
+  const cam={...CAMERA,band:VARIANTS[state.variant].camera, swap:VARIANTS[state.variant].camera==='backend'};
+  return [...STATIC_NODES, cam, ...backendNodes(state.variant)];
+}
+function nodeById(id){ return currentNodes().find(n=>n.id===id); }
+
+// ───────────────── 레이아웃 ─────────────────
+let POS={}, BANDY={}, TOTALH=640;
+function layout(){
+  POS={};BANDY={};let y=44;const nodes=currentNodes();
+  BAND_ORDER.forEach(band=>{
+    const ns=nodes.filter(n=>n.band===band);
+    BANDY[band]={top:y, header:y};
+    const inner=y+26; const rows=Math.ceil(ns.length/MAXROW)||1;
+    ns.forEach((n,i)=>{
+      const r=Math.floor(i/MAXROW),c=i%MAXROW;
+      const inRow=Math.min(MAXROW,ns.length-r*MAXROW);
+      const totalW=inRow*NW+(inRow-1)*GAP; const sx=(CW-totalW)/2;
+      POS[n.id]={x:sx+c*(NW+GAP),y:inner+r*ROWG};
+    });
+    BANDY[band].h=26+rows*ROWG+6; y=inner+rows*ROWG+30;
+  });
+  TOTALH=y+10;
+  document.getElementById('svg').setAttribute('viewBox',`0 0 ${CW} ${TOTALH}`);
+}
+
+// ───────────────── 연결 ─────────────────
+const CONNS=[
+  ['servo','armctl'],['movegroup','armctl'],['gripper','handctl'],
+  ['armctl','hw'],['handctl','hw'],['hw','jsb'],['jsb','rsp'],
+  ['rsp','eepose'],['rsp','movegroup'],['rsp','rviz'],
+  ['cm','armctl'],['cm','handctl'],['cm','jsb'],
+  ['camera','viewer'],['camera','recorder'],['session','viewer'],['servo','tjs'],
+];
+function center(id){const p=POS[id];return p?{x:p.x+NW/2,y:p.y+NH/2}:null;}
+
+// ───────────────── 렌더 ─────────────────
+function render(){
+  layout();
+  // file boxes (bands)
+  const gb=document.getElementById('gBoxes');gb.innerHTML='';
+  BAND_ORDER.forEach(band=>{
+    const B=BANDS[band],Y=BANDY[band];
+    gb.insertAdjacentHTML('beforeend',
+      `<rect class="filebox" x="16" y="${Y.top-4}" width="${CW-32}" height="${Y.h}" stroke="${B.color}"/>
+       <text class="filebox-label" x="26" y="${Y.top+14}" fill="${B.color}">${B.name}</text>`);
+  });
+  // conns
+  const gc=document.getElementById('gConns');gc.innerHTML='';
+  CONNS.forEach(([f,t])=>{
+    const a=center(f),b=center(t);if(!a||!b)return;
+    const my=(a.y+b.y)/2;
+    gc.insertAdjacentHTML('beforeend',`<path fill="none" stroke="#58a6ff" stroke-width="1.5" opacity="0.5" d="M ${a.x} ${a.y} C ${a.x} ${my}, ${b.x} ${my}, ${b.x} ${b.y}" marker-end="url(#arrow)"/>`);
+  });
+  // nodes
+  const gn=document.getElementById('gNodes');gn.innerHTML='';
+  currentNodes().forEach(n=>{
+    const p=POS[n.id];const col=BANDS[n.band].color;
+    const hasC=state.comments.some(c=>c.target===n.id);const sel=state.selected===n.id;
+    const cls=['node'];if(sel)cls.push('sel');if(hasC)cls.push('has-c');
+    gn.insertAdjacentHTML('beforeend',
+      `<g class="${cls.join(' ')}" onclick="selectNode('${n.id}')">
+        <rect x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="9" fill="${col}" fill-opacity="0.9" stroke="${col}"/>
+        <text class="nlabel" x="${p.x+11}" y="${p.y+20}">${n.label}</text>
+        <text class="nsub" x="${p.x+11}" y="${p.y+36}">${n.sub}</text>
+        ${n.swap?`<text x="${p.x+NW-15}" y="${p.y+19}" font-size="12">🔁</text>`:''}
+      </g>`);
+  });
+  applyZoom();
+}
+
+// ───────────────── 사이드바 ─────────────────
+function renderVariants(){
+  document.getElementById('variants').innerHTML=Object.entries(VARIANTS).map(([k,V])=>
+    `<button class="${k===state.variant?'active':''}" onclick="setVariant('${k}')">${V.name}<span class="vs">${V.sub}</span></button>`).join('');
+}
+function renderFiles(){
+  const V=VARIANTS[state.variant];const nodes=currentNodes();
+  const byFile={
+    [`backend_${state.variant}.launch.py`]:{color:'#d2691e',swap:true,nodes:nodes.filter(n=>n.band==='backend').map(n=>n.label)},
+    'moveit.launch.py':{color:'#8957e5',swap:false,nodes:nodes.filter(n=>n.band==='moveit').map(n=>n.label)},
+    'rdfp.launch.py':{color:'#1f9d6b',swap:false,nodes:nodes.filter(n=>n.band==='app').map(n=>n.label)},
+  };
+  let html=Object.entries(byFile).map(([fn,d])=>
+    `<div class="f" style="border-left-color:${d.color}">
+      <div class="fn">${fn}<span class="fbadge ${d.swap?'swap':'keep'}">${d.swap?'변형마다 교체':'공유·불변'}</span></div>
+      <div class="fc">${d.nodes.join(' · ')}</div></div>`).join('');
+  html+=`<div class="f" style="border-left-color:#58a6ff">
+      <div class="fn">bringup.launch.py<span class="fbadge keep">조립</span></div>
+      <div class="fc">backend(arg로 선택) + moveit + app 을 include. use_sim_time=${V.sim_time} 전파.</div></div>`;
+  document.getElementById('files').innerHTML=html;
+}
+function renderConcerns(){
+  const V=VARIANTS[state.variant];
+  const modelNote={
+    mock:'URDF 가 유일한 모델 소스.',
+    gazebo:'URDF(+&lt;gazebo&gt; 태그)에서 SDF 로 변환되어 로드됨.',
+    isaac:'USD 씬이 별도 진실원본 → URDF↔USD 정합성(관절 이름/순서) 유지 필요.',
+    mujoco:'MJCF(XML) 씬이 별도로 필요 → URDF↔MJCF 정합성 유지(액추에이터·센서·카메라를 MJCF 에 추가). 일부 포크(dfki-ric)는 URDF 직접 사용도 지원.',
+    real:'URDF 가 유일한 모델 소스(실물).',
+  }[state.variant];
+  const items=[
+    `<b>robot_description</b>: 백엔드가 생성(하드웨어 분기 포함). MoveIt·RViz 가 소비 → backend 가 발행하고 moveit/rdfp 는 동일 파라미터를 공유받아야 함. 분리의 가장 큰 결합점.`,
+    `<b>모델 포맷</b>: ${modelNote}`,
+    `<b>use_sim_time</b>: 변형이 결정(현재 <b>${V.sim_time}</b>). bringup 이 모든 레이어에 전파.`,
+    `<b>기동 순서</b>: backend(컨트롤러 활성) → moveit·rdfp. 분리 시 "백엔드 ready" 신호가 필요(spawner exit 또는 readiness gate).`,
+    `<b>camera</b>: ${V.camera==='backend'?'시뮬 센서라 <b>backend</b> 에 속함(시뮬→ROS 브리지).':'웹캠이라 <b>rdfp(app)</b> 에 속함.'} 변형에 따라 소속이 바뀌는 유일한 ③ 노드.`,
+  ];
+  document.getElementById('concerns').innerHTML=items.map(t=>`<div class="concern">${t}</div>`).join('');
+}
+
+// ───────────────── 상세/코멘트 ─────────────────
+function selectNode(id){
+  const n=nodeById(id);state.selected=id;
+  document.getElementById('dTitle').textContent=n.label;
+  document.getElementById('dPkg').textContent=n.sub;
+  const tag=n.band==='backend'
+    ?`<span class="tag" style="background:#3a1d12;color:#f0883e">① Backend (교체 대상)</span>`
+    :(n.band==='moveit'?`<span class="tag" style="background:#241a3a;color:#a371f7">② MoveIt (불변)</span>`
+    :`<span class="tag" style="background:#0f3328;color:#3fb950">③ App / 기타</span>`);
+  document.getElementById('dTag').innerHTML=tag+(n.swap?`<span class="tag" style="background:#2a1316;color:#f85149">🔁 변형 시 변경</span>`:'');
+  document.getElementById('dRole').textContent=n.role;
+  const ins=CONNS.filter(c=>c[1]===id).map(c=>c[0]);
+  const outs=CONNS.filter(c=>c[0]===id).map(c=>c[1]);
+  document.getElementById('dMeta').innerHTML=
+    `<b>제안 파일:</b> ${n.band==='backend'?'backend_'+state.variant:(BANDS[n.band].file.replace('.launch.py',''))}.launch.py<br>`+
+    (n.needs&&n.needs.length?`<b>의존(입력):</b> ${n.needs.join(', ')}<br>`:'')+
+    (ins.length?`<b>← from:</b> ${ins.join(', ')}<br>`:'')+(outs.length?`<b>→ to:</b> ${outs.join(', ')}`:'');
+  document.getElementById('dComment').value='';
+  document.getElementById('detail').classList.add('show');render();
+}
+function closeDetail(){state.selected=null;document.getElementById('detail').classList.remove('show');render();}
+function saveComment(){
+  const t=document.getElementById('dComment').value.trim();if(!t||!state.selected)return;
+  const n=nodeById(state.selected);
+  state.comments.push({id:Date.now(),target:n.id,label:n.label,band:n.band,text:t});
+  document.getElementById('dComment').value='';render();updatePrompt();
+}
+function delC(id){state.comments=state.comments.filter(c=>c.id!==id);render();updatePrompt();}
+
+function setVariant(v){state.variant=v;closeDetail();renderVariants();renderFiles();renderConcerns();render();updatePrompt();}
+function applyZoom(){document.getElementById('viewport').setAttribute('transform',`scale(${state.zoom})`);}
+function zoom(d){state.zoom=Math.max(0.5,Math.min(2,state.zoom+d));applyZoom();}
+function resetZoom(){state.zoom=1;applyZoom();}
+
+// ───────────────── 프롬프트 ─────────────────
+function updatePrompt(){
+  const V=VARIANTS[state.variant];const nodes=currentNodes();
+  const P=[];
+  P.push('rdfp_panda_mock.launch.py 를 3개 레이어로 분리해 modular launch 시스템을 구성하려 한다.');
+  P.push('\n[제안 구조]');
+  P.push(`• backend_<변형>.launch.py (교체 대상): ${nodes.filter(n=>n.band==='backend').map(n=>n.label).join(', ')}`);
+  P.push(`• moveit.launch.py (불변): ${nodes.filter(n=>n.band==='moveit').map(n=>n.label).join(', ')}`);
+  P.push(`• rdfp.launch.py (공유): ${nodes.filter(n=>n.band==='app').map(n=>n.label).join(', ')}`);
+  P.push(`• bringup.launch.py: backend:=<변형> 로 backend 를 선택해 moveit·app 과 함께 include.`);
+  P.push(`\n[현재 선택 변형] ${V.name} — hardware=${V.hw}, use_sim_time=${V.sim_time}, camera=${V.camera} 레이어.`);
+  P.push('\n[분리 시 지켜야 할 계약]');
+  P.push('• robot_description 는 backend 가 생성/발행, moveit·app 가 공유.');
+  P.push('• use_sim_time 은 변형이 결정, bringup 이 전 노드에 전파.');
+  P.push('• backend ready 후 moveit·app 기동(순서 신호 필요).');
+  P.push('• controller 이름/관절 이름/액션 인터페이스는 모든 변형에서 동일(계약).');
+  if(state.comments.length){
+    P.push('\n[노드별 메모/요청]');
+    state.comments.forEach(c=>P.push(`• ${c.label} (${c.band}): ${c.text}`));
+  }
+  document.getElementById('promptOut').textContent=P.join('\n');
+}
+function copyPrompt(){navigator.clipboard.writeText(document.getElementById('promptOut').textContent).then(()=>{const b=document.getElementById('copyBtn'),o=b.textContent;b.textContent='복사됨!';setTimeout(()=>b.textContent=o,1200);});}
+
+// ───────────────── 초기화 ─────────────────
+document.getElementById('legend').innerHTML=
+  `<div class="lr"><span class="swatch" style="background:#d2691e"></span>① Backend (변형마다 교체)</div>
+   <div class="lr"><span class="swatch" style="background:#8957e5"></span>② MoveIt (로봇 독립, 불변)</div>
+   <div class="lr"><span class="swatch" style="background:#1f9d6b"></span>③ App / 기타</div>
+   <div class="lr">🔁 변형 시 바뀌는 노드 · 점선 = 제안 launch 파일 경계</div>`;
+renderVariants();renderFiles();renderConcerns();render();updatePrompt();
+</script>
+</body>
+</html>

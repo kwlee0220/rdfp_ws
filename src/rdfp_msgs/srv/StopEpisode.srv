@@ -1,0 +1,19 @@
+# 에피소드 종료 요청.
+#
+# `std_srvs/Trigger` 를 대신한다 — 종료 시점에만 알 수 있는 성패·부가정보를 실어야
+# 하는데 Trigger 에는 요청 필드가 없기 때문이다. 받은 값은 `SessionCommand` 로 발행되어
+# rosbag2 에 기록되고, 후처리 시 `sessions` 테이블의 success / metadata 가 된다.
+#
+# 두 필드 모두 생략할 수 있다. teleop 처럼 키 하나로 종료하는 경로는 값을 줄 수단이
+# 없으므로 비운 채 호출하며, 그 결과가 곧 '판정 없음'이다.
+
+# 작업 성패 ('' | 'success' | 'failure'). '' 는 실패가 아니라 판정 없음이다.
+string outcome
+# 부가 정보의 JSON object 문자열. 없으면 ''.
+string metadata
+---
+# **명령이 현재 상태에서 유효하게 처리되었는지**이며, 작업의 성패가 아니다.
+# 작업 성패는 요청의 `outcome` 이다 — 이름이 겹치지 않도록 분리했다.
+bool success
+# 성공 시: '' (빈 문자열). 실패 시: 'invalid command'.
+string message

@@ -22,7 +22,7 @@ import psycopg
 # 각 대상 테이블의 필수 컬럼 리스트 (생성 컬럼·인덱스는 검증 대상 아님).
 REQUIRED_COLUMNS: dict[str, list[str]] = {
     'sessions':        ['id', 'start_sec', 'start_nanosec', 'stop_sec', 'stop_nanosec',
-                        'task_label'],
+                        'task_label', 'success', 'metadata'],
     'topics':          ['id', 'topic_name', 'topic_type'],
     'pose_stampeds':   ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
                         'position', 'orientation'],
@@ -36,9 +36,9 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
                             'positions', 'velocities', 'accelerations', 'effort',
                             'tfs_sec', 'tfs_nanosec'],
     'gripper_cmds':    ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
-                        'command'],
-    'gripper_states':  ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
-                        'position', 'effort', 'stalled', 'reached_goal'],
+                        'position', 'max_effort', 'label'],
+    'gripper_action_states': ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
+                              'position', 'effort', 'stalled', 'reached_goal', 'status'],
     'image_frames':    ['id', 'episode_id', 'topic_id', 'frame_index',
                         'stamp_sec', 'stamp_nanosec'],
     'image_streams':   ['id', 'episode_id', 'topic_id', 'mp4_path', 'codec',

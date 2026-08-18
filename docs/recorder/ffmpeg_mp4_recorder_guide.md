@@ -2,8 +2,8 @@
 
 `ffmpeg` subprocess를 이용해 OpenCV 이미지(`numpy.ndarray`)를 MP4 파일로
 녹화하는 Python 클래스입니다. 본 가이드는 `FFMpegMp4Recorder`를 **어떻게
-사용하는지**에 초점을 두며, 공개 API의 상세 레퍼런스는
-[ffmpeg_mp4_recorder_api.md](./ffmpeg_mp4_recorder_api.md)를 참고하세요.
+사용하는지**에 초점을 두며, 공개 API 의 상세는
+[recorder/README.md](../../src/rdfp/rdfp/recorder/README.md) 를 참고하세요.
 
 ## 개요
 

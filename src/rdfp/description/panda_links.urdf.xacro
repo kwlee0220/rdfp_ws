@@ -1,0 +1,298 @@
+<?xml version="1.0"?>
+<!--
+  moveit_resources_panda_description 의 panda.urdf 를 포크하여 각 링크에
+  `<inertial>` 을 추가한 버전이다. 원본은 플래닝/시각화용이라 inertial 이
+  전혀 없어 Gazebo 물리 시뮬레이션이 불가능하므로, 물리 백엔드(Gazebo /
+  Isaac)용으로 질량/관성을 보강한다.
+
+  - 링크/조인트 이름·기구학(origin/axis/limit)은 원본과 100% 동일하게 유지한다
+    (SRDF / kinematics.yaml / ros2_controllers.yaml 의 `panda_*` 이름 계약 보존).
+  - inertial 값은 Franka Emika Panda 의 공개 동역학 식별 파라미터
+    (Gaz et al., 2019 / franka_ros)를 사용한다. 물리적으로 타당한 근사값이며,
+    위치 제어(JointTrajectoryController) 시뮬레이션에는 충분하다.
+  - visual 은 .dae, collision 은 .stl 메시를 원본 그대로 참조한다.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <link name="panda_link0">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link0.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link0.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="-0.041018 -0.00014 0.049974" />
+            <mass value="0.629769" />
+            <inertia ixx="0.00315" ixy="8.2904e-7" ixz="0.00015" iyy="0.00388" iyz="8.2299e-6" izz="0.004285" />
+        </inertial>
+    </link>
+    <link name="panda_link1">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link1.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link1.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0.003875 0.002081 -0.04762" />
+            <mass value="4.970684" />
+            <inertia ixx="0.70337" ixy="-0.000139" ixz="0.006772" iyy="0.70661" iyz="0.019169" izz="0.009117" />
+        </inertial>
+    </link>
+    <joint name="panda_joint1" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973" />
+        <origin rpy="0 0 0" xyz="0 0 0.333" />
+        <parent link="panda_link0" />
+        <child link="panda_link1" />
+        <axis xyz="0 0 1" />
+        <limit effort="87" lower="-2.9671" upper="2.9671" velocity="2.3925" />
+    </joint>
+    <link name="panda_link2">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link2.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link2.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="-0.003141 -0.02872 0.003495" />
+            <mass value="0.646926" />
+            <inertia ixx="0.007962" ixy="-0.003925" ixz="0.010254" iyy="0.02811" iyz="0.000704" izz="0.025995" />
+        </inertial>
+    </link>
+    <joint name="panda_joint2" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-1.7628" soft_upper_limit="1.7628" />
+        <origin rpy="-1.57079632679 0 0" xyz="0 0 0" />
+        <parent link="panda_link1" />
+        <child link="panda_link2" />
+        <axis xyz="0 0 1" />
+        <limit effort="87" lower="-1.8326" upper="1.8326" velocity="2.3925" />
+    </joint>
+    <link name="panda_link3">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link3.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link3.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0.027518 0.039252 -0.066502" />
+            <mass value="3.228604" />
+            <inertia ixx="0.037242" ixy="-0.004761" ixz="-0.011396" iyy="0.036155" iyz="-0.012805" izz="0.01083" />
+        </inertial>
+    </link>
+    <joint name="panda_joint3" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973" />
+        <origin rpy="1.57079632679 0 0" xyz="0 -0.316 0" />
+        <parent link="panda_link2" />
+        <child link="panda_link3" />
+        <axis xyz="0 0 1" />
+        <limit effort="87" lower="-2.9671" upper="2.9671" velocity="2.3925" />
+    </joint>
+    <link name="panda_link4">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link4.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link4.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="-0.05317 0.104419 0.027454" />
+            <mass value="3.587895" />
+            <inertia ixx="0.025853" ixy="0.007796" ixz="-0.001332" iyy="0.019552" iyz="0.008641" izz="0.028323" />
+        </inertial>
+    </link>
+    <joint name="panda_joint4" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-3.0718" soft_upper_limit="0.0175" />
+        <origin rpy="1.57079632679 0 0" xyz="0.0825 0 0" />
+        <parent link="panda_link3" />
+        <child link="panda_link4" />
+        <axis xyz="0 0 1" />
+        <limit effort="87" lower="-3.1416" upper="0.0873" velocity="2.3925" />
+    </joint>
+    <link name="panda_link5">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link5.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link5.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="-0.011953 0.041065 -0.038437" />
+            <mass value="1.225946" />
+            <inertia ixx="0.035549" ixy="-0.002117" ixz="-0.004037" iyy="0.029474" iyz="0.000229" izz="0.008627" />
+        </inertial>
+    </link>
+    <joint name="panda_joint5" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973" />
+        <origin rpy="-1.57079632679 0 0" xyz="-0.0825 0.384 0" />
+        <parent link="panda_link4" />
+        <child link="panda_link5" />
+        <axis xyz="0 0 1" />
+        <limit effort="12" lower="-2.9671" upper="2.9671" velocity="2.8710" />
+    </joint>
+    <link name="panda_link6">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link6.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link6.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0.060149 -0.014117 -0.010517" />
+            <mass value="1.666555" />
+            <inertia ixx="0.001964" ixy="0.000109" ixz="-0.001158" iyy="0.004354" iyz="0.000341" izz="0.005433" />
+        </inertial>
+    </link>
+    <joint name="panda_joint6" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-0.0175" soft_upper_limit="3.7525" />
+        <origin rpy="1.57079632679 0 0" xyz="0 0 0" />
+        <parent link="panda_link5" />
+        <child link="panda_link6" />
+        <axis xyz="0 0 1" />
+        <limit effort="12" lower="-0.0873" upper="3.8223" velocity="2.8710" />
+    </joint>
+    <link name="panda_link7">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/link7.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/link7.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0.010517 -0.004252 0.061597" />
+            <mass value="0.735522" />
+            <inertia ixx="0.012516" ixy="-0.000428" ixz="-0.001196" iyy="0.010027" iyz="-0.000741" izz="0.004815" />
+        </inertial>
+    </link>
+    <joint name="panda_joint7" type="revolute">
+        <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973" />
+        <origin rpy="1.57079632679 0 0" xyz="0.088 0 0" />
+        <parent link="panda_link6" />
+        <child link="panda_link7" />
+        <axis xyz="0 0 1" />
+        <limit effort="12" lower="-2.9671" upper="2.9671" velocity="2.8710" />
+    </joint>
+    <!-- panda_link8 은 고정 플랜지다. fixed joint 의 child 라 Gazebo 가 부모로
+         lumping 하므로 작은 질량만 부여해 0-질량 경고를 피한다. -->
+    <link name="panda_link8">
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0" />
+            <mass value="0.1" />
+            <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001" />
+        </inertial>
+    </link>
+    <joint name="panda_joint8" type="fixed">
+        <origin rpy="0 0 0" xyz="0 0 0.107" />
+        <parent link="panda_link7" />
+        <child link="panda_link8" />
+        <axis xyz="0 0 0" />
+    </joint>
+    <joint name="panda_hand_joint" type="fixed">
+        <parent link="panda_link8" />
+        <child link="panda_hand" />
+        <origin rpy="0 0 -0.785398163397" xyz="0 0 0" />
+    </joint>
+    <link name="panda_hand">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/hand.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/hand.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="-0.01 0 0.03" />
+            <mass value="0.73" />
+            <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.0025" iyz="0.0" izz="0.0017" />
+        </inertial>
+    </link>
+    <link name="panda_leftfinger">
+        <visual>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/finger.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/finger.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0.02" />
+            <mass value="0.015" />
+            <inertia ixx="2.3749e-6" ixy="0.0" ixz="0.0" iyy="2.3749e-6" iyz="0.0" izz="7.5e-7" />
+        </inertial>
+    </link>
+    <link name="panda_rightfinger">
+        <visual>
+            <origin rpy="0 0 3.14159265359" xyz="0 0 0" />
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/visual/finger.dae" />
+            </geometry>
+        </visual>
+        <collision>
+            <origin rpy="0 0 3.14159265359" xyz="0 0 0" />
+            <geometry>
+                <mesh filename="package://moveit_resources_panda_description/meshes/collision/finger.stl" />
+            </geometry>
+        </collision>
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0.02" />
+            <mass value="0.015" />
+            <inertia ixx="2.3749e-6" ixy="0.0" ixz="0.0" iyy="2.3749e-6" iyz="0.0" izz="7.5e-7" />
+        </inertial>
+    </link>
+    <joint name="panda_finger_joint1" type="prismatic">
+        <parent link="panda_hand" />
+        <child link="panda_leftfinger" />
+        <origin rpy="0 0 0" xyz="0 0 0.0584" />
+        <axis xyz="0 1 0" />
+        <limit effort="20" lower="0.0" upper="0.04" velocity="0.2" />
+    </joint>
+    <joint name="panda_finger_joint2" type="prismatic">
+        <parent link="panda_hand" />
+        <child link="panda_rightfinger" />
+        <origin rpy="0 0 0" xyz="0 0 0.0584" />
+        <axis xyz="0 -1 0" />
+        <limit effort="20" lower="0.0" upper="0.04" velocity="0.2" />
+        <mimic joint="panda_finger_joint1" />
+    </joint>
+
+</robot>

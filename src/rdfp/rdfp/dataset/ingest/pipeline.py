@@ -150,10 +150,14 @@ def _detect_all_episodes(splits: list) -> list[Episode]:
     ):
         if m.type_name != SESSION_COMMAND_TYPE:
             continue
+        # outcome/metadata 는 나중에 추가된 필드다. 그 이전에 기록된 bag 에는 없으므로
+        # getattr 기본값으로 받아 과거 데이터도 그대로 적재되게 한다.
         session_events.append(SessionEvent(
             stamp_ns=m.stamp_ns,
             state=str(m.msg.state),
             task_label=str(getattr(m.msg, 'task_label', '') or ''),
+            outcome=str(getattr(m.msg, 'outcome', '') or ''),
+            metadata=str(getattr(m.msg, 'metadata', '') or ''),
         ))
     if not session_events:
         raise PostProcError(
@@ -361,6 +365,13 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                     summary['inserted'][w.table] = (
                         summary['inserted'].get(w.table, 0) + n
                     )
+                # FrameRouter 가 finalize 단계에서 INSERT 한 image_streams / image_frames 행도
+                # summary 에 합산한다 (message-writer 가 아닌 경로라 위 루프에서 누락된다).
+                for table, n in router.consume_inserted_count().items():
+                    row_counts[table] = row_counts.get(table, 0) + n
+                    summary['inserted'][table] = (
+                        summary['inserted'].get(table, 0) + n
+                    )
                 summary['episodes'] += 1
                 summary['mp4_files'] += len(mp4_files)
                 _logger.info(
@@ -421,7 +432,8 @@ def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str, router: 
     """
     existing = sess_writer.find_existing(ep.start_ns)
     if existing is None:
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label)
+        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
+                                          ep.success, ep.metadata)
 
     if policy == 'skip':
         summary['skipped'] += 1
@@ -438,7 +450,8 @@ def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str, router: 
         sess_writer.delete_by_id(existing)
         router.remove_existing_episode_dir(existing)
         summary['replaced'] += 1
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label)
+        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
+                                          ep.success, ep.metadata)
     raise PostProcError(f'unknown on_existing_episode policy: {policy!r}')
 
 

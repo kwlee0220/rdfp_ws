@@ -200,6 +200,8 @@ class SessionTeleop(Node):
             )
             return True
         if key == km.episode_end:
+            # outcome/metadata 를 비워 호출한다 — 키 하나로 끝내는 UI 라 성패를 줄
+            # 수단이 없고, 그 결과가 곧 '판정 없음'(DB 의 success=NULL)이다.
             self._session_client.stop_episode_async(
                 done_callback=lambda ok, msg: self._on_trigger_done("stop_episode", ok, msg),
             )

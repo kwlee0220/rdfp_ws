@@ -15,6 +15,9 @@ push 모델로 전환된 이후의 검증:
 ROS 의존을 피하기 위해 ``_FakeNode`` / ``_FakePublisher`` / ``_FakeClock`` 으로
 publisher 와 ROS clock 을 모두 stub 한다. ``to_ros_image_msg`` 도 stub 해서
 ``sensor_msgs/Image`` 직접 생성/직렬화 비용을 우회한다.
+
+다만 stamp 비교에 실제 ``builtin_interfaces.msg.Time`` 을 쓰므로 ROS sourcing 은
+여전히 필요하다 — 안 된 환경에서는 전체를 skip 한다.
 """
 
 from __future__ import annotations
@@ -29,7 +32,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from builtin_interfaces.msg import Time
+pytest.importorskip('builtin_interfaces', reason='requires ROS 2 runtime')
+
+from builtin_interfaces.msg import Time    # noqa: E402
 
 
 # --------------------------------------------------------------------------

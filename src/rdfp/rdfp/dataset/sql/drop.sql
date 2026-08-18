@@ -3,7 +3,7 @@
 
 DROP TABLE IF EXISTS image_frames         CASCADE;
 DROP TABLE IF EXISTS image_streams        CASCADE;
-DROP TABLE IF EXISTS gripper_states       CASCADE;
+DROP TABLE IF EXISTS gripper_action_states       CASCADE;
 DROP TABLE IF EXISTS gripper_cmds         CASCADE;
 DROP TABLE IF EXISTS target_joint_states  CASCADE;
 DROP TABLE IF EXISTS joint_states         CASCADE;

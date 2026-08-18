@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Iterable, NamedTuple
 
+import json
 import logging
 
 
@@ -25,11 +26,19 @@ STATE_IN_EPISODE = 'IN_EPISODE'
 
 
 class SessionEvent(NamedTuple):
-    """에피소드 감지기에 입력되는 세션 메시지."""
+    """에피소드 감지기에 입력되는 세션 메시지.
+
+    `outcome` / `metadata` 는 **에피소드 종료 전이에서만** 채워져 온다 — 다른
+    전이에서는 발행 측이 빈 문자열로 남긴다 (`rdfp_msgs/SessionCommand` 참고).
+    """
 
     stamp_ns: int
     state: str
     task_label: str
+    # '' | 'success' | 'failure'. '' 는 실패가 아니라 판정 없음이다.
+    outcome: str = ''
+    # JSON object 문자열. 없으면 ''.
+    metadata: str = ''
 
 
 class Episode(NamedTuple):
@@ -38,6 +47,43 @@ class Episode(NamedTuple):
     start_ns: int
     stop_ns: int
     task_label: str | None
+    # 작업 성패. None 은 **판정 없음**이며 실패가 아니다.
+    success: bool | None = None
+    # 재현·분석용 부가 정보 (seed, scene, 초기 물체 배치 등).
+    metadata: dict | None = None
+
+
+def parse_outcome(outcome: str) -> bool | None:
+    """`SessionCommand.outcome` 을 DB 의 `success` 값으로 정규화한다.
+
+    알 수 없는 값은 **판정 없음(None)** 으로 낮춘다. 발행 측이 검증하므로 여기까지
+    올 일이 없지만, 온다면 그것을 실패로 단정하는 편이 더 나쁘다 — 성공한 에피소드가
+    실패로 기록되면 학습셋에서 조용히 빠진다.
+    """
+    if outcome == 'success':
+        return True
+    if outcome == 'failure':
+        return False
+    return None
+
+
+def parse_metadata(metadata: str) -> dict | None:
+    """`SessionCommand.metadata`(JSON object 문자열)를 dict 로 바꾼다.
+
+    비었거나 object 가 아니면 ``None``. 적재를 실패시키지 않는 이유는, 부가 정보
+    하나 때문에 에피소드 본체(관절·이미지)를 잃는 것이 훨씬 큰 손실이기 때문이다.
+    """
+    if not metadata:
+        return None
+    try:
+        parsed = json.loads(metadata)
+    except (TypeError, ValueError):
+        _logger.warning('episode metadata is not valid JSON; storing NULL: %r', metadata)
+        return None
+    if not isinstance(parsed, dict):
+        _logger.warning('episode metadata is not a JSON object; storing NULL: %r', metadata)
+        return None
+    return parsed
 
 
 def detect_episodes(events: Iterable[SessionEvent]) -> list[Episode]:
@@ -74,10 +120,14 @@ def detect_episodes(events: Iterable[SessionEvent]) -> list[Episode]:
                         stamp, current_start_ns,
                     )
                 else:
+                    # outcome/metadata 는 **종료 이벤트**에 실려 온다. 시작
+                    # 이벤트에는 없으므로 여기서 읽어야 한다.
                     episodes.append(Episode(
                         start_ns=current_start_ns,
                         stop_ns=stamp,
                         task_label=current_task,
+                        success=parse_outcome(ev.outcome),
+                        metadata=parse_metadata(ev.metadata),
                     ))
             current_start_ns = None
             current_task = None
@@ -101,4 +151,6 @@ __all__ = [
     'SessionEvent',
     'Episode',
     'detect_episodes',
+    'parse_metadata',
+    'parse_outcome',
 ]

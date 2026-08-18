@@ -1,10 +1,18 @@
-"""에피소드 필터 로직 단위 테스트 (pipeline._apply_episode_filters)."""
+"""에피소드 필터 로직 단위 테스트 (pipeline._apply_episode_filters).
+
+필터 자체는 순수 Python 이지만 `pipeline` 이 `sensor_msgs` 를 전이 의존하므로,
+ROS sourcing 이 안 된 환경에서는 전체 테스트를 skip 한다.
+"""
 
 from __future__ import annotations
 
-from rdfp.dataset.config import EpisodeFilter
-from rdfp.dataset.ingest.episode.detector import Episode
-from rdfp.dataset.ingest.pipeline import _apply_episode_filters
+import pytest
+
+pytest.importorskip('sensor_msgs', reason='requires ROS 2 runtime (transitive dependency)')
+
+from rdfp.dataset.config import EpisodeFilter                        # noqa: E402
+from rdfp.dataset.ingest.episode.detector import Episode             # noqa: E402
+from rdfp.dataset.ingest.pipeline import _apply_episode_filters      # noqa: E402
 
 
 def _ep(start: int, stop: int, label: str | None = None) -> Episode:

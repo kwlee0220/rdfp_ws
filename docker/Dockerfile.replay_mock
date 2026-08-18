@@ -1,0 +1,11 @@
+# replay mock 스택 이미지.
+#
+# run_replay_mock.sh 와 동일하게 replay_panda_mock.launch.py 를 실행한다.
+# (ros2_control mock + MoveIt + RViz + image_viewer + gripper/target_joint_states)
+#
+#   docker build -f docker/Dockerfile.replay_mock -t rdfp-replay-mock:latest .
+# (rdfp-base:latest 가 먼저 빌드되어 있어야 한다 — docker/build.sh 참고)
+FROM rdfp-base:latest
+
+# ENTRYPOINT 는 base 에서 상속(entrypoint.sh). CMD 만 교체한다.
+CMD ["ros2", "launch", "rdfp", "replay_panda_mock.launch.py"]

@@ -18,9 +18,9 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from control_msgs.msg import JointJog
-from std_srvs.srv import Trigger
+from rdfp_msgs.msg import GripperCommand
 
-from ..moveit.move_group_client import MoveGroupClient
+from ..moveit import create_move_group_client
 from ..moveit.servo_client import ServoClient
 from ..ros2_utils import get_parameter, parse_float, parse_str, parse_str_list
 from ..session.session_control_client import SessionControlClient
@@ -122,14 +122,26 @@ _DELTA_TWIST_TOPIC = "/servo_node/delta_twist_cmds"  # Default topic for TwistSt
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
 _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살표 매핑)
 
-# gripper_control_node 가 제공하는 Trigger 서비스. 기본 node 이름은
-# 'gripper_control' 이므로 ``~/open_gripper`` 는 /gripper_control/open_gripper 로
-# resolve 된다.
-_GRIPPER_OPEN_SERVICE = "/gripper_control/open_gripper"
-_GRIPPER_CLOSE_SERVICE = "/gripper_control/close_gripper"
+# gripper_control_node 가 구독하는 명령 토픽. 이 토픽이 곧 학습 데이터의 action
+# 채널이므로, 키 입력을 **숫자 명령**으로 바꿔 발행한다 (심볼을 보내면 그 의미가
+# 데이터셋 밖에 남는다).
+_GRIPPER_CMD_TOPIC = "/gripper_control/gripper_cmds"
+
+# Panda 손 관례: open = 0.04 m, close = 0.0 m (panda_finger_joint1 기준 half-width).
+# 물체를 쥐려면 max_effort > 0 이 필요하지만, 키보드 teleop 은 빈손 개폐가 기본
+# 용도이므로 0(드라이버 기본값)으로 둔다.
+_GRIPPER_TARGETS = {
+    "open": (0.04, 0.0),
+    "close": (0.0, 0.0),
+}
 
 _DEFAULT_RATE_HZ = 100.0
-_DEFAULT_DEADMAN_TTL_SEC = 0.1
+# deadman TTL 기본값. 마지막 모션 키 입력(자동반복 포함) 이후 이 시간만큼만
+# 모션을 유지하고 만료되면 멈춘다. 너무 길면 키를 뗀 뒤에도 오래 코스팅하고,
+# 너무 짧으면 OS 키보드 자동반복 간격(~33ms)을 못 메워 홀드 중 끊긴다.
+# 100Hz 타이머 + 30Hz 자동반복 기준으로 자동반복 간격은 메우면서 정지는 빠르게
+# 가져가도록 0.06s 로 둔다.
+_DEFAULT_DEADMAN_TTL_SEC = 0.06
 
 
 class TeleopKeyboard(Node):
@@ -167,11 +179,10 @@ class TeleopKeyboard(Node):
         # panda_joint1 단일 조인트 서보용 JointJog 퍼블리셔
         self.joint_jog_pub = self.create_publisher(JointJog, _DELTA_JOINT_TOPIC, 10)
 
-        # --- Gripper service clients ---
-        # 실제 액션 호출/토픽 발행은 gripper_control_node 가 담당한다. 본 노드는
-        # 키 입력을 Trigger 서비스 호출로 변환만 한다.
-        self._gripper_open_cli = self.create_client(Trigger, _GRIPPER_OPEN_SERVICE)
-        self._gripper_close_cli = self.create_client(Trigger, _GRIPPER_CLOSE_SERVICE)
+        # --- Gripper command publisher ---
+        # 액션 호출은 gripper_control_node 가 담당한다. 본 노드는 키 입력을
+        # 숫자 명령으로 바꿔 발행만 한다.
+        self._gripper_pub = self.create_publisher(GripperCommand, _GRIPPER_CMD_TOPIC, 10)
 
         # --- SessionControlClient (비동기 API 사용) ---
         self._session_client = SessionControlClient.create(self)
@@ -180,7 +191,7 @@ class TeleopKeyboard(Node):
         self.servo_utils = ServoClient.create(self, _SERVO_NODE_NAME)
 
         # --- MoveGroup 클라이언트 (Home 키 → 'ready' named target 이동) ---
-        self._move_group = MoveGroupClient(self)
+        self._move_group = create_move_group_client(self)
         # Home 이동 진행 중 플래그. True 이면 timer 가 twist/joint_jog 발행을
         # 건너뛰어 move_group trajectory 와 충돌하지 않게 한다.
         self._home_in_progress = False
@@ -257,6 +268,23 @@ class TeleopKeyboard(Node):
             return ch + ch2 + ch3
         return ch
 
+    def _read_all_keys(self):
+        """이번 틱에 입력 버퍼에 쌓인 키를 모두 읽어 순서대로 반환한다.
+
+        터미널 자동반복(typematic)으로 버퍼에 누적된 문자가 한 틱에 하나씩만
+        소비되면, 키를 물리적으로 뗀 뒤에도 잔여 문자가 매 틱 deadman TTL 을
+        갱신하여 로봇이 멈추지 않는다. 매 틱 버퍼를 완전히 비워 '가장 최근
+        입력'만 모션에 반영되도록 한다. 버퍼가 비면 :meth:`_read_key_nonblocking`
+        이 None 을 반환하므로 루프가 즉시 종료된다.
+        """
+        keys = []
+        while True:
+            key = self._read_key_nonblocking()
+            if key is None:
+                break
+            keys.append(key)
+        return keys
+
     # ── Twist helpers ───────────────────────────────────────────
 
     def _zero_twist(self):
@@ -330,41 +358,27 @@ class TeleopKeyboard(Node):
     # ── Gripper helpers ─────────────────────────────────────────
 
     def _call_gripper(self, command: str) -> None:
-        """gripper_control_node 의 Trigger 서비스를 비동기로 호출한다.
+        """키 입력을 숫자 명령으로 바꿔 `gripper_control_node` 에 발행한다.
 
-        실제 토픽 발행과 액션 호출은 gripper_control_node 내부에서 수행된다.
-        본 노드는 키 입력을 서비스 호출로만 변환한다. 서비스가 아직 뜨지
-        않았다면 경고만 찍고 스킵한다 (매 키 누름마다 블로킹 대기하지 않음).
+        결과는 기다리지 않는다 — 액션 호출과 result 발행은
+        `gripper_control_node` 의 몫이며, 도달 여부는 `/gripper_control/gripper_action_states`
+        또는 `/joint_states` 의 finger joint 로 확인한다.
         """
-        client = (
-            self._gripper_open_cli if command == "open" else self._gripper_close_cli
-        )
-        if not client.service_is_ready():
-            self.get_logger().warning(
-                f"[gripper] {command} service not ready; is gripper_control_node running?"
-            )
+        target = _GRIPPER_TARGETS.get(command)
+        if target is None:
+            self.get_logger().warning(f"[gripper] unknown command {command!r}")
             return
-        future = client.call_async(Trigger.Request())
-        future.add_done_callback(
-            lambda fut: self._on_gripper_service_done(command, fut)
-        )
 
-    def _on_gripper_service_done(self, command: str, future) -> None:
-        """gripper Trigger 서비스 호출 결과 처리 (비동기 콜백)."""
-        try:
-            result = future.result()
-        except Exception as e:   # noqa: BLE001
-            self.get_logger().warning(f"[gripper] {command} service call failed: {e}")
-            return
-        if result is None:
-            self.get_logger().warning(f"[gripper] {command} service returned no result")
-            return
-        if result.success:
-            self.get_logger().info(f"[gripper] {command}: {result.message or 'ok'}")
-        else:
-            self.get_logger().warning(
-                f"[gripper] {command} rejected: {result.message or 'unknown'}"
-            )
+        position, max_effort = target
+        msg = GripperCommand()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.position = position
+        msg.max_effort = max_effort
+        # label 은 제어에 쓰이지 않는다. 데이터셋을 눈으로 훑을 때만 쓴다.
+        msg.label = command
+        self._gripper_pub.publish(msg)
+
+        self.get_logger().info(f"[gripper] {command} (position={position:.3f} m)")
 
     # ── Home helpers (MoveIt named target 'ready' 이동) ─────────────
 
@@ -448,7 +462,7 @@ class TeleopKeyboard(Node):
         """Handle keys that fire once per press. Returns True if handled."""
         km = self.keys
 
-        # Gripper — gripper_control_node 의 Trigger 서비스 위임 호출.
+        # Gripper — gripper_control_node 가 구독하는 명령 토픽에 발행.
         if key == km.gripper_open:
             self._call_gripper("open")
             return True
@@ -480,6 +494,8 @@ class TeleopKeyboard(Node):
             )
             return True
         if key == km.episode_end:
+            # outcome/metadata 를 비워 호출한다 — 키 하나로 끝내는 UI 라 성패를 줄
+            # 수단이 없고, 그 결과가 곧 '판정 없음'(DB 의 success=NULL)이다.
             self._session_client.stop_episode_async(
                 done_callback=lambda ok, msg: self._on_trigger_done("stop_episode", ok, msg),
             )
@@ -518,37 +534,45 @@ class TeleopKeyboard(Node):
             dt = self.timer.timer_period_ns * 1e-9
             self._deadman_ttl = max(0.0, self._deadman_ttl - dt)
 
-            # Read keyboard input
-            key = self._read_key_nonblocking()
-            if key is not None:
+            # Read ALL buffered keys this tick. 자동반복으로 버퍼에 누적된 문자가
+            # 틱을 넘겨 잔존하면 키를 뗀 뒤에도 deadman TTL 이 계속 갱신되므로,
+            # 매 틱 버퍼를 비우고 '가장 최근 모션 키'만 반영한다. one-shot 키
+            # (그리퍼/에피소드/세션/태스크/Home)는 배치 내 모두 처리한다.
+            motion_key = None
+            for key in self._read_all_keys():
                 try:
                     # One-shot keys (gripper, episode, task) are handled immediately
                     if self._handle_oneshot_key(key):
-                        return
+                        continue
 
                     # Check if this is a valid motion or control key
                     valid_keys = self._get_all_valid_keys()
                     if key not in valid_keys:
                         self._handle_unknown_key(key)
-                        return  # Don't process unknown keys further
+                        continue  # Don't process unknown keys further
 
-                    self._last_key = key
-
-                    # Refresh deadman on SPACE or motion key
-                    if key == self.keys.deadman or key in self.motion_keys:
-                        self._deadman_ttl = self.deadman_ttl_sec
-
-                    # Stop key: publish zero once (twist + joint_jog 모두)
+                    # Stop key: publish zero once and end this tick immediately
                     if key == self.keys.stop:
+                        self._last_key = key
                         self._zero_twist()
                         self._zero_joint_jog()
                         self._publish_twist_safely()
                         self._publish_joint_jog_safely()
                         return
 
+                    # SPACE(deadman) 또는 모션 키: 배치 내 마지막 것만 유효
+                    if key == self.keys.deadman or key in self.motion_keys:
+                        motion_key = key
+
                 except Exception as e:
                     self.get_logger().warning(f"Failed to process key '{key}': {e}")
                     # Continue execution - don't let key processing errors stop the timer
+
+            # 이번 틱에 모션/deadman 키가 있었을 때만 그것을 반영하고 TTL 을 갱신한다.
+            # 버퍼가 비어 있으면(키를 뗀 상태) TTL 은 갱신되지 않고 곧 만료되어 멈춘다.
+            if motion_key is not None:
+                self._last_key = motion_key
+                self._deadman_ttl = self.deadman_ttl_sec
 
             if self._deadman_ttl <= 0.0:
                 return

@@ -164,28 +164,56 @@ def test_gripper_command_row_values() -> None:
 
     conn = _FakeConn()
     w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
-    msg = SimpleNamespace(header=_header(100, 500), command='open')
+    msg = SimpleNamespace(header=_header(100, 500), position=0.04, max_effort=0.0,
+                          label='open')
     w.append(3, msg)
     assert len(conn.executed) == 1
     sql, params = conn.executed[0]
     assert 'INSERT INTO gripper_cmds' in sql
-    assert params[0] == (3, 11, 100, 500, 'open')
+    # 심볼이 아니라 숫자가 남아야 한다 — 데이터셋이 자기 완결적이어야 하기 때문이다.
+    assert params[0] == (3, 11, 100, 500, 0.04, 0.0, 'open')
+
+
+def test_gripper_command_label_is_optional() -> None:
+    """`label` 은 제어에 쓰이지 않는 선택 필드다 — 없어도 적재가 멈추지 않는다."""
+    from rdfp.dataset.db.writers.gripper_command import GripperCommandWriter
+
+    conn = _FakeConn()
+    w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
+    w.append(3, SimpleNamespace(header=_header(100, 500), position=0.0, max_effort=30.0))
+
+    assert conn.executed[0][1][0] == (3, 11, 100, 500, 0.0, 30.0, '')
 
 
 def test_gripper_state_row_values() -> None:
-    from rdfp.dataset.db.writers.gripper_state import GripperStateWriter
+    from rdfp.dataset.db.writers.gripper_action_state import GripperActionStateWriter
 
     conn = _FakeConn()
-    w = GripperStateWriter(conn=conn, batch_size=1, topic_id=13)
+    w = GripperActionStateWriter(conn=conn, batch_size=1, topic_id=13)
+    msg = SimpleNamespace(
+        header=_header(10, 20),
+        position=0.04, effort=12.5, stalled=False, reached_goal=True, status=4,
+    )
+    w.append(5, msg)
+    assert len(conn.executed) == 1
+    sql, params = conn.executed[0]
+    assert 'INSERT INTO gripper_action_states' in sql
+    assert params[0] == (5, 13, 10, 20, 0.04, 12.5, False, True, 4)
+
+
+def test_gripper_state_row_values_without_status() -> None:
+    """status 도입 이전에 녹화된 메시지는 UNKNOWN(0) 으로 적재한다."""
+    from rdfp.dataset.db.writers.gripper_action_state import GripperActionStateWriter
+
+    conn = _FakeConn()
+    w = GripperActionStateWriter(conn=conn, batch_size=1, topic_id=13)
     msg = SimpleNamespace(
         header=_header(10, 20),
         position=0.04, effort=12.5, stalled=False, reached_goal=True,
     )
     w.append(5, msg)
-    assert len(conn.executed) == 1
-    sql, params = conn.executed[0]
-    assert 'INSERT INTO gripper_states' in sql
-    assert params[0] == (5, 13, 10, 20, 0.04, 12.5, False, True)
+    _, params = conn.executed[0]
+    assert params[0] == (5, 13, 10, 20, 0.04, 12.5, False, True, 0)
 
 
 # --------------------------------------------------------------------------
@@ -211,7 +239,8 @@ def test_registry_contains_new_gripper_types() -> None:
     from rdfp.dataset.db.registry import MESSAGE_TYPE_REGISTRY
 
     assert MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperCommand'].table == 'gripper_cmds'
-    assert MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperState'].table == 'gripper_states'
+    assert (MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperActionState'].table
+            == 'gripper_action_states')
 
 
 def test_registry_table_matches_writer_class_default() -> None:
@@ -303,3 +332,88 @@ def test_registry_target_joint_states_maps_to_target_joint_states() -> None:
     binding = MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/TargetJointStates']
     assert binding.table == 'target_joint_states'
     assert binding.writer_cls is TargetJointStatesWriter
+
+
+# ----- SessionWriter (sessions 테이블) -----
+
+class _FakeEpisodeConn:
+    """execute 호출을 기록하고 고정 id 를 돌려주는 더미 커넥션."""
+
+    def __init__(self, returned_id: int = 7) -> None:
+        self.executed: list[tuple[str, tuple]] = []
+        self._id = returned_id
+
+    def cursor(self):
+        this = self
+
+        class _Cur:
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                this.executed.append((sql, params))
+
+            def fetchone(self):
+                return (this._id,)
+
+        return _Cur()
+
+
+def _insert_params(conn: _FakeEpisodeConn) -> tuple:
+    return conn.executed[0][1]
+
+
+def test_session_writer_inserts_success_and_metadata() -> None:
+    from psycopg.types.json import Jsonb
+
+    from rdfp.dataset.db.writers.session_command import SessionWriter
+
+    conn = _FakeEpisodeConn(returned_id=11)
+    episode_id = SessionWriter(conn).insert_episode(
+        1_500_000_000_123_000_000, 1_500_000_002_456_000_000, 'pick_red_cube',
+        success=False, metadata={'seed': 42, 'scene': 'one_cube'}
+    )
+
+    assert episode_id == 11
+    start_sec, start_ns, stop_sec, stop_ns, label, success, metadata = _insert_params(conn)
+    assert (start_sec, start_ns) == (1_500_000_000, 123_000_000)
+    assert (stop_sec, stop_ns) == (1_500_000_002, 456_000_000)
+    assert label == 'pick_red_cube'
+    assert success is False
+    # dict 를 그대로 넘기면 psycopg 가 타입을 정하지 못하므로 jsonb 로 어댑트한다.
+    assert isinstance(metadata, Jsonb)
+
+
+def test_session_writer_defaults_leave_success_and_metadata_null() -> None:
+    """판정 주체가 없는 수집(텔레오퍼레이션 등)에서는 둘 다 NULL 이어야 한다."""
+    from rdfp.dataset.db.writers.session_command import SessionWriter
+
+    conn = _FakeEpisodeConn()
+    SessionWriter(conn).insert_episode(1_000_000_000, 2_000_000_000, None)
+
+    *_, label, success, metadata = _insert_params(conn)
+    assert label is None
+    assert success is None
+    assert metadata is None
+
+
+def test_session_writer_keeps_empty_metadata_distinct_from_none() -> None:
+    """빈 dict 는 '정보 없음'(NULL) 이 아니라 빈 jsonb 로 들어간다."""
+    from psycopg.types.json import Jsonb
+
+    from rdfp.dataset.db.writers.session_command import SessionWriter
+
+    conn = _FakeEpisodeConn()
+    SessionWriter(conn).insert_episode(1_000_000_000, 2_000_000_000, None, metadata={})
+
+    assert isinstance(_insert_params(conn)[-1], Jsonb)
+
+
+def test_schema_check_requires_the_new_session_columns() -> None:
+    from rdfp.dataset.db.schema_check import REQUIRED_COLUMNS
+
+    assert {'success', 'metadata'} <= set(REQUIRED_COLUMNS['sessions'])

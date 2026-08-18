@@ -8,7 +8,7 @@ GUI 포함) 까지 한 패키지로 묶여 있습니다.
 서비스/메시지 인터페이스는 별도 패키지 `rdfp_msgs` 에서 제공되므로 함께
 빌드해야 합니다.
 
-## 패키지 구조
+## 1. 패키지 구조
 
 ```
 rdfp/
@@ -19,18 +19,19 @@ rdfp/
 ├── launch/                    # *.launch.py + *_launch_helper.py (launch/README.md 참고)
 ├── resource/rdfp              # ament 리소스 마커
 └── rdfp/                      # Python 소스 root
-    ├── moveit/                # MoveGroupClient / ServoClient / EE pose / gripper / target_joint_states
+    ├── moveit/                # MoveGroup 클라이언트(JTC/JGPC) / ServoClient / EE pose / gripper / target_joint_states
     ├── camera/                # camera_node, image_viewer, OpenCV capture 헬퍼
     ├── recorder/              # FFMpegMp4Recorder + image_recorder_node (ROS adapter)
     ├── session/               # session_control_node — IDLE / IN_SESSION / IN_EPISODE 상태 머신
-    ├── teleop/                # teleop_keyboard, session_teleop
+    ├── teleop/                # teleop_keyboard, session_teleop, teleop_retarget,
+    │                          # clutch_pedal(USB 풋페달), ClutchClient
     ├── rosbag/                # MCAP catalog/discovery + `rosbag` CLI
     ├── dataset/               # DB 스키마 + ingestion 파이프라인 + `import`/`stats`/`list`/`init-db`/`replay` CLI
     │                          # (replay_gui_cmd — Tk GUI 도 여기 포함)
     └── samples/               # 수동 샘플/데모 스크립트 (entry_point 아님)
 ```
 
-## Launch 구조
+## 2. Launch 구조
 
 `src/rdfp/launch/` 디렉터리는 launch 진입점과 재사용 helper를 함께 포함합니다.
 
@@ -42,42 +43,197 @@ rdfp/
 현재 Panda mock 전체 스택의 메인 진입점은 `launch/panda_mock.launch.py` 입니다.
 launch 파일 간 역할 분리와 의존 관계의 상세 설명은 `launch/README.md` 를 참고하세요.
 
-## 주요 기능
+## 3. 활용 절차
 
-### rdfp.moveit 모듈
+### 3.1 사전 준비
+#### 3.1.1 워크스페이스 빌드 및 환경 설정
+```bash
+cd ~/development/ros/rdfp_ws
+colcon build --packages-select rdfp_msgs rdfp
+source install/setup.bash
+```
+
+#### 3.1.2 rosbag 저장 디렉토리 확인
+* rosbag2 의 기본 저장 디렉토리는 `~/rosbags` 입니다. 다른 위치에 저장하려면
+  `ROS2_BAG_DIR` 환경변수를 설정하세요.
+* rosbag2 저장 디렉토리가 비어 있는지 확인하고, 충분한 여유 공간이 있는지 확인하세요 (최소 10 GB 권장).
+* 관련 설정 파일
+  - `record_rosbag.sh` 의 `ROS2_BAG_DIR` 기본값
+  - `dataset_config.yaml` 의 `rosbag_dir` 필드
+* 수집 대상 토픽 목록은 config/recording_topics.list 에 정의되어 있습니다.
+필요에 따라 수정하세요.
+
+#### 3.1.3 rosbag 저장소 초기화 (필요에 따라)
+설정된 rosbag 저장소에 저장된 모든 데이터를 삭제.
+```bash
+ros2 run rdfp rosbag clear
+```
+
+#### 3.1.4 PostgreSQL 데이터베이스 준비
+데이터셋 후처리기에서 사용할 PostgreSQL 데이터베이스를 준비합니다. DSN은
+환경변수 `RDFP_DB_DSN` 을 통해 설정함. (예: `postgresql://user:pass@localhost:5432/rdfp`).
+데이터베이스가 준비되면 다음 명령으로 스키마를 초기화합니다.
+```bash
+ros2 run rdfp init-db   # 필요한 테이블들이 없는 경우에 생성.
+ros2 run rdfp init-db --drop --yes  # 주의: 기존 데이터베이스 스키마와 모든 데이터가 삭제됩니다
+```
+
+### 3.2 학습 데이터 수집
+
+#### 3.2.1 수집 환경 확인 (옵션, 별도 터미널)
+```bash
+
+# 주요 ROS2 노드 모니터링 (터미널 #1)
+cd ~/development/ros/rdfp_ws/src/rdfp/scripts
+watch rdfp_list_nodes.sh
+
+# 주요 토픽 모니터링 (터미널 #2)
+cd ~/development/ros/rdfp_ws/src/rdfp/scripts
+watch rdfp_list_topics.sh
+```
+
+#### 3.2.2 Panda mock 환경 실행 (별도 터미널)
+```bash
+ros2 launch rdfp rdfp_panda_mock.launch.py
+```
+실행 후 RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control,
+mock_scene_state 노드가 모두 실행되어야 합니다 (씬 노드는 `enable_scene_node:=false` 로 끌 수 있습니다).
+
+#### 3.2.3 키보드기반 teleop 으로 학습 데이터 생성 (별도 터미널)
+```bash
+ros2 run rdfp teleop_keyboard
+```
+
+#### 3.2.4 rosbag2 녹화 시작 (별도 터미널)
+```bash
+ros2 run rdfp record_rosbag
+```
+녹화가 시작되면 `record_rosbag` 노드가 `ROS2_BAG_DIR` (기본 `~/rosbags`) 아래에
+`YYYYMMDD-HHMMSS` 형식의 새 디렉토리를 만들고, 그 안에 rosbag2 MCAP 파일이
+생성됩니다.
+
+#### 3.2.5 키보드 조작을 통한 학습 데이터 생성
+
+주요 명령 키 목록 (`?` 키로 노드 내에서도 동일한 도움말을 출력할 수 있음):
+
+| 카테고리 | 키 | 동작 |
+|---|---|---|
+| 이동 (Cartesian linear) | `j` / `l` | +x / -x |
+|                         | `i` / `k` | +y / -y |
+|                         | `q` / `a` | +z / -z |
+| 이동 (Cartesian angular) | `r` / `f` | roll +x / -x |
+|                          | `t` / `g` | pitch +y / -y |
+|                          | `y` / `h` | yaw +z / -z |
+| 이동 (Joint)            | `'` / `;` | `panda_joint1` + / - |
+| 제어                    | `SPACE`   | deadman (눌러야 motion 명령이 발행됨, 기본 TTL 0.1s) |
+|                         | `x`       | twist / joint_jog 을 0 으로 즉시 발행 (stop) |
+|                         | `/`       | MoveIt SRDF 의 `ready` named target 으로 이동 |
+|                         | `?`       | 명령 키 도움말 출력 |
+|                         | `Ctrl-C`  | 종료 |
+| 그리퍼                  | `=`       | open — `/gripper_control/gripper_cmds` 에 `position=0.04` 발행 |
+|                         | `-`       | close — 같은 토픽에 `position=0.0` 발행 |
+| 세션                    | `<` 또는 `,` | `start_session` |
+|                         | `>` 또는 `.` | `stop_session` |
+| 에피소드                | `[`       | `start_episode` |
+|                         | `]`       | `stop_episode` |
+| Task                    | `1`–`9`   | `tasks` 파라미터의 라벨 선택 (현재 매핑은 노드 시작 로그 참조) |
+|                         | `0`       | task 라벨 해제 |
+
+> 참고
+> - **Deadman 동작**: motion 키(linear/angular/joint)는 `SPACE` 또는 motion 키를
+>   누르는 동안만 발행된다. 마지막 입력으로부터 `deadman_ttl_sec`(기본 0.1초)이
+>   지나면 자동으로 멈춘다.
+> - **One-shot 명령**: 그리퍼/세션/에피소드/task 키는 deadman 과 무관하게
+>   누른 즉시 한 번만 서비스가 호출된다.
+> - **Home 이동 중**: `/` 키 처리 동안에는 servo 명령 발행이 일시 중단되어
+>   `move_group` 의 trajectory 와 충돌하지 않는다.
+
+#### 3.2.6 rosbag에 수집된 토픽 목록 확인
+```bash
+ros2 run rdfp rosbag list-topics
+```
+
+### 3.3 수집 데이터를 데이터베이스에 적재
+```bash
+ros2 run rdfp import
+```
+
+### 3.4 수집된 데이터 확인 및 재생
+
+#### 3.4.1 동작 재생을 위한 panda mock 환경 실행 (별도 터미널)
+```bash
+ros2 launch rdfp replay_panda_mock.launch.py
+```
+
+arm 을 구동하는 경로는 `replay_arm_path` 로 고릅니다 (기본 `target_joint_states`).
+자세한 내용은 [docs/replay/replay_mock_stack_guide.md](../../docs/replay/replay_mock_stack_guide.md).
+
+#### 3.4.2 적재된 에피소드 재생 도구 실행 (Tk GUI 포함)
+```bash
+ros2 run rdfp replay_gui
+```
+
+## 4. 주요 기능
+
+### 4.1 rdfp.moveit 모듈
 
 MoveIt2 서비스/액션 인터페이스를 사용하여 카테시안 경로를 계획하고 실행하는 통합 모듈입니다.
-핵심 진입점은 [`MoveGroupClient`](rdfp/moveit/move_group_client.py) 클래스이며,
 외부에서 생성한 `rclpy.node.Node` 를 주입받아 서비스/액션 클라이언트를 그 위에 올립니다.
 
-#### `MoveGroupClient` 주요 메서드
+**계획은 컨트롤러와 무관하지만 실행은 그렇지 않으므로**, 클라이언트가 세 개로 나뉘어 있습니다.
+
+| 클래스 | 역할 |
+|---|---|
+| [`MoveGroupClient`](rdfp/moveit/move_group_client.py) | 계획 + SRDF 조회. **추상 클래스라 직접 생성 불가** |
+| [`MoveGroupJtcClient`](rdfp/moveit/move_group_jtc_client.py) | `JointTrajectoryController` 환경 — MoveGroup/ExecuteTrajectory 액션으로 실행 |
+| [`MoveGroupJgpcClient`](rdfp/moveit/move_group_jgpc_client.py) | forward command 컨트롤러 환경 — `Float64MultiArray` 명령 스트리밍으로 실행. **open loop** |
+
+핵심 진입점은 [`create_move_group_client(node)`](rdfp/moveit/move_group_factory.py) 팩토리입니다.
+`/panda_arm_controller/commands` 토픽 존재 여부로 컨트롤러를 판별해 알맞은 구현을 돌려주므로,
+호출부는 어느 스택인지 몰라도 됩니다. 확실히 알고 있다면 `mode='jtc'` / `mode='jgpc'` 로 강제합니다.
+
+#### 4.1.1 주요 메서드
 
 | 메서드 | 설명 |
 |------|------|
-| `MoveGroupClient(node, ...)` | 서비스/액션 클라이언트를 lazy 생성 (서버 대기 없음) |
+| `create_move_group_client(node, mode='auto')` | 컨트롤러(JTC/JGPC)를 판별해 알맞은 구현 생성 — **권장 진입점** |
+| `MoveGroupClient` | 공통 인터페이스(추상). 직접 생성 불가 |
+| `MoveGroupJtcClient` / `MoveGroupJgpcClient` | 각각 액션 실행 / command 스트리밍 실행 구현 |
 | `wait_until_ready(timeout_sec=30.0)` | 서비스와 액션 서버가 준비될 때까지 블로킹 대기 |
 | `is_ready()` | 서비스/액션 준비 여부를 즉시 반환 (non-blocking) |
-| `follow_trajectory(waypoints, ...)` | 경로 계획 및 실행 (원스톱) |
+| `get_named_targets(group=None)` | SRDF `group_state` 에 정의된 named target 목록 조회 (**한 그룹만**. `None` 은 생성자의 기본 그룹) |
+| `get_all_named_targets()` | 모든 planning 그룹의 named target 을 `{group: [name, ...]}` 로 조회 |
+| `get_planning_groups()` | SRDF 에 정의된 planning group 이름 전체 조회 (named target 이 없는 그룹 포함) |
+| `move_to_named_target(name, ...)` | SRDF 의 named target (예: `"ready"`) 으로 이동 |
+| `move_to_named_target_async(name, ...)` | 위 호출의 비동기 버전 (실행 Future 반환) |
+| `follow_trajectory(waypoints, ...)` | 카테시안 경로 계획 및 실행 (원스톱) |
+| `follow_trajectory_async(waypoints, ...)` | 위 호출의 비동기 버전 (계획 + 실행 Future 반환) |
 | `plan_trajectory(waypoints, ...)` | 카테시안 경로 계획만 수행 |
 | `plan_trajectory_async(waypoints, ...)` | 경로 계획 요청을 보내고 Future 반환 |
-| `execute_trajectory(trajectory, ...)` | 사전 계획된 trajectory 실행 |
-| `execute_trajectory_async(trajectory, ...)` | 실행 goal 을 보내고 결과 Future 반환 |
+| `execute_trajectory(trajectory, ...)` | 사전 계획된 trajectory 실행 — **JTC 전용** |
+| `execute_trajectory_async(trajectory, ...)` | 실행 goal 을 보내고 결과 Future 반환 — **JTC 전용** |
+| `stream_trajectory(trajectory, ..., publish_rate=None)` | 궤적을 명령 토픽으로 발행 — **JGPC 전용**. `publish_rate` 로 보간 발행 |
+| `follow_trajectory_streamed(waypoints, ...)` | 카테시안 계획 + 스트리밍 — **JGPC 전용** |
+| `stop_streaming()` | 진행 중인 스트리밍 중단 — **JGPC 전용** |
 | `scale_trajectory_velocity(trajectory, factor)` | trajectory 의 속도 스케일링 |
 | `close()` / `destroy()` | 생성한 클라이언트 리소스 정리 (컨텍스트 매니저도 지원) |
 | `pose(x, y, z, roll, pitch, yaw)` | RPY 를 쿼터니언으로 변환해 Pose 생성 (유틸) |
 
-#### 주요 특징
+#### 4.1.2 주요 특징
 
+- **컨트롤러 추상화**: `move_to_named_target()` / `follow_trajectory()` 는 두 환경에서
+  모두 동작하되 실행 메커니즘이 다릅니다. **JGPC 구현은 open loop 라 정상 반환이
+  목표 도달을 뜻하지 않습니다** — 도달 확인이 필요하면 JTC 구현을 명시적으로 요구하세요
 - **기본값 주입**: `fraction_threshold`, `velocity_scaling`, `max_step`, `jump_threshold`
   는 생성자에 기본값으로 설정하고 호출 시 `None` 이 아닌 값으로 override 가능
 - **Lazy 초기화**: 생성자는 클라이언트 객체만 만들고 서버 대기는 하지 않음
-- **컨텍스트 매니저**: `with MoveGroupClient(node) as client:` 로 리소스 자동 정리
+- **컨텍스트 매니저**: `with create_move_group_client(node) as client:` 로 리소스 자동 정리
 - **비동기 API**: `*_async()` 메서드로 Future 기반 호출 가능
 - **안전성**: waypoint 유효성 검사, 쿼터니언 정규화 확인
 - **타임아웃**: 모든 작업에 타임아웃 설정 가능
 - **예외 기반 오류 처리**: `ValueError`, `TimeoutError`, `RuntimeError` 로 실패 신호
 
-## 의존성
+## 5. 의존성
 
 | 패키지 | 용도 |
 |--------|------|
@@ -87,7 +243,7 @@ MoveIt2 서비스/액션 인터페이스를 사용하여 카테시안 경로를 
 | `tf_transformations` | 오일러 각도 ↔ 쿼터니언 변환 (`sudo apt install ros-humble-tf-transformations`) |
 | `builtin_interfaces` | Duration 등 기본 메시지 타입 |
 
-## MoveIt2 인터페이스
+## 6. MoveIt2 인터페이스
 
 이 패키지는 MoveItPy가 아닌 MoveIt2의 서비스/액션 인터페이스를 직접 사용합니다.
 
@@ -101,9 +257,9 @@ MoveIt2 서비스/액션 인터페이스를 사용하여 카테시안 경로를 
 | Jump Threshold | 0.0 (비활성화) |
 | 성공 기준 | fraction > 0.9 (경로의 90% 이상 계산 성공 시 실행) |
 
-## 활용 방법
+## 7. 활용 방법
 
-### 1. 빌드
+### 7.1 빌드
 
 워크스페이스 루트에서 패키지를 빌드합니다.
 
@@ -113,9 +269,9 @@ colcon build --packages-select rdfp
 source install/setup.bash
 ```
 
-### 2. 데모 실행
+### 7.2 데모 실행
 
-먼저 별도의 터미널에서 Panda MoveIt 환경(RViz, ros2_control, move_group, servo, camera, ee_pose_publisher)을 실행합니다.
+먼저 별도의 터미널에서 Panda MoveIt 환경(RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control, mock_scene_state)을 실행합니다.
 
 ```bash
 ros2 launch rdfp panda_mock.launch.py
@@ -130,21 +286,21 @@ ros2 launch rdfp rdfp_panda_mock.launch.py
 python3 -m rdfp.moveit.test_move_cartesian
 ```
 
-### 3. 커스텀 경유점 정의
+### 7.3 커스텀 경유점 정의
 
 `rdfp.moveit` 모듈을 사용하여 자신만의 경유점을 정의할 수 있습니다.
 
 ```python
 import rclpy
 from rclpy.node import Node
-from rdfp.moveit import MoveGroupClient, pose
+from rdfp.moveit import create_move_group_client, pose
 
 rclpy.init()
 node = Node('custom_cartesian_planner')
 
 try:
     # 컨텍스트 매니저로 클라이언트를 생성하면 리소스가 자동 정리됩니다.
-    with MoveGroupClient(node) as client:
+    with create_move_group_client(node) as client:
         client.wait_until_ready()
 
         # 커스텀 경유점 정의 (x, y, z, roll, pitch, yaw)
@@ -164,13 +320,13 @@ finally:
     rclpy.shutdown()
 ```
 
-### 4. 속도 스케일링 조정
+### 7.4 속도 스케일링 조정
 
 `velocity_scaling` 은 생성자 기본값으로 설정하거나 각 호출에서 override 할 수 있습니다.
 
 ```python
 # 방법 A: 클라이언트 전체 기본값을 낮춤 (안전 모드)
-with MoveGroupClient(node, velocity_scaling=0.2) as client:
+with create_move_group_client(node, velocity_scaling=0.2) as client:
     client.wait_until_ready()
     client.follow_trajectory(waypoints)  # 20% 속도
 
@@ -178,7 +334,7 @@ with MoveGroupClient(node, velocity_scaling=0.2) as client:
 client.follow_trajectory(waypoints, velocity_scaling=0.5)  # 이 호출만 50%
 ```
 
-## 카메라 노드 (`camera_node`)
+## 8. 카메라 노드 (`camera_node`)
 
 `camera_node` 는 토픽 이름을 파라미터로 받지 않고, 다음 **private 기본 토픽**을
 사용합니다 (`~/` prefix 는 노드 이름으로 자동 치환되어 기본 노드 이름
@@ -191,7 +347,7 @@ client.follow_trajectory(waypoints, velocity_scaling=0.5)  # 이 호출만 50%
 
 실제 토픽 연결은 ROS2 remap 으로 지정합니다.
 
-### 실행 예 (`ros2 run`)
+### 8.1 실행 예 (`ros2 run`)
 
 ```bash
 ros2 run rdfp camera_node \
@@ -204,7 +360,7 @@ ros2 run rdfp camera_node \
   -r ~/camera_status:=/camera/image_raw/status
 ```
 
-### launch 인자 매핑 (`launch/camera_launch_helper.py`)
+### 8.2 launch 인자 매핑 (`launch/camera_launch_helper.py`)
 
 - `camera_image_topic` -> remap `~/image_raw`
 - `camera_info_topic` -> remap `~/camera_info`
@@ -212,16 +368,17 @@ ros2 run rdfp camera_node \
 
 즉, launch 에서는 토픽을 파라미터로 넘기지 않고 remap 값으로만 제어합니다.
 
-## 이미지 녹화 노드 (`image_recorder_node`)
+## 9. 이미지 녹화 노드 (`image_recorder_node`)
 
 `sensor_msgs/Image` 토픽을 수신해 MP4 파일로 녹화하는 ROS2 노드입니다.
 녹화 엔진은 `rdfp.recorder.FFMpegMp4Recorder` 를 재사용하며, 본 노드는
 ROS2 인터페이스 ↔ recorder 간 얇은 어댑터 역할을 수행합니다.
 
-상세 명세는 [docs/image_recorder_node_srs.md](rdfp/recorder/docs/image_recorder_node_srs.md)
+상세 사용 설명은 [docs/recorder/image_recorder_node_guide.md](../../docs/recorder/image_recorder_node_guide.md)
+를, 녹화 엔진 자체의 가이드는 [docs/recorder/ffmpeg_mp4_recorder_guide.md](../../docs/recorder/ffmpeg_mp4_recorder_guide.md)
 를 참고하세요.
 
-### 사전 요구사항
+### 9.1 사전 요구사항
 
 - `ffmpeg` 바이너리가 시스템 PATH 에 있어야 합니다.
 - 서비스 인터페이스가 정의된 별도 패키지 `rdfp_msgs` 가 함께 빌드되어야 합니다.
@@ -231,7 +388,7 @@ colcon build --packages-select rdfp_msgs rdfp
 source install/setup.bash
 ```
 
-### 실행 예
+### 9.2 실행 예
 
 ```bash
 ros2 run rdfp image_recorder_node \
@@ -248,7 +405,7 @@ ros2 run rdfp image_recorder_node \
 기본 토픽명은 `image` 이며, ROS2 remap 관례 (`-r image:=...`) 로 다른 토픽에
 연결할 수 있습니다.
 
-### 서비스 호출
+### 9.3 서비스 호출
 
 녹화는 두 개의 서비스로 제어합니다 (요청 필드는 모두 비어있음).
 
@@ -264,7 +421,7 @@ ros2 service call /image_recorder/stop_session  rdfp_msgs/srv/StopSession
 생성됩니다 (`SSS` 는 밀리초 3자리). 한 노드에서 start/stop 을 반복하여 여러
 세션을 순차적으로 녹화할 수 있습니다.
 
-### 주요 파라미터
+### 9.4 주요 파라미터
 
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
@@ -295,18 +452,39 @@ ros2 service call /image_recorder/stop_session  rdfp_msgs/srv/StopSession
 - **SIGINT 안전**: Ctrl+C 로 종료해도 진행 중인 세션의 MP4 가 finalize
   됩니다 (`destroy_node()` 에서 `recorder.stop()` → `recorder.shutdown()`).
 
-## 세션 제어 노드 (`session_control_node`)
+### 9.5 세션 기반 자동 녹화 노드 (`rdfp_image_recorder`)
+
+`image_recorder_node` 가 외부 서비스 호출로 start/stop 을 받는 반면,
+`rdfp_image_recorder` (= `RdfpImageRecorderNode`) 는 `/session` 토픽
+(`rdfp_msgs/msg/SessionCommand`) 의 상태 전이를 직접 구독하여
+`IN_EPISODE` 구간에만 자동으로 녹화합니다. 녹화 경계는 메시지 도착 순서가
+아닌 **타임스탬프 기반** 으로 판정하며, `pending_image_queue` 로 도착
+순서 차이를 보상합니다.
+
+녹화 1회 당 3개 파일이 생성됩니다 (`<prefix>=session_prefix`,
+`<start_ts>=YYYYMMDD-HHMMSS.SSS`):
+
+* `<output_dir>/<prefix>_<start_ts>.mp4` — 영상
+* `<output_dir>/<prefix>_<start_ts>.jsonl` — 프레임별 sidecar
+  (`{"frame_index": N, "stamp": {"sec": ..., "nanosec": ...}}`)
+* `<output_dir>/<prefix>_metadata.json` — recording metadata
+
+상세 사용 설명은 [docs/recorder/rdfp_image_recorder_node_guide.md](../../docs/recorder/rdfp_image_recorder_node_guide.md)
+를 참고하세요. launch 통합 예는 `rdfp_advanced.launch.py` 에 있습니다.
+
+## 10. 세션 제어 노드 (`session_control_node`)
 
 세션(session)과 에피소드(episode) 생명주기를 제어하는 ROS2 노드입니다. 외부
 클라이언트는 서비스로 제어 명령을 전달하고, 본 노드는 내부 상태 머신을 갱신한
 뒤 변경된 상태(`state`)와 `task_label` 을 `session` 토픽으로 발행하여 다른
 노드가 수신·반응할 수 있게 합니다.
 
-상세 스펙은 [session_control_srs.md](rdfp/session/session_control_srs.md),
-개발 절차는 [session_control_plan.md](rdfp/session/session_control_plan.md)
+상세 사용 설명은 [docs/session/session_control_guide.md](../../docs/session/session_control_guide.md)
+를, Python 클라이언트 (`SessionControlClient`) 사용 가이드는
+[docs/session/session_control_client_guide.md](../../docs/session/session_control_client_guide.md)
 를 참고하세요.
 
-### 사전 요구사항
+### 10.1 사전 요구사항
 
 서비스/메시지 인터페이스가 정의된 `rdfp_msgs` 패키지가 함께 빌드되어야 합니다.
 
@@ -315,7 +493,7 @@ colcon build --packages-select rdfp_msgs rdfp
 source install/setup.bash
 ```
 
-### 실행 예
+### 10.2 실행 예
 
 ```bash
 # 단독 실행 — 서비스/토픽은 /session_control 네임스페이스 하위에 노출됨
@@ -325,7 +503,7 @@ ros2 run rdfp session_control_node
 ros2 launch rdfp rdfp_advanced.launch.py
 ```
 
-### 상태 머신
+### 10.3 상태 머신
 
 토픽 발행 내용은 `(state, task_label)` 쌍이며, `<L>` 은 현재 `task_label`,
 `<NEW>` 는 `set_task_label(task_label=<NEW>)` 로 지정된 새 라벨입니다.
@@ -349,7 +527,7 @@ ros2 launch rdfp rdfp_advanced.launch.py
   IDLE` 의 논리적 2 단계 전이를 구독자에게 노출합니다. 이 원자적 동작은
   `stop_session` 핸들러 내부에서 처리되므로 클라이언트는 한 번만 호출하면 됩니다.
 
-### 서비스 호출
+### 10.4 서비스 호출
 
 세션 제어 명령은 5 개의 분할된 서비스로 제공됩니다. 4 개는 `std_srvs/srv/Trigger`,
 `set_task_label` 만 `rdfp_msgs/srv/SetString` 를 사용합니다.
@@ -375,7 +553,7 @@ ros2 service call /session_control/get_session_state \
 # 예: state='IN_SESSION', task_label='pick_and_place'
 ```
 
-### 토픽 QoS
+### 10.5 토픽 QoS
 
 `session` publisher 는 다음 QoS 로 설정됩니다. 늦게 붙은 구독자(예: 나중에
 시작된 recorder)도 **직전 상태를 즉시 수신**하여 현재 세션 상태를 복원할 수
@@ -406,7 +584,7 @@ ros2 topic echo /session_control/session rdfp_msgs/msg/SessionCommand \
 - **SIGINT 안전**: Ctrl+C 수신 시 `destroy_node()` → `rclpy.try_shutdown()`
   경로로 깨끗하게 종료됩니다.
 
-## 데이터셋 후처리기 (`rosbag` / `import` / `stats` / `list` / `init-db` / `replay`)
+## 11. 데이터셋 후처리기 (`rosbag` / `import` / `stats` / `list` / `init-db` / `replay`)
 
 rosbag2 MCAP 아카이브를 에피소드 단위로 분할하여 PostgreSQL 에 적재하고,
 카메라 토픽은 에피소드별 MP4 와 함께 글로벌 메타 (`image_streams`) /
@@ -433,7 +611,7 @@ CLI 는 관심사별로 **여러 독립 console_script** 로 분리되어 있습
 - [데이터셋 후처리기 실환경 검증 절차](../../docs/rosbag2/데이터셋%20후처리기%20실환경%20검증%20절차.md) — 실 인프라 검증 runbook
 - 샘플 설정: [rosbag_config.sample.yaml](../../docs/rosbag2/rosbag_config.sample.yaml) · [dataset_config.sample.yaml](../../docs/rosbag2/dataset_config.sample.yaml)
 
-### Post-processor 의존성
+### 11.1 Post-processor 의존성
 
 apt (`package.xml` 에 선언):
 
@@ -447,7 +625,7 @@ pip (apt 버전이 없거나 구버전이어서 pip 로 설치 필요):
 pip install --user 'mcap' 'mcap-ros2-support' 'pydantic>=2' 'psycopg[binary]>=3'
 ```
 
-### DB 스키마 준비
+### 11.2 DB 스키마 준비
 
 ```bash
 export RDFP_DB_DSN="postgresql://rdfp@localhost:5432/rdfp"
@@ -463,7 +641,7 @@ ros2 run rdfp init-db --config dataset_config.yaml
 psql "${RDFP_DB_DSN}" -f src/rdfp/rdfp/dataset/sql/schema.sql
 ```
 
-### 실행
+### 11.3 실행
 
 ```bash
 source install/setup.bash
@@ -490,13 +668,13 @@ ros2 run rdfp replay 42 --config /etc/rdfp/dataset_config.yaml
 
 공통 옵션: `--log-level {debug,info,warning,error}` (기본 `info`).
 
-### 주요 동작
+### 11.4 주요 동작
 
 - **에피소드 감지**: `/session` 토픽(`rdfp_msgs/msg/SessionCommand`) 의 상태 전이
   (`IN_EPISODE → IN_SESSION`) 를 기준으로 자동 분할합니다.
 - **DB 적재**: 에피소드 단위 트랜잭션으로 `sessions` + 토픽별 테이블 (`pose_stampeds`,
   `twist_stampeds`, `joint_states`, `target_joint_states`, `gripper_cmds`,
-  `gripper_states`) 에 INSERT 합니다.
+  `gripper_action_states`) 에 INSERT 합니다.
 - **MP4 생성**: 카메라 토픽(`sensor_msgs/Image` 의 8-bit raw 인코딩) 은 에피소드
   × 카메라마다 별도 mp4 로 인코딩되고 (CFR-passthrough), 글로벌 메타
   (mp4_path / 코덱 / 해상도 / fps / frame_id / frame_count) 는 `image_streams`
@@ -509,16 +687,24 @@ ros2 run rdfp replay 42 --config /etc/rdfp/dataset_config.yaml
 - **품질 게이트**: `quality_gate.stamp_regression` / `idle_gap_sec` 로 stamp 역행·
   유휴 갭을 감지해 JSONL 로그 (`_logs/postproc_run.jsonl`) 에 `quality_warning`
   레코드로 남깁니다.
+- **세션 finalization 필수**: `discover_splits` 는 `metadata.yaml` 이 없는
+  세션을 "활성/비정상 종료" 로 간주해 건너뜁니다. `rosbag2` 프로세스가
+  SIGKILL/충돌 등으로 graceful shutdown 없이 끝난 경우, `import` 가 빈
+  summary 만 반환합니다. 이때는
+  `ros2 bag reindex -s mcap <session_dir>` 로 `.mcap` 에서 메타데이터를
+  재구성하면 됩니다.
 
-### 환경변수
+### 11.5 환경변수
 
 | 변수 | 용도 |
 |---|---|
-| `RDFP_DB_DSN` | PostgreSQL DSN (필수). 설정 파일에 평문으로 두지 않음. |
-| `RDFP_POSTPROC_LOG_DIR` | JSONL 로그 저장 경로 (선택, 기본 `<output_mp4_dir>/_logs/`). |
-| `RDFP_POSTPROC_BATCH_SIZE` | DB 배치 INSERT 버퍼 크기 (선택, 기본 1000). |
+| `RDFP_DB_DSN` | PostgreSQL DSN (필수). 설정 파일에 평문으로 두지 않음. 변수명 자체는 `dataset_config.yaml` 의 `db.dsn_env` 로 변경 가능. |
 
-## 데이터셋 재생 GUI (`replay_gui`)
+> JSONL 로그 경로는 `<output_mp4_dir>/_logs/postproc_run.jsonl` 로 고정이며,
+> DB 배치 INSERT 버퍼 크기는 코드 상 `WriterBase.batch_size=1000` 기본값을
+> 그대로 사용한다 (현재 환경변수로는 노출되지 않음).
+
+## 12. 데이터셋 재생 GUI (`replay_gui`)
 
 `rdfp.dataset.replay_gui_cmd` 는 적재된 에피소드를 라이브 토픽으로
 재생하는 Tk GUI 입니다. 일반 토픽은 단일 워커의 `TopicMessageReplayer`
@@ -531,11 +717,17 @@ ros2 run rdfp replay 42 --config /etc/rdfp/dataset_config.yaml
 ros2 launch rdfp replay_panda_mock.launch.py
 ```
 
+이 launch 는 arm 구동 어댑터를 `replay_arm_path` 로 택일합니다 —
+`target_joint_states`(기본, 위치 폐루프) / `ee_twist`(pose 차분 → servo, 개루프) /
+`none`(외부 클라이언트로 구동). 구조와 주의점은
+[docs/replay/replay_mock_stack_guide.md](../../docs/replay/replay_mock_stack_guide.md)
+를 참고합니다.
+
 GUI 동작 특성:
 
 - "Topics to replay" 다중 선택은 **기본 모두 미선택** 상태로 시작 (의도하지
   않은 토픽 재생 방지). `Select all` / `Clear all` 버튼으로 일괄 토글.
-- "위치 초기화" 버튼은 `MoveGroupClient.move_to_named_target_async("ready")`
+- "위치 초기화" 버튼은 `move_to_named_target_async("ready")`
   호출.
 - replayer 들은 **one-shot lifecycle** — `start()` 두 번 호출 시
   `RuntimeError('… already started')`. 재생을 다시 하려면 새 인스턴스를
@@ -544,17 +736,17 @@ GUI 동작 특성:
   못하면 publisher destroy 와 `cv2.VideoCapture.release()` 를 건너뛰고
   warning 으로 leak 을 가시화합니다.
 
-## 기술 참고 사항
+## 13. 기술 참고 사항
 
 - **서비스/액션 기반**: MoveItPy 대신 `GetCartesianPath` 서비스와 `ExecuteTrajectory` 액션을 직접 사용하므로, move_group 노드가 실행 중이어야 합니다.
 - **블로킹 실행**: `rclpy.spin_until_future_complete()`를 사용하여 각 경로의 계획과 실행이 완료될 때까지 대기합니다.
 - **속도 스케일링 원리**: trajectory의 각 포인트에 대해 `time_from_start`를 `1/scaling_factor`만큼 늘리고, `velocities`에 `scaling_factor`를, `accelerations`에 `scaling_factor²`를 곱하여 물리적으로 일관된 감속을 구현합니다.
 - **Jump Threshold**: 0.0으로 설정하여 관절 공간에서의 급격한 점프 검사를 비활성화합니다. 필요 시 양수 값으로 설정하여 안전성을 높일 수 있습니다.
 
-## 라이선스
+## 14. 라이선스
 
 TODO
 
-## 관리자
+## 15. 관리자
 
 - kwlee (kwlee@etri.re.kr)

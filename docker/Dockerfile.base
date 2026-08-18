@@ -1,0 +1,43 @@
+# rdfp 공통 베이스 이미지.
+#
+# ROS 2 Humble(desktop) + apt moveit/ros2_control 위에 rdfp_msgs/rdfp 를 빌드한다.
+# apt 패키지만 사용하므로 소스 빌드 moveit(ws_moveit2)과 apt base 간 ABI 충돌이
+# 원천적으로 발생하지 않는다.
+#
+# 빌드 컨텍스트는 워크스페이스 루트여야 한다(COPY src/ 때문):
+#   docker build -f docker/Dockerfile.base -t rdfp-base:latest .
+FROM osrf/ros:humble-desktop
+
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+
+# replay_panda_mock 스택 실행에 필요한 런타임/빌드 의존성(apt-only).
+# gazebo(ros_gz/ign_ros2_control)는 mock replay 에 불필요하므로 넣지 않는다.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-moveit \
+      ros-humble-moveit-servo \
+      ros-humble-moveit-resources-panda-moveit-config \
+      ros-humble-moveit-resources-panda-description \
+      ros-humble-ros2-control \
+      ros-humble-ros2-controllers \
+      ros-humble-tf-transformations \
+      ros-humble-rmw-cyclonedds-cpp \
+      ros-humble-xacro \
+      python3-opencv \
+      python3-colcon-common-extensions \
+      ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ws
+
+# 소스만 복사(.dockerignore 로 install/build/log 등 제외)해 rdfp_msgs/rdfp 빌드.
+COPY src/ /ws/src/
+RUN source /opt/ros/humble/setup.bash \
+    && colcon build --packages-select rdfp_msgs rdfp \
+    && rm -rf /ws/build /ws/log
+
+# 컨테이너 진입 시 ROS + rdfp 오버레이를 소싱한다.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

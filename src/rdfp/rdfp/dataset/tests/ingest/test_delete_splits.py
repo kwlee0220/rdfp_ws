@@ -1,11 +1,19 @@
-"""`_delete_used_splits` 단위 테스트."""
+"""`_delete_used_splits` 단위 테스트.
+
+대상 함수는 파일 삭제만 하지만 `pipeline` 이 `sensor_msgs` 를 전이 의존하므로,
+ROS sourcing 이 안 된 환경에서는 전체 테스트를 skip 한다.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from rdfp.rosbag.catalog import Split
-from rdfp.dataset.ingest.pipeline import _delete_used_splits
+import pytest
+
+pytest.importorskip('sensor_msgs', reason='requires ROS 2 runtime (transitive dependency)')
+
+from rdfp.rosbag.catalog import Split                                # noqa: E402
+from rdfp.dataset.ingest.pipeline import _delete_used_splits         # noqa: E402
 
 
 def _make_split_tree(tmp_path: Path, session: str, split_files: list[str]) -> list[Split]:

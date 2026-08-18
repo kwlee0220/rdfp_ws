@@ -16,6 +16,7 @@
 - ``rviz2``: /rviz2
 - ``camera``: /camera
 - ``gripper``: /gripper_control
+- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
 
 본 파일은 위 단위와 같은 책임 경계를 유지하면서, 기존과 동일한 순차 기동
 정책을 event handler 로 orchestration 한다.
@@ -55,6 +56,7 @@ from launch_helper import (
     declare_log_level_argument,
     declare_ros2_control_hardware_type_argument,
 )
+from scene_launch_helper import create_mock_scene_node, declare_scene_arguments
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -77,6 +79,9 @@ def generate_launch_description() -> LaunchDescription:
     camera_node = create_camera_node()
     ee_pose_node = create_ee_pose_node()
     gripper_control_node = create_gripper_control_node()
+    # 씬 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
+    # 기다리지 않으므로 같은 그룹에서 동시에 spawn 해도 안전하다.
+    scene_node = create_mock_scene_node()
 
     controller_startup_handlers = create_controller_startup_handlers(
         ros2_control_node,
@@ -84,7 +89,7 @@ def generate_launch_description() -> LaunchDescription:
         panda_arm_controller_spawner,
         panda_hand_controller_spawner,
         [move_group_node, servo_node, rviz_node, camera_node, ee_pose_node,
-         gripper_control_node],
+         gripper_control_node, scene_node],
     )
 
     return LaunchDescription(
@@ -93,6 +98,7 @@ def generate_launch_description() -> LaunchDescription:
             declare_log_level_argument(),
             *declare_ee_pose_arguments(),
             *declare_camera_arguments(),
+            *declare_scene_arguments(),
             static_tf,
             robot_state_publisher,
             ros2_control_node,

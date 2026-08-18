@@ -20,9 +20,23 @@ CREATE TABLE IF NOT EXISTS sessions (
                                       + stop_nanosec::double precision / 1e9))
                         STORED,
     task_label      TEXT,
+    -- 작업 성패. NULL 은 **판정이 없다**는 뜻이며 실패가 아니다 — 텔레오퍼레이션
+    -- 수집이나 중단 복구처럼 판정 주체가 없었던 경우다. 자동 수집에서 파지 실패는
+    -- success=false 인 **유효한 에피소드**이므로 학습셋에서 무조건 제외하지 않는다.
+    success         BOOLEAN,
+    -- 에피소드 재현·분석에 필요한 부가 정보 (seed, scene 이름, 초기 물체 배치,
+    -- 실패 사유 등). 형태가 씬 레시피·백엔드마다 달라지므로 정규화하지 않는다.
+    -- 중단된 에피소드는 success IS NULL + metadata->>'abort_reason' 으로 구분한다.
+    metadata        JSONB,
     UNIQUE (start_sec, start_nanosec)
 );
+-- 기존 DB 호환: 위 CREATE TABLE 은 IF NOT EXISTS 이므로 이미 만들어진 테이블에는
+-- 컬럼을 추가하지 않는다. success/metadata 도입 이전 DB 를 위해 명시적으로 더한다.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS success  BOOLEAN;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS metadata JSONB;
 CREATE INDEX IF NOT EXISTS idx_sessions_start_ts ON sessions (start_ts);
+-- metadata 에는 인덱스를 두지 않는다. 에피소드는 수천 행 규모라 seq scan 이
+-- 밀리초이고, GIN 은 INSERT 비용만 늘린다. 조회가 느려지면 그때 GIN 을 더한다.
 
 
 CREATE TABLE IF NOT EXISTS topics (
@@ -83,15 +97,21 @@ CREATE TABLE IF NOT EXISTS gripper_cmds (
                         (to_timestamp(stamp_sec::double precision
                                       + stamp_nanosec::double precision / 1e9))
                         STORED,
-    command         TEXT                NOT NULL
+    -- 학습 데이터의 **action 채널**. 심볼이 아니라 숫자를 남긴다 — 심볼을 쓰면
+    -- 그 의미(몇 m 인가)가 노드 상수에 남아 데이터셋이 자기 완결적이지 않게 된다.
+    position        DOUBLE PRECISION    NOT NULL,
+    max_effort      DOUBLE PRECISION    NOT NULL,
+    -- 사람이 읽기 위한 이름('open'/'close'/'grasp'). 제어에 쓰이지 않으며 비어 있을
+    -- 수 있다. 학습 입력이 아니라 필터링·가독성용이다.
+    label           TEXT                NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_episode  ON gripper_cmds (episode_id);
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_topic    ON gripper_cmds (topic_id);
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_stamp_ts ON gripper_cmds (stamp_ts);
 
 
--- /gripper_control/gripper_states → rdfp_msgs/msg/GripperState
-CREATE TABLE IF NOT EXISTS gripper_states (
+-- /gripper_control/gripper_action_states → rdfp_msgs/msg/GripperActionState
+CREATE TABLE IF NOT EXISTS gripper_action_states (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     topic_id        BIGINT              NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
@@ -104,11 +124,18 @@ CREATE TABLE IF NOT EXISTS gripper_states (
     position        DOUBLE PRECISION    NOT NULL,
     effort          DOUBLE PRECISION    NOT NULL,
     stalled         BOOLEAN             NOT NULL,
-    reached_goal    BOOLEAN             NOT NULL
+    reached_goal    BOOLEAN             NOT NULL,
+    -- 액션 goal 상태. action_msgs/msg/GoalStatus 의 STATUS_* 와 동일한 값이다
+    -- (4=SUCCEEDED, 5=CANCELED, 6=ABORTED, 2=EXECUTING).
+    -- reached_goal=false 라도 status=5 면 실패가 아니라 후속 명령에 의한 선점이다.
+    status          SMALLINT            NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_gripper_states_episode  ON gripper_states (episode_id);
-CREATE INDEX IF NOT EXISTS idx_gripper_states_topic    ON gripper_states (topic_id);
-CREATE INDEX IF NOT EXISTS idx_gripper_states_stamp_ts ON gripper_states (stamp_ts);
+-- 기존 DB 호환: 위 CREATE TABLE 은 IF NOT EXISTS 이므로 이미 만들어진 테이블에는
+-- 컬럼을 추가하지 않는다. status 도입 이전에 생성된 DB 를 위해 명시적으로 더한다.
+ALTER TABLE gripper_action_states ADD COLUMN IF NOT EXISTS status SMALLINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_gripper_action_states_episode  ON gripper_action_states (episode_id);
+CREATE INDEX IF NOT EXISTS idx_gripper_action_states_topic    ON gripper_action_states (topic_id);
+CREATE INDEX IF NOT EXISTS idx_gripper_action_states_stamp_ts ON gripper_action_states (stamp_ts);
 
 
 -- /target_joint_states → rdfp_msgs/msg/TargetJointStates

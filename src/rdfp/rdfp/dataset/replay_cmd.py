@@ -17,8 +17,6 @@ publish 한다. 이미지 프레임은 ``next()`` 시점에 한 장씩 디코딩
 
 from __future__ import annotations
 
-from typing import Any
-
 import argparse
 import logging
 import sys
@@ -31,7 +29,7 @@ from rclpy.node import Publisher
 from rdfp.moveit.servo_client import ServoClient
 
 from .cli_common import (
-    DEFAULT_CONFIG_FILENAME, add_common_args, add_config_arg,
+    DEFAULT_CONFIG_FILE_PATH, add_common_args, add_config_arg,
     configure_logging, load_dataset_or_fail, resolve_config_path,
 )
 from .db.connection import open_connection
@@ -275,8 +273,8 @@ def main(argv: list[str] | None = None) -> int:
     config_path = resolve_config_path(args)
     if config_path is None:
         logging.error(
-            'no --config given and %s not found in the current working directory',
-            DEFAULT_CONFIG_FILENAME)
+            'no --config given and default config not found: %s',
+            DEFAULT_CONFIG_FILE_PATH)
         return 2
 
     try:

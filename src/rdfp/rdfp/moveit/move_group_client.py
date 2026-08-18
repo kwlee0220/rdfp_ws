@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from typing import Optional
 
+import abc
 import copy
 import math
+import threading
 import time
 import xml.etree.ElementTree as ET
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.client import Client
 from rclpy.node import Node
 from rclpy.task import Future
 from geometry_msgs.msg import Pose
-from moveit_msgs.action import ExecuteTrajectory, MoveGroup
+from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
     Constraints,
     JointConstraint,
@@ -24,7 +27,9 @@ from moveit_msgs.msg import (
 from moveit_msgs.srv import GetCartesianPath
 from rcl_interfaces.srv import GetParameters
 
-from rdfp.ros2_utils import await_future_spin, check_timeout_and_get_remains
+from rdfp.ros2_utils import (
+    await_future_spin, await_future_spin_nospin, check_timeout_and_get_remains
+)
 
 
 READY_TIMEOUT_SEC = 30.0
@@ -43,46 +48,77 @@ DEFAULT_JOINT_TOLERANCE = 1e-4
 DEFAULT_FRAME_ID = 'panda_link0'
 DEFAULT_MOVEIT_GROUP_NAME = 'panda_arm'
 
+# joint 값 목표에는 SRDF 이름이 없다. 오류 메시지에서 named target 과 구분하기 위한
+# 라벨이며, `_extract_planned_trajectory` 등 이름을 요구하는 헬퍼에 넘긴다.
+_JOINT_GOAL_LABEL = 'joint goal'
+
 _CARTESIAN_PATH_SERVICE = '/compute_cartesian_path'
 _EXECUTE_TRAJECTORY_ACTION = '/execute_trajectory'
 _MOVE_GROUP_ACTION = '/move_action'
 _MOVE_GROUP_NODE_NAME = '/move_group'
 
 
-class MoveGroupClient:
-    """MoveIt2 motion planning 클라이언트.
+class MoveGroupClient(abc.ABC):
+    """MoveIt2 motion planning 클라이언트의 **공통 인터페이스** (추상 클래스).
 
-    MoveIt2의 다음 인터페이스들을 감싸 주입된 ``rclpy.node.Node`` 위에서
-    로봇 이동을 계획하고 실행하는 통합 유틸리티 클래스이다.
+    계획(planning)과 SRDF 조회는 컨트롤러 종류와 무관하므로 이 클래스가
+    구현하고, **실행(execution)은 서브클래스가 담당**한다.
+
+    * :class:`~rdfp.moveit.move_group_jtc_client.MoveGroupJtcClient` —
+      ``JointTrajectoryController`` 환경. ``MoveGroup`` / ``ExecuteTrajectory``
+      액션으로 실행한다.
+    * :class:`~rdfp.moveit.move_group_jgpc_client.MoveGroupJgpcClient` —
+      ``JointGroupPositionController`` 등 forward command 컨트롤러 환경.
+      계획된 궤적을 ``std_msgs/Float64MultiArray`` 명령 토픽으로 직접
+      스트리밍한다.
+
+    이 클래스는 직접 생성할 수 없다. 컨트롤러를 자동 판별해 알맞은
+    구현을 생성하려면
+    :func:`~rdfp.moveit.move_group_factory.create_move_group_client` 를 쓴다::
+
+        from rdfp.moveit import create_move_group_client
+
+        with create_move_group_client(node) as client:
+            client.wait_until_ready()
+            client.move_to_named_target('ready')
+
+    감싸는 MoveIt2 인터페이스:
 
     * ``GetCartesianPath`` 서비스 (``/compute_cartesian_path``) — 카테시안
       waypoint 경로 계획.
-    * ``ExecuteTrajectory`` 액션 (``/execute_trajectory``) — 계획된
-      ``RobotTrajectory`` 실행.
-    * ``MoveGroup`` 액션 (``/move_action``) — SRDF의 ``group_state``
-      (named target) 로의 joint-space 이동(plan + execute 통합).
+    * ``MoveGroup`` 액션 (``/move_action``) — named target 계획
+      (``plan_only=True``). JTC 구현은 실행까지 이 액션으로 수행한다.
     * ``get_parameters`` 서비스 (``/move_group/get_parameters``) — named
       target 조회를 위한 ``robot_description_semantic`` (SRDF) 획득.
       결과는 인스턴스에 캐시된다.
 
-    지원 기능 요약:
+    공통 기능 요약:
 
-    * **Cartesian 경로**: :meth:`follow_trajectory`,
-      :meth:`plan_trajectory`, :meth:`execute_trajectory` 및 그
+    * **계획**: :meth:`plan_trajectory`, :meth:`plan_named_target` 및 그
       ``_async`` 변형.
-    * **Named target**: :meth:`move_to_named_target`,
-      :meth:`move_to_named_target_async`, :meth:`get_named_targets`.
+    * **SRDF 조회**: :meth:`get_named_targets`, :meth:`get_all_named_targets`,
+      :meth:`get_planning_groups`.
     * **Trajectory 유틸**: :meth:`scale_trajectory_velocity`.
+
+    서브클래스가 구현하는 추상 실행 API:
+
+    * :meth:`move_to_named_target`, :meth:`move_to_named_target_async`
+    * :meth:`follow_trajectory`, :meth:`follow_trajectory_async`
+
+    .. warning::
+        추상 실행 API 의 **보장 수준은 구현마다 다르다**. JTC 구현은 컨트롤러가
+        goal tolerance 를 검사한 결과를 돌려주지만, JGPC 구현은 open loop 라
+        정상 반환이 목표 도달을 뜻하지 않는다. 도달 확인이 필요한 코드는
+        서브클래스 타입을 명시적으로 요구하라.
 
     Lifecycle:
         생성자는 서비스/액션 **클라이언트 객체만** 생성하며, 실제 서버가
         준비될 때까지 대기하지 않는다. 서버 준비 여부는 :meth:`is_ready`
         로 즉시 확인하거나 :meth:`wait_until_ready` 로 블로킹 대기할 수
         있다. 준비 대기 없이 동기 메서드를 직접 호출해도 각 메서드의
-        timeout 내에서 서버를 기다린다. 단, :meth:`is_ready` /
-        :meth:`wait_until_ready` 는 카테시안 서비스/액션만 체크하며
-        MoveGroup 액션은 :meth:`move_to_named_target` 내부에서 lazy 로
-        대기한다.
+        timeout 내에서 서버를 기다린다. 서브클래스는 자기 실행 경로가
+        요구하는 서버를 :meth:`is_ready` / :meth:`wait_until_ready` 에
+        추가로 반영한다.
 
     Threading:
         내부 동기 대기는 ``rclpy.spin_until_future_complete`` 를 사용하여
@@ -96,9 +132,8 @@ class MoveGroupClient:
 
         가능하면 **메인 스레드 또는 전용 스레드** 한 곳에서만 이 클래스의
         동기 메서드를 호출하라. 비동기 API(:meth:`follow_trajectory_async`,
-        :meth:`move_to_named_target_async`, :meth:`plan_trajectory_async`,
-        :meth:`execute_trajectory_async`)는 Future 를 반환하므로 호출자가
-        자체 executor 에서 처리할 수 있다.
+        :meth:`move_to_named_target_async`, :meth:`plan_trajectory_async`)는
+        Future 를 반환하므로 호출자가 자체 executor 에서 처리할 수 있다.
     """
 
     def __init__(
@@ -112,7 +147,6 @@ class MoveGroupClient:
         max_step: float = DEFAULT_MAX_STEP,
         jump_threshold: float = DEFAULT_JUMP_THRESHOLD,
         cartesian_path_service: str = _CARTESIAN_PATH_SERVICE,
-        execute_trajectory_action: str = _EXECUTE_TRAJECTORY_ACTION,
         move_group_action: str = _MOVE_GROUP_ACTION,
         move_group_node_name: str = _MOVE_GROUP_NODE_NAME,
     ) -> None:
@@ -132,8 +166,7 @@ class MoveGroupClient:
             jump_threshold: 관절 공간 점프 임계값 기본값(라디안). 0.0 을
                 사용하면 점프 검사가 비활성화된다. 각 호출에서 override 가능.
             cartesian_path_service: ``GetCartesianPath`` 서비스 이름.
-            execute_trajectory_action: ``ExecuteTrajectory`` 액션 이름.
-            move_group_action: ``MoveGroup`` 액션 이름. named target 이동에
+            move_group_action: ``MoveGroup`` 액션 이름. named target 계획/이동에
                 사용된다 (기본값 ``/move_action``).
             move_group_node_name: SRDF 조회를 위해 ``get_parameters`` 서비스
                 를 호출할 ``move_group`` 노드 이름 (기본값 ``/move_group``).
@@ -161,29 +194,102 @@ class MoveGroupClient:
         self._trajectory_planner: Client = node.create_client(
             GetCartesianPath, cartesian_path_service
         )
-        self._trajectory_follower: ActionClient = ActionClient(
-            node, ExecuteTrajectory, execute_trajectory_action
-        )
+        # ReentrantCallbackGroup 이 필요하다. 기본 콜백 그룹(MutuallyExclusive)에서는
+        # 결과를 기다리는 동안 cancel 응답이 같은 그룹에 갇혀 처리되지 않아
+        # `cancel_goal_async()` 의 Future 가 영원히 완료되지 않는다.
+        self._action_callback_group = ReentrantCallbackGroup()
         self._move_group_client: ActionClient = ActionClient(
-            node, MoveGroup, move_group_action
+            node, MoveGroup, move_group_action, callback_group=self._action_callback_group
         )
         self._move_group_action = move_group_action
         self._move_group_node_name = move_group_node_name
         # SRDF의 group_state 캐시: {group_name: {state_name: {joint_name: value}}}
         self._group_states: Optional[dict[str, dict[str, dict[str, float]]]] = None
+        # SRDF에 정의된 planning group 이름 캐시. group_state 가 하나도 없는 그룹
+        # (예: panda_arm_hand)은 위 캐시에 나타나지 않으므로 따로 보관한다.
+        self._planning_groups: Optional[list[str]] = None
+
+        # 진행 중인 액션 goal 핸들. :meth:`cancel` 이 취소를 보낼 대상이다.
+        # 콜백(executor 스레드)과 cancel 호출(임의 스레드)이 동시에 접근하므로
+        # 락으로 보호한다.
+        self._active_goals: list = []
+        self._goal_lock = threading.Lock()
+
+    # ----- 진행 중 goal 추적 ------------------------------------------------
+
+    def _track_goal(self, goal_handle) -> None:
+        """수락된 goal 핸들을 추적 목록에 넣는다.
+
+        goal 을 보내는 모든 경로가 이 메서드를 호출해야 :meth:`cancel` 이 동작한다.
+        """
+        with self._goal_lock:
+            self._active_goals.append(goal_handle)
+
+    def _untrack_goal(self, goal_handle) -> None:
+        """완료된 goal 핸들을 추적 목록에서 제거한다."""
+        with self._goal_lock:
+            try:
+                self._active_goals.remove(goal_handle)
+            except ValueError:
+                pass
+
+    def _take_active_goals(self) -> list:
+        """추적 중인 goal 을 모두 꺼내 목록을 비운다."""
+        with self._goal_lock:
+            goals, self._active_goals = self._active_goals, []
+            return goals
+
+    def has_active_goal(self) -> bool:
+        """취소할 수 있는 진행 중 goal 이 있는지 반환한다."""
+        with self._goal_lock:
+            return bool(self._active_goals)
+
+    def cancel(self) -> bool:
+        """진행 중인 동작을 중단한다.
+
+        구현별로 중단 수단이 다르다.
+
+        - JTC: 추적 중인 MoveGroup / ExecuteTrajectory goal 에 취소를 보낸다.
+        - JGPC: 명령 스트리밍을 멈춘다 (:meth:`stop_streaming`).
+
+        **비동기다.** ``True`` 는 취소 요청을 보냈다는 뜻이지 로봇이 이미 멈췄다는
+        뜻이 아니다. 감속 정지에는 시간이 걸리며, 정지 후 로봇은 경로 중간의
+        불확정 자세에 있다.
+
+        Returns:
+            취소를 보낼 대상이 있었으면 ``True``, 진행 중인 동작이 없으면 ``False``.
+        """
+        goals = self._take_active_goals()
+        if not goals:
+            return False
+
+        for handle in goals:
+            try:
+                handle.cancel_goal_async()
+            except Exception as exc:
+                self._node.get_logger().warning(f'cancel_goal_async failed: {exc}')
+        self._node.get_logger().info(f'cancel requested for {len(goals)} active goal(s)')
+        return True
 
     # ----- Lifecycle ------------------------------------------------------
 
     def is_ready(self) -> bool:
-        """서비스와 액션 서버가 모두 준비되었는지 즉시 반환한다(non-blocking)."""
+        """계획에 필요한 서버가 모두 준비되었는지 즉시 반환한다(non-blocking).
+
+        서브클래스는 자기 실행 경로가 요구하는 서버를 추가로 확인하도록
+        이 메서드를 확장한다.
+        """
         self._require_open()
         return (
             self._trajectory_planner.service_is_ready()
-            and self._trajectory_follower.server_is_ready()
+            and self._move_group_client.server_is_ready()
         )
 
     def wait_until_ready(self, timeout_sec: float = READY_TIMEOUT_SEC) -> None:
-        """서비스와 액션 서버가 모두 준비될 때까지 블로킹 대기한다.
+        """계획에 필요한 서버가 준비될 때까지 블로킹 대기한다.
+
+        기본 구현은 ``GetCartesianPath`` 서비스와 ``MoveGroup`` 액션만
+        기다린다. 실행에 필요한 서버는 서브클래스가 덧붙인다.
 
         Args:
             timeout_sec: 총 대기 허용 시간(초).
@@ -196,7 +302,14 @@ class MoveGroupClient:
         self._require_open()
         if timeout_sec <= 0:
             raise ValueError('timeout_sec must be positive')
+        self._wait_for_planning_servers(timeout_sec)
 
+    def _wait_for_planning_servers(self, timeout_sec: float) -> float:
+        """계획용 서버를 순차 대기하고 남은 시간(초)을 반환한다.
+
+        서브클래스가 실행용 서버를 추가로 기다릴 때 남은 예산을 이어받도록
+        분리해 둔 헬퍼다.
+        """
         started = time.monotonic()
 
         if not self._trajectory_planner.wait_for_service(timeout_sec=timeout_sec):
@@ -205,26 +318,28 @@ class MoveGroupClient:
                 f'timeout={timeout_sec}s'
             )
 
-        elapsed = time.monotonic() - started
-        remains = max(0.001, timeout_sec - elapsed)
-        if not self._trajectory_follower.wait_for_server(timeout_sec=remains):
+        remains = max(0.001, timeout_sec - (time.monotonic() - started))
+        if not self._move_group_client.wait_for_server(timeout_sec=remains):
             raise TimeoutError(
-                f'Timed out waiting for {_EXECUTE_TRAJECTORY_ACTION} action server: '
+                f'Timed out waiting for {self._move_group_action} action server: '
                 f'timeout={timeout_sec}s'
             )
+        return max(0.001, timeout_sec - (time.monotonic() - started))
 
     def close(self) -> None:
         """생성한 서비스/액션 클라이언트 리소스를 정리한다.
 
         멱등(idempotent): 두 번 호출해도 안전하다. 주입된 ``Node`` 자체는
-        건드리지 않는다.
+        건드리지 않는다. 서브클래스는 자기 리소스를 :meth:`_close_resources`
+        에서 정리한다.
         """
         if self._closed:
             return
-        try:
-            self._trajectory_follower.destroy()
-        except Exception:
-            pass
+        self._close_resources()
+        self._closed = True
+
+    def _close_resources(self) -> None:
+        """공통 리소스를 정리한다. 서브클래스는 super() 호출 후 자기 것을 정리한다."""
         try:
             self._move_group_client.destroy()
         except Exception:
@@ -233,7 +348,6 @@ class MoveGroupClient:
             self._node.destroy_client(self._trajectory_planner)
         except Exception:
             pass
-        self._closed = True
 
     def destroy(self) -> None:
         """:meth:`close` 와 동일. ROS2 스타일 네이밍 별칭."""
@@ -248,7 +362,8 @@ class MoveGroupClient:
     # ----- High-level API -------------------------------------------------
 
     def get_named_targets(self, *, group: Optional[str] = None,
-                          timeout: float = READY_TIMEOUT_SEC,) -> list[str]:
+                          timeout: float = READY_TIMEOUT_SEC,
+                          externally_spun: bool = False) -> list[str]:
         """SRDF에 등록된 named target(group_state) 이름 목록을 반환한다.
 
         첫 호출 시 ``move_group`` 노드의 ``robot_description_semantic`` 파라미터를
@@ -258,6 +373,8 @@ class MoveGroupClient:
             group: 조회할 planning 그룹 이름. ``None`` 이면 생성자에 지정된
                 ``moveit_group_name`` 을 사용한다.
             timeout: SRDF 조회 허용 시간(초). 캐시가 이미 채워진 경우 무시된다.
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 자체 spin 대신 콜백 완료를 기다린다.
 
         Returns:
             그룹에 등록된 group_state 이름을 사전순으로 정렬한 리스트. 해당
@@ -269,102 +386,275 @@ class MoveGroupClient:
         """
         self._require_open()
         target_group = group if group is not None else self._moveit_group_name
-        if self._group_states is None:
-            self._group_states = self._fetch_and_parse_srdf(timeout=timeout)
-        return sorted(self._group_states.get(target_group, {}).keys())
+        group_states, _ = self._ensure_srdf_cache(timeout=timeout,
+                                                  externally_spun=externally_spun)
+        return sorted(group_states.get(target_group, {}).keys())
 
+    def get_all_named_targets(self, *, timeout: float = READY_TIMEOUT_SEC,
+                              externally_spun: bool = False) -> dict[str, list[str]]:
+        """SRDF에 등록된 **모든** planning 그룹의 named target 목록을 반환한다.
+
+        :meth:`get_named_targets` 는 인자 없이 호출하면 생성자에 지정된 그룹
+        하나만 조회한다(기본 ``panda_arm``). 어떤 그룹이 있는지 모르는 상태에서
+        전체를 훑거나 그룹 이름 자체를 알아낼 때 이 메서드를 사용한다.
+
+        첫 호출 시 ``move_group`` 노드에서 SRDF 를 조회하여 캐시하며, 캐시는
+        :meth:`get_named_targets` 와 공유한다.
+
+        Args:
+            timeout: SRDF 조회 허용 시간(초). 캐시가 이미 채워진 경우 무시된다.
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 자체 spin 대신 콜백 완료를 기다린다.
+
+        Returns:
+            ``{group_name: [state_name, ...]}`` 형태의 dict. 그룹 이름과 각 그룹의
+            state 이름 모두 사전순으로 정렬된다. 등록된 group_state 가 하나도
+            없으면 빈 dict.
+
+        Raises:
+            TimeoutError: SRDF 조회가 시간 내에 완료되지 않을 때.
+            RuntimeError: 클라이언트가 이미 close() 되었거나 SRDF 조회가 실패했을 때.
+        """
+        self._require_open()
+        group_states, _ = self._ensure_srdf_cache(timeout=timeout,
+                                                  externally_spun=externally_spun)
+        return {group: sorted(states.keys()) for group, states in sorted(group_states.items())}
+
+    def get_planning_groups(self, *, timeout: float = READY_TIMEOUT_SEC,
+                            externally_spun: bool = False) -> list[str]:
+        """SRDF에 정의된 **모든** planning group 이름을 사전순으로 반환한다.
+
+        :meth:`get_all_named_targets` 의 키는 ``group_state`` 를 하나 이상 가진
+        그룹만 포함한다. 반면 이 메서드는 SRDF 의 ``<group>`` 정의 자체를 읽으므로,
+        state 가 없는 그룹(예: ``panda_arm_hand``)도 함께 반환한다.
+
+        첫 호출 시 ``move_group`` 노드에서 SRDF 를 조회하여 캐시하며, 캐시는
+        :meth:`get_named_targets` / :meth:`get_all_named_targets` 와 공유한다.
+
+        Args:
+            timeout: SRDF 조회 허용 시간(초). 캐시가 이미 채워진 경우 무시된다.
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 자체 spin 대신 콜백 완료를 기다린다.
+
+        Returns:
+            planning group 이름을 사전순으로 정렬한 리스트.
+
+        Raises:
+            TimeoutError: SRDF 조회가 시간 내에 완료되지 않을 때.
+            RuntimeError: 클라이언트가 이미 close() 되었거나 SRDF 조회가 실패했을 때.
+        """
+        self._require_open()
+        _, planning_groups = self._ensure_srdf_cache(timeout=timeout,
+                                                     externally_spun=externally_spun)
+        return sorted(planning_groups)
+
+    # ----- 추상 실행 API (서브클래스 구현) ----------------------------------
+
+    @abc.abstractmethod
     def move_to_named_target(self, name: str, *,
                              velocity_scaling: Optional[float] = None,
                              planning_time: float = DEFAULT_PLANNING_TIME,
                              tolerance: float = DEFAULT_JOINT_TOLERANCE,
-                             timeout: float = MOVE_GROUP_TIMEOUT_SEC,) -> None:
-        """SRDF에 등록된 named target(group_state)으로 로봇을 이동시킨다.
+                             timeout: float = MOVE_GROUP_TIMEOUT_SEC) -> None:
+        """SRDF에 등록된 named target 으로 로봇을 이동시킨다(블로킹).
 
-        MoveGroup 액션을 사용해 joint-space 경로로 계획 및 실행한다. Cartesian
-        경로가 아니라 관절 공간 경로이므로 :meth:`follow_trajectory` 와는
-        다른 동작임에 주의. 첫 호출 시 ``move_group`` 노드에서 SRDF 를
-        조회하여 group_state → joint 값 매핑을 캐시한다.
+        실행 메커니즘과 **보장 수준은 구현마다 다르다** — 클래스 docstring 의
+        경고를 참고한다.
+
+        Args:
+            name: SRDF의 group_state 이름 (예: "ready").
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+            timeout: 전체 동작에 허용할 최대 시간(초).
+
+        Raises:
+            ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
+            TimeoutError: 각 단계가 시간 초과될 때.
+            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+        """
+
+    @abc.abstractmethod
+    def move_to_named_target_async(self, name: str, *,
+                                   velocity_scaling: Optional[float] = None,
+                                   planning_time: float = DEFAULT_PLANNING_TIME,
+                                   tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                                   externally_spun: bool = False) -> Future:
+        """:meth:`move_to_named_target` 의 비동기 버전.
+
+        Args:
+            name: SRDF의 group_state 이름.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 스트리밍 구현에서만 의미가 있고, 액션 구현은 무시한다.
+
+        Returns:
+            최종 결과를 담는 ``Future``.
+        """
+
+    @abc.abstractmethod
+    def move_to_joints(self, joint_values: dict[str, float], *,
+                       velocity_scaling: Optional[float] = None,
+                       planning_time: float = DEFAULT_PLANNING_TIME,
+                       tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                       timeout: float = MOVE_GROUP_TIMEOUT_SEC) -> None:
+        """관절 목표값으로 이동한다(블로킹).
+
+        :meth:`move_to_named_target` 과 같은 joint-space 경로이며, 목표를 SRDF
+        이름이 아니라 값으로 직접 준다는 점만 다르다. 실행 메커니즘과 **보장
+        수준은 구현마다 다르다** — 클래스 docstring 의 경고를 참고한다.
+
+        Args:
+            joint_values: ``{관절이름: 라디안}``. **planning group 에 속한 관절만**
+                넣는다 — 그룹 밖 관절(예: ``panda_arm`` 에 대한 finger joint)을
+                섞으면 계획이 실패한다.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+            timeout: 계획 + 실행 전체에 허용할 최대 시간(초).
+
+        Raises:
+            ValueError: ``joint_values`` 가 비었거나 값이 유한하지 않을 때.
+            TimeoutError: goal 수락 또는 실행 완료가 시간 초과될 때.
+            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+        """
+
+    @abc.abstractmethod
+    def move_to_joints_async(self, joint_values: dict[str, float], *,
+                             velocity_scaling: Optional[float] = None,
+                             planning_time: float = DEFAULT_PLANNING_TIME,
+                             tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                             externally_spun: bool = False) -> Future:
+        """:meth:`move_to_joints` 의 비동기 버전.
+
+        Args:
+            joint_values: ``{관절이름: 라디안}``.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 스트리밍 구현에서만 의미가 있고, 액션 구현은 무시한다.
+
+        Returns:
+            최종 결과를 담는 ``Future``.
+        """
+
+    @abc.abstractmethod
+    def follow_trajectory(self, waypoints: list[Pose], *,
+                          velocity_scaling: Optional[float] = None,
+                          fraction_threshold: Optional[float] = None,
+                          max_step: Optional[float] = None,
+                          jump_threshold: Optional[float] = None,
+                          timeout: float = MOVE_GROUP_TIMEOUT_SEC) -> None:
+        """카테시안 waypoint 경로를 계획하고 실행한다(블로킹).
+
+        실행 메커니즘과 **보장 수준은 구현마다 다르다**.
+
+        Args:
+            waypoints: 통과할 카테시안 pose 목록.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            fraction_threshold: 계획된 경로의 최소 허용 비율. ``None`` 이면 기본값.
+            max_step: 카테시안 보간 최대 단계 간격(미터). ``None`` 이면 기본값.
+            jump_threshold: 관절 공간 점프 임계값. ``None`` 이면 기본값.
+            timeout: 전체 동작에 허용할 최대 시간(초).
+
+        Raises:
+            ValueError: waypoint 가 유효하지 않을 때.
+            TimeoutError: 각 단계가 시간 초과될 때.
+            RuntimeError: 계획 비율 미달이거나 실행이 실패했을 때.
+        """
+
+    @abc.abstractmethod
+    def follow_trajectory_async(self, waypoints: list[Pose], *,
+                                velocity_scaling: Optional[float] = None,
+                                fraction_threshold: Optional[float] = None,
+                                max_step: Optional[float] = None,
+                                jump_threshold: Optional[float] = None,
+                                externally_spun: bool = False) -> Future:
+        """:meth:`follow_trajectory` 의 비동기 버전.
+
+        Returns:
+            최종 결과를 담는 ``Future``.
+        """
+
+    # ----- Named target — 계획 전용 (컨트롤러 무관) --------------------------
+
+    def plan_named_target(self, name: str, *,
+                          velocity_scaling: Optional[float] = None,
+                          planning_time: float = DEFAULT_PLANNING_TIME,
+                          tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                          timeout: float = MOVE_GROUP_TIMEOUT_SEC,) -> RobotTrajectory:
+        """named target 으로의 joint-space 궤적을 **계획만** 하여 반환한다.
+
+        :meth:`move_to_named_target` 과 달리 ``plan_only=True`` 로 요청하므로
+        ``move_group`` 이 실행을 시도하지 않는다. 따라서
+        ``FollowJointTrajectory`` 액션이 없는 컨트롤러
+        (``position_controllers/JointGroupPositionController`` 등) 환경에서도
+        정상 동작한다. 반환된 궤적은 :meth:`stream_trajectory` 로 실행한다.
 
         Args:
             name: SRDF의 group_state 이름 (예: "ready", "extended", "transport").
             velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
             planning_time: MoveGroup 계획 허용 시간(초).
-            tolerance: 각 관절 목표의 허용 오차(라디안).
-            timeout: SRDF 조회 + 계획 + 실행 전체에 허용할 최대 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안). 플래너는 이 오차 안에서
+                멈출 수 있으므로, 정밀도가 필요하면 작게 준다.
+            timeout: SRDF 조회 + 계획 전체에 허용할 최대 시간(초).
+
+        Returns:
+            계획된 ``RobotTrajectory``.
 
         Raises:
             ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
-            TimeoutError: SRDF 조회, goal 수락, 또는 실행 완료가 시간 초과될 때.
-            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+            TimeoutError: SRDF 조회, goal 수락, 또는 계획 완료가 시간 초과될 때.
+            RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
         """
         self._require_open()
         if not isinstance(name, str) or not name:
             raise ValueError('name must be a non-empty string')
 
         vs = self._resolve_velocity_scaling(velocity_scaling)
-
         started_at = time.monotonic()
 
-        # SRDF에서 대상 group_state의 joint 값 조회 (최초 1회만 실제 서비스 호출)
         remains = check_timeout_and_get_remains(started_at, timeout)
         joint_values = self._get_named_state_joint_values(name, timeout=remains)
 
-        self._node.get_logger().info(
-            f'Moving to named target "{name}" in group "{self._moveit_group_name}"...'
-        )
+        self._node.get_logger().info(f'Planning joint-space path to named target "{name}"...')
 
         goal_msg = _build_move_group_goal(
             group_name=self._moveit_group_name, joint_values=joint_values,
             velocity_scaling=vs, planning_time=planning_time, tolerance=tolerance,
+            plan_only=True,
         )
 
-        # MoveGroup 액션 서버 준비 대기
         remains = check_timeout_and_get_remains(started_at, timeout)
         if not self._move_group_client.wait_for_server(timeout_sec=min(remains, 10.0)):
-            raise TimeoutError(
-                f'Timed out waiting for {self._move_group_action} action server'
-            )
+            raise TimeoutError(f'Timed out waiting for {self._move_group_action} action server')
 
-        # goal 전송 및 수락 대기
         send_future = self._move_group_client.send_goal_async(goal_msg)
         remains = check_timeout_and_get_remains(started_at, timeout)
-        goal_handle = await_future_spin(
-            self._node, send_future, remains, 'move_group goal response'
-        )
+        goal_handle = await_future_spin(self._node, send_future, remains,
+                                        'move_group goal response')
         if not goal_handle.accepted:
-            self._node.get_logger().error('Move group goal rejected')
-            raise RuntimeError('Move group goal rejected')
-        self._node.get_logger().info('Move group goal accepted!')
+            self._node.get_logger().error('Move group plan-only goal rejected')
+            raise RuntimeError('Move group plan-only goal rejected')
 
-        # 결과 대기
         result_future = goal_handle.get_result_async()
         remains = check_timeout_and_get_remains(started_at, timeout)
-        result_response = await_future_spin(
-            self._node, result_future, remains, 'move_group result'
-        )
+        result_response = await_future_spin(self._node, result_future, remains, 'move_group result')
 
-        error_code = result_response.result.error_code.val
-        self._node.get_logger().info(
-            f'Move group execution result error code: {error_code}'
-        )
-        if error_code != MoveItErrorCodes.SUCCESS:
-            self._node.get_logger().error(
-                f'Move to named target failed with code: {error_code}'
-            )
-            raise RuntimeError(
-                f'Move to named target "{name}" failed with code: {error_code}'
-            )
-        self._node.get_logger().info(f'Reached named target "{name}"')
+        return _extract_planned_trajectory(result_response.result, name)
 
-    def move_to_named_target_async(self, name: str, *,
-                                   velocity_scaling: Optional[float] = None,
-                                   planning_time: float = DEFAULT_PLANNING_TIME,
-                                   tolerance: float = DEFAULT_JOINT_TOLERANCE,) -> Future:
-        """SRDF의 named target으로 로봇을 비동기 이동시킨다.
+    def plan_named_target_async(self, name: str, *,
+                                velocity_scaling: Optional[float] = None,
+                                planning_time: float = DEFAULT_PLANNING_TIME,
+                                tolerance: float = DEFAULT_JOINT_TOLERANCE,) -> Future:
+        """:meth:`plan_named_target` 의 비동기 버전.
 
-        캐시가 비어 있으면 ``get_parameters`` 서비스 호출(SRDF 조회) →
-        파싱/캐시 → MoveGroup ``send_goal_async`` → goal 수락 콜백 →
-        ``get_result_async`` → 실행 완료 콜백 순으로 체인을 구성한다.
+        SRDF 조회 → MoveGroup ``send_goal_async`` (plan_only) → 결과 콜백
+        순으로 체인을 구성한다. Node 를 직접 spin 하지 않으므로 executor 가
+        다른 스레드에서 spin 중인 환경에서 사용할 수 있다.
 
         Args:
             name: SRDF의 group_state 이름.
@@ -373,8 +663,7 @@ class MoveGroupClient:
             tolerance: 각 관절 목표의 허용 오차(라디안).
 
         Returns:
-            최종 실행 결과를 담는 ``Future``. 성공 시 ``None`` 으로 resolve
-            되고, 실패 시 적절한 예외가 설정된다.
+            계획된 ``RobotTrajectory`` 로 resolve 되는 ``Future``.
 
         Raises:
             ValueError: ``name`` 이 유효하지 않을 때(즉시 발생).
@@ -387,78 +676,46 @@ class MoveGroupClient:
 
         result_future = Future()
 
-        def _start_move(joint_values: dict[str, float]) -> None:
-            """joint 값 확보 후 MoveGroup goal 전송 단계로 진입."""
+        def _start_plan(joint_values: dict[str, float]) -> None:
+            """joint 값 확보 후 plan-only goal 전송 단계로 진입."""
             try:
                 goal_msg = _build_move_group_goal(
                     group_name=self._moveit_group_name, joint_values=joint_values,
                     velocity_scaling=vs, planning_time=planning_time, tolerance=tolerance,
+                    plan_only=True,
                 )
-                self._node.get_logger().info(
-                    f'Moving to named target "{name}" (async)...'
-                )
+                self._node.get_logger().info(f'Planning to named target "{name}" (async)...')
                 send_future = self._move_group_client.send_goal_async(goal_msg)
                 send_future.add_done_callback(_on_goal_response)
             except Exception as exc:
                 result_future.set_exception(exc)
 
         def _on_goal_response(future: Future) -> None:
-            """MoveGroup goal 수락 콜백."""
+            """plan-only goal 수락 콜백."""
             try:
-                exc = future.exception()
-                if exc is not None:
-                    result_future.set_exception(exc)
-                    return
                 goal_handle = future.result()
                 if not goal_handle.accepted:
-                    self._node.get_logger().error('Move group goal rejected')
-                    result_future.set_exception(RuntimeError('Move group goal rejected'))
+                    result_future.set_exception(RuntimeError('Move group plan-only goal rejected'))
                     return
-                self._node.get_logger().info('Move group goal accepted!')
-                get_result_future = goal_handle.get_result_async()
-                get_result_future.add_done_callback(_on_execute_done)
+                goal_handle.get_result_async().add_done_callback(_on_plan_done)
             except Exception as exc:
                 result_future.set_exception(exc)
 
-        def _on_execute_done(future: Future) -> None:
-            """MoveGroup 실행 완료 콜백: 최종 결과를 result_future에 설정."""
+        def _on_plan_done(future: Future) -> None:
+            """계획 완료 콜백: 궤적을 result_future 에 설정."""
             try:
-                exc = future.exception()
-                if exc is not None:
-                    result_future.set_exception(exc)
-                    return
-                result_response = future.result()
-                error_code = result_response.result.error_code.val
-                self._node.get_logger().info(
-                    f'Move group execution result error code: {error_code}'
-                )
-                if error_code != MoveItErrorCodes.SUCCESS:
-                    self._node.get_logger().error(
-                        f'Move to named target failed with code: {error_code}'
-                    )
-                    result_future.set_exception(RuntimeError(
-                        f'Move to named target "{name}" failed with code: {error_code}'
-                    ))
-                    return
-                self._node.get_logger().info(f'Reached named target "{name}"')
-                result_future.set_result(None)
+                result_future.set_result(_extract_planned_trajectory(future.result().result, name))
             except Exception as exc:
                 result_future.set_exception(exc)
 
-        # SRDF 캐시가 있으면 바로 이동, 없으면 비동기 조회 후 이동
         if self._group_states is not None:
-            try:
-                joint_values = self._lookup_cached_named_state(name)
-            except ValueError as exc:
-                result_future.set_exception(exc)
-                return result_future
-            _start_move(joint_values)
+            _start_plan(self._lookup_cached_named_state(name))
             return result_future
 
         srdf_future, srdf_client = self._fetch_srdf_async()
 
         def _on_srdf_done(future: Future) -> None:
-            """SRDF 조회 완료 콜백: 캐시 채우고 이동 단계로 진입."""
+            """SRDF 조회 완료 콜백: 캐시 채우고 계획 단계로 진입."""
             try:
                 exc = future.exception()
                 if exc is not None:
@@ -472,17 +729,13 @@ class MoveGroupClient:
                     return
                 srdf_string = response.values[0].string_value
                 if not srdf_string:
-                    result_future.set_exception(RuntimeError(
-                        'robot_description_semantic is empty'
-                    ))
+                    result_future.set_exception(RuntimeError('robot_description_semantic is empty'))
                     return
-                self._group_states = _parse_srdf_group_states(srdf_string)
-                joint_values = self._lookup_cached_named_state(name)
-                _start_move(joint_values)
+                self._store_srdf_cache(srdf_string)
+                _start_plan(self._lookup_cached_named_state(name))
             except Exception as exc:
                 result_future.set_exception(exc)
             finally:
-                # 임시 생성된 get_parameters 클라이언트 정리
                 try:
                     self._node.destroy_client(srdf_client)
                 except Exception:
@@ -491,162 +744,120 @@ class MoveGroupClient:
         srdf_future.add_done_callback(_on_srdf_done)
         return result_future
 
-    def follow_trajectory(self, waypoints: list[Pose], *,
-                          velocity_scaling: Optional[float] = None,
-                          fraction_threshold: Optional[float] = None,
-                          max_step: Optional[float] = None,
-                          jump_threshold: Optional[float] = None,
-                          timeout: float = PLAN_TIMEOUT_SEC + TRAJECTORY_EXEC_TIMEOUT_SEC,) -> None:
-        """waypoint 경로를 계획하고 실행한다(원스톱).
+    def plan_joints(self, joint_values: dict[str, float], *,
+                    velocity_scaling: Optional[float] = None,
+                    planning_time: float = DEFAULT_PLANNING_TIME,
+                    tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                    timeout: float = MOVE_GROUP_TIMEOUT_SEC,) -> RobotTrajectory:
+        """관절 목표값으로의 joint-space 궤적을 **계획만** 하여 반환한다.
+
+        :meth:`plan_named_target` 의 값 지정 판이다. SRDF 조회가 없으므로 그만큼
+        단계가 짧다. 반환된 궤적은 :meth:`stream_trajectory` 로 실행한다.
 
         Args:
-            waypoints: Cartesian path 를 따라갈 Pose 리스트.
-            velocity_scaling: Override. ``None`` 이면 생성자 기본값 사용.
-            fraction_threshold: Override. ``None`` 이면 생성자 기본값 사용.
-            max_step: Override. ``None`` 이면 생성자 기본값 사용.
-            jump_threshold: Override. ``None`` 이면 생성자 기본값 사용.
-            timeout: 계획 + 실행 전체에 허용할 최대 시간(초).
-
-        Raises:
-            ValueError, TimeoutError, RuntimeError: :meth:`plan_trajectory` 및
-                :meth:`execute_trajectory` 와 동일.
-        """
-        self._require_open()
-        self._node.get_logger().info(f'Moving through {len(waypoints)} cartesian waypoints...')
-
-        started_at = time.monotonic()
-        trajectory = self.plan_trajectory(
-            waypoints,
-            velocity_scaling=velocity_scaling,
-            fraction_threshold=fraction_threshold,
-            max_step=max_step,
-            jump_threshold=jump_threshold,
-            timeout=timeout,
-        )
-        remains = check_timeout_and_get_remains(started_at, timeout)
-        self.execute_trajectory(trajectory, timeout=remains)
-
-
-    def follow_trajectory_async(self, waypoints: list[Pose], *,
-                                velocity_scaling: Optional[float] = None,
-                                fraction_threshold: Optional[float] = None,
-                                max_step: Optional[float] = None,
-                                jump_threshold: Optional[float] = None,) -> Future:
-        """waypoint 경로를 비동기로 계획하고 실행한다.
-
-        ``plan_trajectory_async`` → 계획 완료 콜백 → ``send_goal_async`` →
-        goal 수락 콜백 → ``get_result_async`` → 실행 완료 콜백 순으로
-        콜백 체인을 구성하며, 최종 결과를 반환된 ``Future`` 에 설정한다.
-
-        Args:
-            waypoints: Cartesian path 를 따라갈 Pose 리스트.
-            velocity_scaling: Override. ``None`` 이면 생성자 기본값 사용.
-            fraction_threshold: Override. ``None`` 이면 생성자 기본값 사용.
-            max_step: Override. ``None`` 이면 생성자 기본값 사용.
-            jump_threshold: Override. ``None`` 이면 생성자 기본값 사용.
+            joint_values: ``{관절이름: 라디안}``. planning group 에 속한 관절만 넣는다.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+            timeout: 계획 전체에 허용할 최대 시간(초).
 
         Returns:
-            최종 실행 결과를 담는 ``Future``. 성공 시 ``None`` 으로 resolve
-            되고, 실패 시 ``RuntimeError`` 가 설정된다.
+            계획된 ``RobotTrajectory``.
 
         Raises:
-            ValueError: 입력 매개변수가 유효하지 않을 때(즉시 발생).
+            ValueError: ``joint_values`` 가 유효하지 않을 때.
+            TimeoutError: goal 수락 또는 계획 완료가 시간 초과될 때.
+            RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
+        """
+        self._require_open()
+        values = _validate_joint_values(joint_values)
+        vs = self._resolve_velocity_scaling(velocity_scaling)
+        started_at = time.monotonic()
+
+        self._node.get_logger().info(
+            f'Planning joint-space path to {len(values)} joint value(s)...'
+        )
+        goal_msg = _build_move_group_goal(
+            group_name=self._moveit_group_name, joint_values=values,
+            velocity_scaling=vs, planning_time=planning_time, tolerance=tolerance,
+            plan_only=True,
+        )
+
+        remains = check_timeout_and_get_remains(started_at, timeout)
+        if not self._move_group_client.wait_for_server(timeout_sec=min(remains, 10.0)):
+            raise TimeoutError(f'Timed out waiting for {self._move_group_action} action server')
+
+        send_future = self._move_group_client.send_goal_async(goal_msg)
+        remains = check_timeout_and_get_remains(started_at, timeout)
+        goal_handle = await_future_spin(self._node, send_future, remains,
+                                        'move_group goal response')
+        if not goal_handle.accepted:
+            self._node.get_logger().error('Move group plan-only goal rejected')
+            raise RuntimeError('Move group plan-only goal rejected')
+
+        result_future = goal_handle.get_result_async()
+        remains = check_timeout_and_get_remains(started_at, timeout)
+        result_response = await_future_spin(self._node, result_future, remains, 'move_group result')
+
+        return _extract_planned_trajectory(result_response.result, _JOINT_GOAL_LABEL)
+
+    def plan_joints_async(self, joint_values: dict[str, float], *,
+                          velocity_scaling: Optional[float] = None,
+                          planning_time: float = DEFAULT_PLANNING_TIME,
+                          tolerance: float = DEFAULT_JOINT_TOLERANCE,) -> Future:
+        """:meth:`plan_joints` 의 비동기 버전.
+
+        Args:
+            joint_values: ``{관절이름: 라디안}``.
+            velocity_scaling: 속도 스케일링 계수. ``None`` 이면 생성자 기본값 사용.
+            planning_time: MoveGroup 계획 허용 시간(초).
+            tolerance: 각 관절 목표의 허용 오차(라디안).
+
+        Returns:
+            계획된 ``RobotTrajectory`` 로 resolve 되는 ``Future``.
+
+        Raises:
+            ValueError: ``joint_values`` 가 유효하지 않을 때(즉시 발생).
             RuntimeError: 클라이언트가 이미 close() 되었을 때(즉시 발생).
         """
         self._require_open()
+        values = _validate_joint_values(joint_values)
         vs = self._resolve_velocity_scaling(velocity_scaling)
-        ft = self._resolve_fraction_threshold(fraction_threshold)
-
-        self._node.get_logger().info(f'Moving through {len(waypoints)} cartesian waypoints (async)...')
 
         result_future = Future()
-        plan_future = self.plan_trajectory_async(waypoints, max_step=max_step, jump_threshold=jump_threshold,)
-
-        def _on_plan_done(future: Future) -> None:
-            """계획 서비스 응답 콜백: 결과 검증 후 실행 goal 전송."""
-            try:
-                exc = future.exception()
-                if exc is not None:
-                    result_future.set_exception(exc)
-                    return
-
-                response = future.result()
-                if response.error_code.val != MoveItErrorCodes.SUCCESS:
-                    self._node.get_logger().error(
-                        f'Path planning returned error code: {response.error_code.val}'
-                    )
-                    result_future.set_exception(RuntimeError(
-                        f'Path planning failed with error code: {response.error_code.val}'
-                    ))
-                    return
-
-                if response.fraction < ft:
-                    self._node.get_logger().error(f'Path planning failed (fraction: {response.fraction})')
-                    result_future.set_exception(RuntimeError(
-                        f'Path planning failed: only '
-                        f'{response.fraction * 100:.1f}% of the path was planned'
-                    ))
-                    return
-
-                self._node.get_logger().info(f'Path planning successful (fraction: {response.fraction})')
-                trajectory = response.solution
-                if vs != 1.0:
-                    trajectory = self.scale_trajectory_velocity(trajectory, vs)
-
-                goal_msg = ExecuteTrajectory.Goal(trajectory=trajectory)
-                goal_future = self._trajectory_follower.send_goal_async(goal_msg)
-                goal_future.add_done_callback(_on_goal_response)
-            except Exception as exc:
-                result_future.set_exception(exc)
 
         def _on_goal_response(future: Future) -> None:
-            """goal 수락 콜백: 수락 여부 확인 후 결과 대기."""
+            """plan-only goal 수락 콜백."""
             try:
-                exc = future.exception()
-                if exc is not None:
-                    result_future.set_exception(exc)
-                    return
-
                 goal_handle = future.result()
                 if not goal_handle.accepted:
-                    self._node.get_logger().error('Goal rejected')
-                    result_future.set_exception(RuntimeError('Goal rejected'))
+                    result_future.set_exception(RuntimeError('Move group plan-only goal rejected'))
                     return
-
-                self._node.get_logger().info('Goal accepted!')
-                get_result_future = goal_handle.get_result_async()
-                get_result_future.add_done_callback(_on_execute_done)
+                goal_handle.get_result_async().add_done_callback(_on_plan_done)
             except Exception as exc:
                 result_future.set_exception(exc)
 
-        def _on_execute_done(future: Future) -> None:
-            """실행 완료 콜백: 최종 결과를 result_future 에 설정."""
+        def _on_plan_done(future: Future) -> None:
+            """계획 완료 콜백: 궤적을 result_future 에 설정."""
             try:
-                exc = future.exception()
-                if exc is not None:
-                    result_future.set_exception(exc)
-                    return
-
-                result_response = future.result()
-                error_code = result_response.result.error_code.val
-                self._node.get_logger().info(
-                    f'Trajectory execution result error code: {error_code}'
+                result_future.set_result(
+                    _extract_planned_trajectory(future.result().result, _JOINT_GOAL_LABEL)
                 )
-                if error_code != MoveItErrorCodes.SUCCESS:
-                    self._node.get_logger().error(
-                        f'Trajectory execution failed with code: {error_code}'
-                    )
-                    result_future.set_exception(RuntimeError(
-                        f'Trajectory execution failed with code: {error_code}'
-                    ))
-                    return
-
-                self._node.get_logger().info('Trajectory execution completed!')
-                result_future.set_result(None)
             except Exception as exc:
                 result_future.set_exception(exc)
 
-        plan_future.add_done_callback(_on_plan_done)
+        try:
+            goal_msg = _build_move_group_goal(
+                group_name=self._moveit_group_name, joint_values=values,
+                velocity_scaling=vs, planning_time=planning_time, tolerance=tolerance,
+                plan_only=True,
+            )
+            self._node.get_logger().info(
+                f'Planning to {len(values)} joint value(s) (async)...'
+            )
+            self._move_group_client.send_goal_async(goal_msg).add_done_callback(_on_goal_response)
+        except Exception as exc:
+            result_future.set_exception(exc)
         return result_future
 
     def plan_trajectory(self, waypoints: list[Pose], *,
@@ -677,16 +888,20 @@ class MoveGroupClient:
         vs = self._resolve_velocity_scaling(velocity_scaling)
         ft = self._resolve_fraction_threshold(fraction_threshold)
 
-        future = self.plan_trajectory_async(waypoints, max_step=max_step, jump_threshold=jump_threshold,)
-        response = await_future_spin(self._node, future, timeout, 'compute_cartesian_path service response')
+        future = self.plan_trajectory_async(waypoints, max_step=max_step,
+                                            jump_threshold=jump_threshold)
+        response = await_future_spin(self._node, future, timeout,
+                                     'compute_cartesian_path service response')
 
         if response.error_code.val != MoveItErrorCodes.SUCCESS:
-            self._node.get_logger().error(f'Path planning returned error code: {response.error_code.val}')
+            self._node.get_logger().error(
+                f'Path planning returned error code: {response.error_code.val}')
             raise RuntimeError(f'Path planning failed with error code: {response.error_code.val}')
 
         if response.fraction < ft:
             self._node.get_logger().error(f'Path planning failed (fraction: {response.fraction})')
-            raise RuntimeError(f'Path planning failed: only {response.fraction * 100:.1f}% of the path was planned')
+            raise RuntimeError(f'Path planning failed: only '
+                               f'{response.fraction * 100:.1f}% of the path was planned')
 
         self._node.get_logger().info(f'Path planning successful (fraction: {response.fraction})')
         trajectory = response.solution
@@ -715,7 +930,8 @@ class MoveGroupClient:
         ms = self._resolve_max_step(max_step)
         jt = self._resolve_jump_threshold(jump_threshold)
 
-        self._node.get_logger().info(f'Planning cartesian path through {len(waypoints)} waypoints...')
+        self._node.get_logger().info(
+            f'Planning cartesian path through {len(waypoints)} waypoints...')
 
         request = GetCartesianPath.Request()
         request.header.frame_id = self._frame_id
@@ -724,65 +940,6 @@ class MoveGroupClient:
         request.max_step = ms
         request.jump_threshold = jt
         return self._trajectory_planner.call_async(request)
-
-
-    def execute_trajectory(self, trajectory: RobotTrajectory, *,
-                           timeout: float = TRAJECTORY_EXEC_TIMEOUT_SEC,) -> None:
-        """주어진 trajectory 를 실행하고 완료될 때까지 대기한다.
-
-        Args:
-            trajectory: 실행할 ``RobotTrajectory`` 메시지.
-            timeout: 실행 완료까지 허용할 최대 시간(초).
-
-        Raises:
-            ValueError: trajectory 가 유효하지 않을 때.
-            TimeoutError: goal 수락 또는 결과 수신이 시간 초과될 때.
-            RuntimeError: goal 이 거부되거나 실행이 실패했을 때.
-        """
-        started_at = time.monotonic()
-        get_result_future = self.execute_trajectory_async(trajectory, timeout=timeout)
-        remains = check_timeout_and_get_remains(started_at, timeout)
-        result_response = await_future_spin(self._node, get_result_future, remains, 'execute_trajectory result')
-
-        result = result_response.result
-        self._node.get_logger().info(f'Trajectory execution result error code: {result.error_code.val}')
-        if result.error_code.val != MoveItErrorCodes.SUCCESS:
-            self._node.get_logger().error(f'Trajectory execution failed with code: {result.error_code.val}')
-            raise RuntimeError(f'Trajectory execution failed with code: {result.error_code.val}')
-        self._node.get_logger().info('Trajectory execution completed!')
-
-
-    def execute_trajectory_async(self, trajectory: RobotTrajectory, *,
-                                 timeout: float = GOAL_ACCEPT_TIMEOUT_SEC,) -> rclpy.Future:
-        """trajectory 실행 goal 을 보내고 결과 Future 를 반환한다.
-
-        Args:
-            trajectory: 실행할 ``RobotTrajectory`` 메시지.
-            timeout: goal 수락까지 허용할 최대 시간(초).
-
-        Returns:
-            실행 결과를 포함하는 Future 객체.
-
-        Raises:
-            ValueError: trajectory 가 유효하지 않을 때.
-            TimeoutError: goal 이 시간 내에 수락되지 않았을 때.
-            RuntimeError: goal 이 거부되었거나 클라이언트가 close() 되었을 때.
-        """
-        self._require_open()
-        _validate_trajectory(trajectory)
-
-        self._node.get_logger().info('Sending goal and waiting for completion...')
-
-        goal_msg = ExecuteTrajectory.Goal(trajectory=trajectory)
-        future = self._trajectory_follower.send_goal_async(goal_msg)
-        goal_handle = await_future_spin(self._node, future, timeout, 'execute_trajectory goal response')
-
-        if not goal_handle.accepted:
-            self._node.get_logger().error('Goal rejected')
-            raise RuntimeError('Goal rejected')
-        self._node.get_logger().info('Goal accepted!')
-        return goal_handle.get_result_async()
-
 
     def scale_trajectory_velocity(
         self,
@@ -832,9 +989,26 @@ class MoveGroupClient:
         self, name: str, *, timeout: float,
     ) -> dict[str, float]:
         """SRDF에서 지정 group_state의 joint 값 매핑을 반환한다. 결과는 캐시된다."""
-        if self._group_states is None:
-            self._group_states = self._fetch_and_parse_srdf(timeout=timeout)
+        self._ensure_srdf_cache(timeout=timeout)
         return self._lookup_cached_named_state(name)
+
+    def _ensure_srdf_cache(
+        self, *, timeout: float, externally_spun: bool = False,
+    ) -> tuple[dict[str, dict[str, dict[str, float]]], list[str]]:
+        """SRDF 캐시가 비어 있으면 채우고 (group_state 매핑, planning group 목록)을 반환한다.
+
+        두 캐시는 같은 SRDF 문자열에서 함께 파싱되므로 항상 동시에 채워진다.
+        """
+        if self._group_states is None or self._planning_groups is None:
+            self._store_srdf_cache(
+                self._fetch_srdf_string(timeout=timeout, externally_spun=externally_spun)
+            )
+        return self._group_states or {}, self._planning_groups or []
+
+    def _store_srdf_cache(self, srdf_string: str) -> None:
+        """SRDF 문자열을 파싱하여 group_state / planning group 캐시를 함께 채운다."""
+        self._group_states = _parse_srdf_group_states(srdf_string)
+        self._planning_groups = _parse_srdf_planning_groups(srdf_string)
 
     def _lookup_cached_named_state(self, name: str) -> dict[str, float]:
         """캐시된 ``self._group_states`` 에서 group_state를 조회한다.
@@ -867,14 +1041,17 @@ class MoveGroupClient:
         req.names = ['robot_description_semantic']
         return client.call_async(req), client
 
-    def _fetch_and_parse_srdf(
-        self, *, timeout: float,
-    ) -> dict[str, dict[str, dict[str, float]]]:
-        """``move_group`` 노드의 ``robot_description_semantic`` 파라미터를 조회하여
-        파싱한 group_state 매핑을 반환한다.
+    def _fetch_srdf_string(self, *, timeout: float, externally_spun: bool = False) -> str:
+        """``move_group`` 노드의 ``robot_description_semantic`` 파라미터 값을 조회한다.
+
+        Args:
+            timeout: 조회 허용 시간(초).
+            externally_spun: executor 가 다른 스레드에서 Node 를 spin 중이면
+                ``True``. 이때 자체 spin 을 하면 같은 Node 를 두 스레드에서 동시에
+                spin 하게 되므로 콜백 대기 방식으로 바꾼다.
 
         Returns:
-            ``{group_name: {state_name: {joint_name: value}}}`` 형태의 dict.
+            SRDF XML 문자열.
         """
         srdf_service = f'{self._move_group_node_name}/get_parameters'
         client = self._node.create_client(GetParameters, srdf_service)
@@ -887,9 +1064,8 @@ class MoveGroupClient:
             req.names = ['robot_description_semantic']
             future = client.call_async(req)
             remains = check_timeout_and_get_remains(started_at, timeout)
-            response = await_future_spin(
-                self._node, future, remains, f'{srdf_service} response'
-            )
+            wait = await_future_spin_nospin if externally_spun else await_future_spin
+            response = wait(self._node, future, remains, f'{srdf_service} response')
         finally:
             try:
                 self._node.destroy_client(client)
@@ -902,7 +1078,7 @@ class MoveGroupClient:
         if not srdf_string:
             raise RuntimeError('robot_description_semantic is empty')
 
-        return _parse_srdf_group_states(srdf_string)
+        return srdf_string
 
     def _resolve_fraction_threshold(self, override: Optional[float]) -> float:
         if override is None:
@@ -927,6 +1103,22 @@ class MoveGroupClient:
             return self._default_jump_threshold
         _validate_jump_threshold(override)
         return override
+
+
+def _extract_planned_trajectory(result, name: str) -> RobotTrajectory:
+    """MoveGroup plan-only 결과에서 궤적을 꺼내고 유효성을 확인한다.
+
+    Raises:
+        RuntimeError: MoveIt 오류 코드를 반환했거나 궤적이 비어 있을 때.
+    """
+    error_code = result.error_code.val
+    if error_code != MoveItErrorCodes.SUCCESS:
+        raise RuntimeError(f'Planning to named target "{name}" failed with code: {error_code}')
+
+    trajectory = result.planned_trajectory
+    if not trajectory.joint_trajectory.points:
+        raise RuntimeError(f'Planning to named target "{name}" returned an empty trajectory')
+    return trajectory
 
 
 def _validate_fraction_threshold(value: float) -> None:
@@ -991,10 +1183,38 @@ def _parse_srdf_group_states(
     return result
 
 
+def _parse_srdf_planning_groups(srdf_string: str) -> list[str]:
+    """SRDF XML 문자열에서 planning group 이름 목록을 파싱한다.
+
+    복합 그룹(예: ``panda_arm_hand``)은 하위 그룹을 ``<group name="..."/>`` 로
+    중첩 참조하므로, 트리 전체를 훑는 ``iter()`` 를 쓰면 같은 이름이 중복 수집된다.
+    최상위 자식만 보는 ``findall()`` 을 사용해야 한다.
+
+    Returns:
+        SRDF에 정의된 group 이름 리스트 (문서 등장 순서).
+    """
+    try:
+        root = ET.fromstring(srdf_string)
+    except ET.ParseError as e:
+        raise RuntimeError(f'Failed to parse SRDF XML: {e}') from e
+
+    names: list[str] = []
+    for g in root.findall('group'):
+        name = g.get('name')
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _build_move_group_goal(*, group_name: str, joint_values: dict[str, float],
                            velocity_scaling: float, planning_time: float,
-                           tolerance: float,) -> MoveGroup.Goal:
-    """MoveGroup 액션 goal 메시지를 구성한다 (plan + execute 모드)."""
+                           tolerance: float, plan_only: bool = False) -> MoveGroup.Goal:
+    """MoveGroup 액션 goal 메시지를 구성한다.
+
+    ``plan_only`` 가 ``False`` 면 계획 후 실행까지 수행하고(기본), ``True`` 면
+    계획만 하고 궤적을 결과로 돌려준다. ``FollowJointTrajectory`` 를 제공하지
+    않는 컨트롤러(JGPC 등) 에서는 ``True`` 로 계획만 받아 별도로 실행해야 한다.
+    """
     request = MotionPlanRequest()
     request.group_name = group_name
     request.num_planning_attempts = 1
@@ -1018,8 +1238,36 @@ def _build_move_group_goal(*, group_name: str, joint_values: dict[str, float],
 
     goal = MoveGroup.Goal()
     goal.request = request
-    goal.planning_options.plan_only = False
+    goal.planning_options.plan_only = plan_only
     return goal
+
+
+def _validate_joint_values(joint_values: dict[str, float]) -> dict[str, float]:
+    """관절 목표값 dict 를 검증하고 float 로 정규화한다.
+
+    관절 **이름**은 여기서 검사하지 않는다 — 유효한 이름 집합은 planning group 에
+    달려 있고 클라이언트는 그 목록을 갖고 있지 않다. 그룹 밖 관절이 섞이면 MoveIt
+    계획 단계에서 실패한다.
+
+    Returns:
+        ``{관절이름: float}``.
+
+    Raises:
+        ValueError: dict 가 아니거나, 비었거나, 이름/값이 유효하지 않을 때.
+    """
+    if not isinstance(joint_values, dict) or not joint_values:
+        raise ValueError('joint_values must be a non-empty {joint_name: radians} mapping')
+
+    normalized: dict[str, float] = {}
+    for name, value in joint_values.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError(f'invalid joint name: {name!r}')
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"joint '{name}' value must be a number, got {value!r}")
+        if not math.isfinite(float(value)):
+            raise ValueError(f"joint '{name}' value is not finite: {value!r}")
+        normalized[name] = float(value)
+    return normalized
 
 
 def _validate_waypoints(waypoints: list[Pose]) -> None:

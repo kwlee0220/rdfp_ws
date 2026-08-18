@@ -6,8 +6,7 @@
 하는지를 다룹니다.
 
 서버 쪽(즉 `SessionControlNode`) 설명은
-[session_control_guide.md](./session_control_guide.md) 를, 요구사항 명세는
-[session_control_srs.md](./session_control_srs.md) 를 참조하세요.
+[session_control_guide.md](./session_control_guide.md) 를 참조하세요.
 
 ---
 
@@ -521,7 +520,7 @@ ros2 service list | grep session_control
 
 **해결**: `get_session_state()` 또는 `session` 토픽 구독으로 현재 상태를
 확인한 뒤 호출. 상태 전이표는
-[session_control_srs.md 4.3](./session_control_srs.md) 참조.
+[session_control_guide.md 2장](./session_control_guide.md) 참조.
 
 ### 9.4 `set_task_label` 이 IN_EPISODE 에서 계속 거부됨
 
@@ -542,7 +541,6 @@ ros2 service list | grep session_control
 ## 10. 관련 문서
 
 - [session_control_guide.md](./session_control_guide.md) — 서버 (SessionControlNode) 사용 가이드
-- [session_control_srs.md](./session_control_srs.md) — 요구사항 명세서 (상태 전이표 포함)
 - [session_control_client.py](../../src/rdfp/rdfp/session/session_control_client.py) — 클라이언트 구현 소스
 - [session_control_node.py](../../src/rdfp/rdfp/session/session_control_node.py) — 서버 구현 소스
-- [servo_client_programmers_guide.md](../../src/rdfp/rdfp/moveit/docs/servo_client_programmers_guide.md) — 동일한 Node 주입 패턴을 쓰는 `ServoClient` 가이드
+- [servo_client_programmers_guide.md](../moveit/servo_client_programmers_guide.md) — 동일한 Node 주입 패턴을 쓰는 `ServoClient` 가이드

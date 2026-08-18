@@ -204,6 +204,10 @@ def _process_episode_inner(cfg: DatasetConfig, episode: Episode, split_paths: li
         inserted: dict[str, int] = {}
         for w in writers.values():
             inserted[w.table] = w.consume_inserted_count()
+        # FrameRouter 가 finalize 단계에서 INSERT 한 image_streams / image_frames 행도
+        # 결과에 포함시킨다 (message-writer 경로가 아니라 위 루프에서 누락됨).
+        for table, n in router.consume_inserted_count().items():
+            inserted[table] = inserted.get(table, 0) + n
 
     return {
         'status': 'done',
@@ -275,7 +279,8 @@ def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str,
     """
     existing = sess_writer.find_existing(ep.start_ns)
     if existing is None:
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label)
+        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
+                                          ep.success, ep.metadata)
     if policy == 'skip':
         return None
     if policy == 'error':
@@ -285,7 +290,8 @@ def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str,
     if policy == 'replace':
         sess_writer.delete_by_id(existing)
         router.remove_existing_episode_dir(existing)
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label)
+        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
+                                          ep.success, ep.metadata)
     raise PostProcError(f'unknown on_existing_episode policy: {policy!r}')
 
 

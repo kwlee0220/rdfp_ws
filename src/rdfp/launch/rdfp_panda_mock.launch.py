@@ -20,11 +20,12 @@
 - ``rviz2``: /rviz2
 - ``camera``: /camera
 - ``gripper``: /gripper_control
+- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
 - ``rdfp 애플리케이션``:
     - /session_control
     - /rdfp_image_viewer_node
     - /image_recorder
-    - /target_joint_states_publisher
+    - /target_joint_cmds_publisher
 
 기본 기동 정책은 ``panda_mock`` 과 동일하다: ``panda_hand_controller`` spawner
 가 종료되면 상위 노드들을 일괄 spawn 한다.
@@ -34,13 +35,13 @@
 
 각 argument 의 **기본값** 은 YAML 설정 파일에서 로드된다.
 
-- 기본 경로: ``<rdfp share>/config/rdfp_panda_mock.yaml``
+- 기본 경로: ``<rdfp share>/config/panda_robot.yaml``
 - ``config_file:=<path>`` launch argument 로 다른 YAML 을 지정할 수 있다.
   ``$HOME`` / ``~`` 같은 경로 확장은 쉘에 맡긴다
   (예: ``config_file:=$HOME/my.yaml`` — 쉘이 먼저 확장한 절대경로가 전달된다).
 - CLI 에서 ``arg:=value`` 로 개별 argument 를 덮어쓰는 것은 그대로 동작한다.
 
-YAML 파일의 구조는 ``config/rdfp_panda_mock.yaml`` 을 참고한다.
+YAML 파일의 구조는 ``config/panda_robot.yaml`` 을 참고한다.
 """
 
 from __future__ import annotations
@@ -76,6 +77,11 @@ from controller_launch_helper import (
 from controller_startup_launch_helper import create_controller_startup_handlers
 from ee_pose_launch_helper import create_ee_pose_node
 from gripper_launch_helper import create_gripper_control_node
+from image_pipeline_launch_helper import (
+    declare_config_file_argument as declare_image_pipeline_config_file_argument,
+    declare_image_pipeline_arguments,
+    load_config as load_image_pipeline_config,
+)
 from launch_helper import (
     MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
@@ -86,10 +92,11 @@ from launch_helper import (
     create_servo_node,
     create_static_tf_node,
 )
+from scene_launch_helper import create_mock_scene_node, declare_scene_arguments
 
 # YAML 설정 파일의 기본 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
-DEFAULT_CONFIG_RELPATH = os.path.join("config", "rdfp_panda_mock.yaml")
+DEFAULT_CONFIG_RELPATH = os.path.join("config", "panda_robot.yaml")
 
 
 def _default_config_path() -> str:
@@ -124,10 +131,9 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
     """
     rc = config["ros2_control"]
     ee = config["ee_pose"]
-    cam = config["camera"]
-    iv = config["image_viewer"]
-    ir = config["image_recorder"]
-    tjs = config["target_joint_states"]
+    # 구 키(`target_joint_states`)를 쓰는 외부 YAML(도커 RDFP_CONFIG_DIR 마운트 등)
+    # 과의 호환을 위해 새 키를 우선하되 없으면 구 키로 폴백한다.
+    tjc = config.get("target_joint_cmds") or config["target_joint_states"]
 
     return [
         # --- ros2_control ---
@@ -162,89 +168,13 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
             default_value=_as_launch_str(ee["publish_rate"]),
             description="EE pose publish rate in Hz",
         ),
-        # --- camera ---
+        # --- target_joint_cmds ---
         DeclareLaunchArgument(
-            "enable_camera_node",
-            default_value=_as_launch_str(cam["enabled"]),
-            description="Whether to start rdfp camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_id",
-            default_value=_as_launch_str(cam["id"]),
-            description="Camera device index or URI/path for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_image_topic",
-            default_value=_as_launch_str(cam["image_topic"]),
-            description="Remap target for base image topic ('image')",
-        ),
-        DeclareLaunchArgument(
-            "camera_info_topic",
-            default_value=_as_launch_str(cam["info_topic"]),
-            description="Remap target for base camera_info topic ('camera_info')",
-        ),
-        DeclareLaunchArgument(
-            "camera_status_topic",
-            default_value=_as_launch_str(cam["status_topic"]),
-            description="Remap target for camera status topic ('image/status')",
-        ),
-        DeclareLaunchArgument(
-            "camera_fps",
-            default_value=_as_launch_str(cam["fps"]),
-            description="Target FPS for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_resolution",
-            default_value=_as_launch_str(cam["resolution"]),
-            description="Target resolution for camera_node (e.g. 640x480)",
-        ),
-        DeclareLaunchArgument(
-            "camera_frame_id",
-            default_value=_as_launch_str(cam["frame_id"]),
-            description="frame_id for published Image/CameraInfo",
-        ),
-        DeclareLaunchArgument(
-            "camera_compress_image",
-            default_value=_as_launch_str(cam["compress_image"]),
-            description="Publish JPEG compressed image when true",
-        ),
-        # --- image_viewer ---
-        DeclareLaunchArgument(
-            "enable_image_viewer_node",
-            default_value=_as_launch_str(iv["enabled"]),
-            description="Whether to start rdfp_image_viewer_node",
-        ),
-        # --- image_recorder ---
-        DeclareLaunchArgument(
-            "enable_image_recorder_node",
-            default_value=_as_launch_str(ir["enabled"]),
-            description="Whether to start image_recorder_node",
-        ),
-        DeclareLaunchArgument(
-            "image_recorder_fps",
-            default_value=_as_launch_str(ir["fps"]),
+            "target_joint_cmds_input_topic",
+            default_value=_as_launch_str(tjc["input_topic"]),
             description=(
-                "Target FPS for image_recorder_node "
-                "(should match camera_node fps to avoid frame drops)"
-            ),
-        ),
-        DeclareLaunchArgument(
-            "image_recorder_output_dir",
-            default_value=_as_launch_str(ir["output_dir"]),
-            description="Output directory for image_recorder_node MP4 files",
-        ),
-        DeclareLaunchArgument(
-            "image_recorder_auto_start",
-            default_value=_as_launch_str(ir["auto_start"]),
-            description="If true, image_recorder_node starts recording immediately at launch",
-        ),
-        # --- target_joint_states ---
-        DeclareLaunchArgument(
-            "target_joint_states_input_topic",
-            default_value=_as_launch_str(tjs["input_topic"]),
-            description=(
-                "Remap target for target_joint_states_publisher input topic "
-                "('joint_trajectory'); typically /servo_node/joint_trajectory"
+                "Remap target for target_joint_cmds_publisher input topic "
+                "('joint_trajectory'); typically /panda_arm_controller/joint_trajectory"
             ),
         ),
     ]
@@ -259,6 +189,11 @@ def _build_actions(context: LaunchContext) -> list:
     """
     config_path = LaunchConfiguration("config_file").perform(context)
     config = _load_config(config_path)
+
+    # 이미지 파이프라인(camera / image_viewer / image_recorder) 설정은 별도 YAML 에서
+    # 온다 — 카메라를 띄우는 launch 가 넷이라 기본값을 한 곳으로 모았다.
+    image_config_path = LaunchConfiguration("image_pipeline_config_file").perform(context)
+    image_config = load_image_pipeline_config(image_config_path)
 
     moveit_config = build_moveit_config()
     servo_params = build_servo_params()
@@ -278,6 +213,9 @@ def _build_actions(context: LaunchContext) -> list:
     camera_node = create_camera_node()
     ee_pose_node = create_ee_pose_node()
     gripper_control_node = create_gripper_control_node()
+    # 씬 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
+    # 기다리지 않으므로 같은 그룹에서 동시에 spawn 해도 안전하다.
+    scene_node = create_mock_scene_node()
 
     # --- rdfp 애플리케이션: SessionControlNode ---
     # 로그 레벨은 노드 스코프로만 적용하여 전역 기본 레벨을 건드리지 않는다.
@@ -327,18 +265,30 @@ def _build_actions(context: LaunchContext) -> list:
         ],
     )
 
-    # --- rdfp 애플리케이션: TargetJointStatesPublisher ---
+    # --- rdfp 애플리케이션: TargetJointCmdsPublisher ---
     # servo_node 가 발행하는 JointTrajectory 의 마지막 point 를 뽑아 현재 시각을
-    # header.stamp 로 채운 TargetJointStates 메시지로 변환해 `target_joint_states`
-    # 토픽에 재발행한다.
-    target_joint_states_publisher = Node(
+    # header.stamp 로 채운 `sensor_msgs/JointState` 로 변환해 `target_joint_cmds`
+    # 토픽에 재발행한다 — 학습 데이터의 action(명령값) 채널이다.
+    #
+    # JGPC 스택(rdfp_panda_jgpc_mock)은 같은 노드를 source=float64_multi_array 로
+    # 띄워 `/panda_arm_controller/commands` 를 동일한 JointState 로 변환한다.
+    # 두 스택이 같은 토픽 이름과 같은 메시지 타입을 쓰므로, 데이터셋에서는
+    # `joint_states` 테이블에 topic_id 로만 구분되어 함께 적재된다 — 관측값
+    # (`/joint_states`) 과 대칭적으로 다룰 수 있다.
+    #
+    # 이전의 `target_joint_states_publisher`(rdfp_msgs/TargetJointStates) 는 본
+    # 런치에서 제거되었다. 노드 구현 자체는 남아 있으므로 필요하면 되살릴 수 있다.
+    target_joint_cmds_publisher = Node(
         package="rdfp",
-        executable="target_joint_states_publisher",
-        name="target_joint_states_publisher",
+        executable="target_joint_cmds_publisher",
+        name="target_joint_cmds_publisher",
         output="screen",
         emulate_tty=True,
+        parameters=[{
+            "source": "joint_trajectory",
+        }],
         remappings=[
-            ("joint_trajectory", LaunchConfiguration("target_joint_states_input_topic")),
+            ("joint_trajectory", LaunchConfiguration("target_joint_cmds_input_topic")),
         ],
     )
 
@@ -351,15 +301,20 @@ def _build_actions(context: LaunchContext) -> list:
         panda_hand_controller_spawner,
         [
             move_group_node, servo_node, rviz_node, camera_node, ee_pose_node,
-            gripper_control_node,
+            gripper_control_node, scene_node,
             session_control_node, rdfp_image_viewer_node, image_recorder_node,
-            target_joint_states_publisher,
+            target_joint_cmds_publisher,
         ],
     )
 
     return [
         # --- YAML 기본값을 가진 argument 들 (config_file resolve 후 결정) ---
         *_declare_arguments(config),
+        *declare_image_pipeline_arguments(image_config),
+        # 씬 노드는 YAML 블록 없이 helper 의 하드코딩 기본값을 쓴다 — 노브가
+        # `enable_scene_node` / `scene_publish_rate` 둘뿐이고 스택마다 달라질
+        # 값이 아니다. YAML 로 옮기면 기존 외부 설정 파일이 KeyError 로 깨진다.
+        *declare_scene_arguments(),
         # --- 즉시 기동 노드 ---
         static_tf,
         robot_state_publisher,
@@ -379,7 +334,7 @@ def generate_launch_description() -> LaunchDescription:
         default_value=_default_config_path(),
         description=(
             "Path to the rdfp_panda_mock YAML configuration file. "
-            "기본값은 <rdfp share>/config/rdfp_panda_mock.yaml 이며, "
+            "기본값은 <rdfp share>/config/panda_robot.yaml 이며, "
             "CLI 또는 IncludeLaunchDescription launch_arguments 로 "
             "'config_file:=<path>' 를 주면 덮어쓸 수 있다 "
             "($HOME 등 쉘 확장은 쉘에 맡긴다)."
@@ -387,5 +342,6 @@ def generate_launch_description() -> LaunchDescription:
     )
     return LaunchDescription([
         config_file_arg,
+        declare_image_pipeline_config_file_argument('image_pipeline_config_file'),
         OpaqueFunction(function=_build_actions),
     ])

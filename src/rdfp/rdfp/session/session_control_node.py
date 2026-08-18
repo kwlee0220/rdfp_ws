@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import json
 import sys
 from enum import Enum
 
@@ -24,7 +25,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReli
 from std_srvs.srv import Trigger
 
 from rdfp_msgs.msg import SessionCommand
-from rdfp_msgs.srv import GetSessionState, SetString
+from rdfp_msgs.srv import GetSessionState, SetString, StopEpisode
 
 
 class SessionState(Enum):
@@ -37,6 +38,23 @@ class SessionState(Enum):
 
 _DEFAULT_SESSION_TOPIC = "session"
 _INVALID_COMMAND_MSG: str = 'invalid command'
+
+# stop_episode 의 outcome 허용값. '' 는 실패가 아니라 '판정 없음'이며, DB 에는
+# NULL 로 들어간다 (bool 로는 이 세 번째 상태를 표현할 수 없다).
+_VALID_OUTCOMES: frozenset[str] = frozenset({'', 'success', 'failure'})
+
+
+def _is_json_object(text: str) -> bool:
+    """JSON object('{...}') 문자열인지 확인한다.
+
+    최상위가 object 여야 하는 이유는 DB 의 jsonb 컬럼에 그대로 들어가기 때문이다.
+    배열이나 스칼라도 jsonb 로는 유효하지만, 그러면 에피소드마다 형태가 달라져
+    조회(`metadata->>'seed'`)가 성립하지 않는다.
+    """
+    try:
+        return isinstance(json.loads(text), dict)
+    except (TypeError, ValueError):
+        return False
 
 
 class SessionControlNode(Node):
@@ -70,8 +88,10 @@ class SessionControlNode(Node):
         self._start_episode_srv = self.create_service(
             Trigger, '~/start_episode', self._handle_start_episode,
         )
+        # stop_episode 만 Trigger 가 아니다 — 종료 시점에만 알 수 있는 성패·부가정보를
+        # 받아 SessionCommand 로 흘려야 기록에 남는다.
         self._stop_episode_srv = self.create_service(
-            Trigger, '~/stop_episode', self._handle_stop_episode,
+            StopEpisode, '~/stop_episode', self._handle_stop_episode,
         )
         self._set_task_label_srv = self.create_service(
             SetString, '~/set_task_label', self._handle_set_task_label,
@@ -143,14 +163,31 @@ class SessionControlNode(Node):
 
     def _handle_stop_episode(
         self,
-        request: Trigger.Request,
-        response: Trigger.Response,
-    ) -> Trigger.Response:
+        request: StopEpisode.Request,
+        response: StopEpisode.Response,
+    ) -> StopEpisode.Response:
+        """에피소드를 종료하고 성패·부가정보를 함께 발행한다.
+
+        ``outcome`` / ``metadata`` 는 여기서 검증한다. 잘못된 값을 그대로 흘리면
+        rosbag 에 남은 뒤 적재 시점에야 드러나는데, 그때는 재수집 말고 고칠 방법이
+        없다. 둘 다 비워 호출할 수 있으며 그 경우가 '판정 없음'이다.
+        """
         # IN_EPISODE 에서만 허용 (SRS 4.3).
         if self._state is not SessionState.IN_EPISODE:
             return self._reject('stop_episode', response)
 
-        self._publish(SessionState.IN_SESSION, self._task_label)
+        outcome = request.outcome or ''
+        if outcome not in _VALID_OUTCOMES:
+            return self._fail(
+                response,
+                f"outcome must be one of {sorted(_VALID_OUTCOMES)}, got {outcome!r}")
+
+        metadata = request.metadata or ''
+        if metadata and not _is_json_object(metadata):
+            return self._fail(response, 'metadata must be a JSON object string')
+
+        self._publish(SessionState.IN_SESSION, self._task_label,
+                      outcome=outcome, metadata=metadata)
         self._transition(SessionState.IN_SESSION, 'stop_episode')
         return self._ok(response)
 
@@ -185,12 +222,21 @@ class SessionControlNode(Node):
     # 내부 헬퍼
     # ------------------------------------------------------------------
 
-    def _publish(self, state: SessionState, task_label: str) -> None:
+    def _publish(self, state: SessionState, task_label: str, *,
+                 outcome: str = '', metadata: str = '') -> None:
+        """세션 상태를 발행한다.
+
+        ``outcome`` / ``metadata`` 는 **에피소드 종료 전이에서만** 채운다. 다른
+        전이는 기본값('')을 그대로 쓴다 — 그래야 후처리기가 이 값을 종료되는
+        에피소드에만 귀속시킬 수 있다.
+        """
         msg = SessionCommand()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = ''
         msg.state = state.value
         msg.task_label = task_label
+        msg.outcome = outcome
+        msg.metadata = metadata
         self._pub.publish(msg)
 
     def _transition(self, next_state: SessionState, command: str) -> None:
@@ -214,6 +260,16 @@ class SessionControlNode(Node):
         )
         response.success = False
         response.message = _INVALID_COMMAND_MSG
+        return response
+
+    def _fail(self, response, message: str):
+        """상태 전이는 가능하지만 인자가 잘못된 경우.
+
+        `_reject` 와 달리 사유가 상태가 아니라 값이므로 메시지를 그대로 돌려준다.
+        """
+        self.get_logger().warning(f'stop_episode rejected: {message}')
+        response.success = False
+        response.message = message
         return response
 
 

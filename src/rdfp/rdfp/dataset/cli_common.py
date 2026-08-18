@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from .config import DatasetConfig, load_dataset_config
@@ -16,8 +17,10 @@ from .config import DatasetConfig, load_dataset_config
 LOG_LEVEL_CHOICES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
 LOG_FORMAT: str = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 
-# --config 미지정 시 현재 작업 디렉터리에서 자동 탐색할 기본 설정 파일명.
-DEFAULT_CONFIG_FILENAME: str = 'dataset_config.yaml'
+# --config 미지정 시 자동 탐색할 기본 설정 파일 경로.
+# RDFP_HOME(미설정 시 현재 작업 디렉터리) 아래의 config/dataset_config.yaml 을 가리킨다.
+DEFAULT_CONFIG_FILE_PATH: Path = (
+    Path(os.getenv('RDFP_HOME', '.')) / 'config' / 'dataset_config.yaml')
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -57,15 +60,18 @@ def load_dataset_or_fail(path: str) -> DatasetConfig | None:
 
 
 def resolve_config_path(args: argparse.Namespace) -> str | None:
-    """`args.config` 를 우선 사용하고, 없으면 cwd 의 기본 파일을 찾는다.
+    """`args.config` 를 우선 사용하고, 없으면 기본 설정 파일을 찾는다.
+
+    기본 경로는 `DEFAULT_CONFIG_FILE_PATH` (`RDFP_HOME` 또는 현재 작업 디렉터리
+    아래의 ``config/dataset_config.yaml``) 이다.
 
     Returns:
-        ``args.config`` 가 설정되어 있으면 그 값, 아니면 현재 작업 디렉터리의
-        ``dataset_config.yaml`` 경로 (파일 존재 시). 파일도 없으면 ``None``.
+        ``args.config`` 가 설정되어 있으면 그 값, 아니면 기본 경로 (파일 존재
+        시). 파일도 없으면 ``None``.
     """
     if getattr(args, 'config', None):
         return args.config
-    candidate = Path(DEFAULT_CONFIG_FILENAME)
+    candidate = DEFAULT_CONFIG_FILE_PATH
     if candidate.is_file():
         return str(candidate)
     return None
@@ -74,7 +80,7 @@ def resolve_config_path(args: argparse.Namespace) -> str | None:
 __all__ = [
     'LOG_LEVEL_CHOICES',
     'LOG_FORMAT',
-    'DEFAULT_CONFIG_FILENAME',
+    'DEFAULT_CONFIG_FILE_PATH',
     'add_common_args',
     'add_config_arg',
     'configure_logging',

@@ -63,6 +63,9 @@ class FrameRouter:
         self._episode_id: int | None = None
         self._episode_dir: Path | None = None
         self._sinks: dict[str, FfmpegSink] = {}
+        # finalize_episode() 가 INSERT 한 image_streams / image_frames 누적 카운터.
+        # consume_inserted_count() 가 반환과 동시에 0 으로 리셋한다 (WriterBase 와 동일 패턴).
+        self._inserted_since_reset: dict[str, int] = {'image_streams': 0, 'image_frames': 0}
 
     # --- 에피소드 수명 주기 ---
 
@@ -89,10 +92,14 @@ class FrameRouter:
             except Exception:
                 _logger.exception('ffmpeg finalize failed for topic=%s', topic)
                 raise
+            # 프레임이 한 장이라도 들어온 sink 만 image_streams 1행 + image_frames N행 을
+            # INSERT 한다 (ffmpeg_sink.finalize 참고).
             if sink.frame_count > 0:
                 produced.append(str(
                     self._mp4_path(topic).relative_to(self._root)
                 ))
+                self._inserted_since_reset['image_streams'] += 1
+                self._inserted_since_reset['image_frames'] += sink.frame_count
         self._episode_id = None
         self._episode_dir = None
         self._sinks = {}
@@ -117,6 +124,17 @@ class FrameRouter:
         self._episode_id = None
         self._episode_dir = None
         self._sinks = {}
+
+    def consume_inserted_count(self) -> dict[str, int]:
+        """마지막 reset 이후 INSERT 된 image_streams / image_frames 행 수를 반환하고 카운터를 0 으로 리셋한다.
+
+        WriterBase.consume_inserted_count() 와 동일한 의미. abort_episode() 는 카운터를
+        증가시키지 않으므로 별도 차감이 필요 없다.
+        """
+        out = dict(self._inserted_since_reset)
+        for k in self._inserted_since_reset:
+            self._inserted_since_reset[k] = 0
+        return out
 
     # --- 프레임 라우팅 ---
 

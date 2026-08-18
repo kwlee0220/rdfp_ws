@@ -1,0 +1,45 @@
+# JointGroupPositionController 기반 ros2_control 설정.
+#
+# `moveit_resources_panda_moveit_config/config/ros2_controllers.yaml` 을 대체한다.
+# panda_arm_controller 의 **타입만** JointTrajectoryController 에서
+# JointGroupPositionController 로 바꾸고, joint_state_broadcaster 와
+# panda_hand_controller 는 원본과 동일하게 유지한다.
+#
+# 컨트롤러 **이름** 을 그대로 두는 이유는 spawner helper
+# (`controller_launch_helper.create_panda_arm_controller_spawner`) 와 순차 기동
+# 핸들러를 수정 없이 재사용하기 위해서다.
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    panda_arm_controller:
+      type: position_controllers/JointGroupPositionController
+
+    panda_hand_controller:
+      type: position_controllers/GripperActionController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+
+# JointGroupPositionController 는 on_init 에서 `interface_name` 을 "position" 으로
+# 강제하므로 여기서는 joints 만 선언한다.
+#
+# 명령 입력은 `/panda_arm_controller/commands` (std_msgs/Float64MultiArray) 이며,
+# 메시지에 joint 이름이 없으므로 **배열 순서가 아래 joints 순서와 정확히 일치해야
+# 한다**. moveit_servo 는 panda_arm joint model group 순서(joint1..joint7)로
+# 발행하므로 아래 순서를 바꾸면 안 된다.
+panda_arm_controller:
+  ros__parameters:
+    joints:
+      - panda_joint1
+      - panda_joint2
+      - panda_joint3
+      - panda_joint4
+      - panda_joint5
+      - panda_joint6
+      - panda_joint7
+
+panda_hand_controller:
+  ros__parameters:
+    joint: panda_finger_joint1

@@ -12,13 +12,44 @@
 - 이미지 (``/camera/...``) — 데이터셋에서 재생되므로 ``camera`` 노드를 띄우지
   않는다. 재생된 이미지 토픽을 구독하는 ``rdfp_image_viewer_node`` 는 유지한다.
 - ``/gripper_control/gripper_cmds`` — 데이터셋 재생 쪽에서 발행한다. 본 런치의
-  ``gripper_command_subscriber`` 가 이를 받아 gripper action 으로 변환한다.
-- 세션 / 녹화 / target_joint_states 재발행은 **수행하지 않는다**
-  (``session_control`` / ``image_recorder`` / ``target_joint_states_publisher``
-  모두 제외).
-- 대신 재생 도구가 보낸 ``/target_joint_states`` 를 panda_arm_controller 로
-  흘려보내기 위해 ``target_joint_states_executor`` 를 띄운다 (JointTrajectory
-  길이 1 로 래핑 → ``/panda_arm_controller/joint_trajectory`` 에 발행).
+  ``gripper_control_node`` 가 이를 받아 gripper action 으로 중계한다.
+- ``/target_joint_cmds`` — 데이터셋에서 재생되므로
+  ``target_joint_cmds_publisher`` 를 띄우지 않는다.
+- 세션 / 녹화는 **수행하지 않는다** (``session_control`` / ``image_recorder``
+  제외).
+
+arm 재생 경로 (``replay_arm_path``)
+-----------------------------------
+
+arm 을 구동하는 노드 조합을 ``replay_arm_path`` argument 로 고른다. 두 경로가
+동시에 ``/panda_arm_controller/joint_trajectory`` 를 쓰면 명령이 충돌하므로
+**배타적으로만 기동한다**.
+
+``ee_twist`` (기본값)
+    ``/ee_pose`` (PoseStamped) → ``ee_twist_publisher`` (유한 차분) →
+    ``/servo_node/delta_twist_cmds`` → ``servo_node`` →
+    ``/panda_arm_controller/joint_trajectory``. servo 는 ``start_servo`` 호출
+    전까지 입력을 무시하므로 ``servo_auto_start_node`` 를 함께 띄운다.
+
+    **개루프** 경로다. 적분 드리프트가 누적되고, 시작 pose 가 녹화 때와 다르면
+    전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지 않는다.
+    servo 의 ``command_in_type: unitless`` 를 보정하기 위해 게인 기본값이
+    ``linear 2.5`` / ``angular 1.25`` 로 설정되어 있다. 근거와 대안 비교는
+    ``docs/replay/cartesian_path_replay_approaches.md`` 참고.
+
+``target_joint_cmds``
+    ``/target_joint_cmds`` (sensor_msgs/JointState) → ``target_joint_cmds_executor``
+    → ``/panda_arm_controller/joint_trajectory``. 관절 절대 위치를 그대로
+    재생하므로 **위치 폐루프** 이며 여유자유도(팔꿈치 형상)까지 원본과 일치한다.
+    재현 충실도는 이쪽이 가장 높다.
+
+    DB 의 ``joint_states`` 테이블은 joint 이름을 저장하지 않으므로 재생된
+    JointState 의 ``name`` 은 비어 있다. executor 에 ``joint_names`` 파라미터로
+    panda_joint1~7 을 넘겨 폴백하게 한다.
+
+``none``
+    arm 구동 노드를 띄우지 않는다. ``MoveGroupClient.follow_trajectory`` 처럼
+    외부 클라이언트로 직접 구동할 때 사용한다.
 
 기동되는 노드 단위:
 
@@ -35,8 +66,9 @@
 - ``rviz2``: /rviz2
 - ``rdfp 애플리케이션``:
     - /rdfp_image_viewer_node
-    - /gripper_command_subscriber
-    - /target_joint_states_executor
+    - /gripper_control
+    - /ee_twist_publisher, /servo_auto_start (``replay_arm_path=ee_twist``, 기본)
+    - /target_joint_cmds_executor (``replay_arm_path=target_joint_cmds``)
 
 기동 정책은 :mod:`panda_mock.launch` 와 동일하다: ``panda_hand_controller``
 spawner 가 종료되면 상위 노드들을 일괄 spawn 한다.
@@ -44,17 +76,22 @@ spawner 가 종료되면 상위 노드들을 일괄 spawn 한다.
 설정 파일
 ---------
 
-:mod:`rdfp_panda_mock.launch` 와 동일한 YAML 구조를 사용한다.
+**전용** YAML 을 쓴다 — ``rdfp_panda_mock.launch`` 와 공유하지 않는다.
 
-- 기본 경로: ``<rdfp share>/config/rdfp_panda_mock.yaml``
+- 기본 경로: ``<rdfp share>/config/replay_panda_mock.yaml``
 - ``config_file:=<path>`` launch argument 로 다른 YAML 을 지정할 수 있다.
   ``$HOME`` / ``~`` 같은 경로 확장은 쉘에 맡긴다
   (예: ``config_file:=$HOME/my.yaml`` — 쉘이 먼저 확장한 절대경로가 전달된다).
 - CLI 에서 ``arg:=value`` 로 개별 argument 를 덮어쓰는 것은 그대로 동작한다.
 
-YAML 파일의 구조는 ``config/rdfp_panda_mock.yaml`` 을 참고한다. 재생 모드에서
-기동하지 않는 노드(camera / ee_pose / image_recorder / target_joint_states 등)
-와 관련된 argument 는 현재 소비자가 없으므로 값이 무시된다.
+과거에는 ``panda_robot.yaml`` 을 공유했는데, 본 런치가 기동하지 않는 노드
+(camera / ee_pose_publisher / image_recorder / session_control) 의 키가 절반을
+넘어 **고쳐도 아무 일이 일어나지 않으면서 경고도 없었다.** 전용 파일에는 실제로
+소비자가 있는 키만 두어, 없는 블록이 곧 "그 노드를 안 띄운다"는 뜻이 되도록 했다.
+
+YAML 키 ↔ argument 대응표는 ``src/rdfp/launch/README.md`` 의 "Launch 인자" 절에
+있다. ``config_file`` 이 ``OpaqueFunction`` 안에서 resolve 된 **뒤에야** 나머지
+argument 가 선언되므로 ``--show-args`` 는 ``config_file`` 하나만 출력한다.
 """
 
 from __future__ import annotations
@@ -100,7 +137,24 @@ from launch_helper import (
 
 # YAML 설정 파일의 기본 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
-DEFAULT_CONFIG_RELPATH = os.path.join("config", "rdfp_panda_mock.yaml")
+#
+# panda_robot.yaml 과 **별도 파일**이다. 본 런치는 camera / ee_pose_publisher /
+# session_control / image_recorder / target_joint_cmds_publisher 를 기동하지 않으므로
+# 공유 파일을 쓰면 값이 조용히 무시되는 키가 절반을 넘었다.
+DEFAULT_CONFIG_RELPATH = os.path.join("config", "replay_panda_mock.yaml")
+
+# arm 재생 경로 선택지. `replay_arm_path` launch argument 의 허용 값이다.
+_ARM_PATH_TARGET_JOINT_CMDS = "target_joint_cmds"
+_ARM_PATH_EE_TWIST = "ee_twist"
+_ARM_PATH_NONE = "none"
+_ARM_PATHS = (_ARM_PATH_TARGET_JOINT_CMDS, _ARM_PATH_EE_TWIST, _ARM_PATH_NONE)
+
+# JointState 명령에 name 이 비어 있을 때 사용할 joint 이름. DB 의 joint_states
+# 테이블은 이름을 저장하지 않으므로 DB 재생 경로에서는 항상 이 값이 쓰인다.
+_PANDA_ARM_JOINT_NAMES = [
+    "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
+    "panda_joint5", "panda_joint6", "panda_joint7",
+]
 
 
 def _default_config_path() -> str:
@@ -132,13 +186,17 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
     기반 기본값을 적용하려면 본 launch 파일에서 직접 선언해야 한다. helper 의
     ``create_*_node()`` 는 ``LaunchConfiguration(<name>)`` 으로 값을 참조하므로
     여기서 선언한 argument 이름만 일치시키면 그대로 동작한다.
+
+    **실제로 소비자가 있는 argument 만 선언한다.** 과거에는
+    ``rdfp_panda_mock.launch`` 에서 통째로 복사한 camera / image_recorder /
+    publish_rate argument 13개가 함께 선언되어 있었는데, 본 런치가 그 노드들을
+    기동하지 않으므로 값이 조용히 무시되었다 (경고도 없었다).
     """
     rc = config["ros2_control"]
     ee = config["ee_pose"]
-    cam = config["camera"]
     iv = config["image_viewer"]
-    ir = config["image_recorder"]
-    tjs = config["target_joint_states"]
+    rp = config["replay"]
+    et = rp["ee_twist"]
 
     return [
         # --- ros2_control ---
@@ -168,97 +226,92 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
             default_value=_as_launch_str(ee["ee_frame"]),
             description="End-effector frame for EE pose TF lookup",
         ),
-        DeclareLaunchArgument(
-            "publish_rate",
-            default_value=_as_launch_str(ee["publish_rate"]),
-            description="EE pose publish rate in Hz",
-        ),
-        # --- camera ---
-        DeclareLaunchArgument(
-            "enable_camera_node",
-            default_value=_as_launch_str(cam["enabled"]),
-            description="Whether to start rdfp camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_id",
-            default_value=_as_launch_str(cam["id"]),
-            description="Camera device index or URI/path for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_image_topic",
-            default_value=_as_launch_str(cam["image_topic"]),
-            description="Remap target for base image topic ('image')",
-        ),
-        DeclareLaunchArgument(
-            "camera_info_topic",
-            default_value=_as_launch_str(cam["info_topic"]),
-            description="Remap target for base camera_info topic ('camera_info')",
-        ),
-        DeclareLaunchArgument(
-            "camera_status_topic",
-            default_value=_as_launch_str(cam["status_topic"]),
-            description="Remap target for camera status topic ('image/status')",
-        ),
-        DeclareLaunchArgument(
-            "camera_fps",
-            default_value=_as_launch_str(cam["fps"]),
-            description="Target FPS for camera_node",
-        ),
-        DeclareLaunchArgument(
-            "camera_resolution",
-            default_value=_as_launch_str(cam["resolution"]),
-            description="Target resolution for camera_node (e.g. 640x480)",
-        ),
-        DeclareLaunchArgument(
-            "camera_frame_id",
-            default_value=_as_launch_str(cam["frame_id"]),
-            description="frame_id for published Image/CameraInfo",
-        ),
-        DeclareLaunchArgument(
-            "camera_compress_image",
-            default_value=_as_launch_str(cam["compress_image"]),
-            description="Publish JPEG compressed image when true",
-        ),
         # --- image_viewer ---
+        # camera_node 는 기동하지 않는다. 재생 도구가 발행하는 이미지 토픽을
+        # 뷰어가 구독할 뿐이므로 image_viewer 블록에 토픽을 둔다. argument 이름은
+        # 기존 사용처 호환을 위해 `camera_image_topic` 을 유지한다.
         DeclareLaunchArgument(
             "enable_image_viewer_node",
             default_value=_as_launch_str(iv["enabled"]),
             description="Whether to start rdfp_image_viewer_node",
         ),
-        # --- image_recorder ---
         DeclareLaunchArgument(
-            "enable_image_recorder_node",
-            default_value=_as_launch_str(ir["enabled"]),
-            description="Whether to start image_recorder_node",
+            "camera_image_topic",
+            default_value=_as_launch_str(iv["image_topic"]),
+            description="Replayed image topic the viewer subscribes to ('image' remap target)",
         ),
+        # --- arm 재생 경로 ---
         DeclareLaunchArgument(
-            "image_recorder_fps",
-            default_value=_as_launch_str(ir["fps"]),
+            "replay_arm_path",
+            default_value=_as_launch_str(rp["arm_path"]),
+            choices=list(_ARM_PATHS),
             description=(
-                "Target FPS for image_recorder_node "
-                "(should match camera_node fps to avoid frame drops)"
+                "Which node chain drives the arm during replay. "
+                "'target_joint_cmds': /target_joint_cmds -> executor -> JTC "
+                "(위치 폐루프, 여유자유도까지 재현). "
+                "'ee_twist': /ee_pose -> ee_twist_publisher -> servo -> JTC "
+                "(개루프, 드리프트 있음). "
+                "'none': arm 구동 노드를 띄우지 않는다 "
+                "(MoveGroupClient.follow_trajectory 등 외부 클라이언트로 구동할 때)"
             ),
         ),
         DeclareLaunchArgument(
-            "image_recorder_output_dir",
-            default_value=_as_launch_str(ir["output_dir"]),
-            description="Output directory for image_recorder_node MP4 files",
-        ),
-        DeclareLaunchArgument(
-            "image_recorder_auto_start",
-            default_value=_as_launch_str(ir["auto_start"]),
-            description="If true, image_recorder_node starts recording immediately at launch",
-        ),
-        # --- target_joint_states ---
-        DeclareLaunchArgument(
-            "target_joint_states_input_topic",
-            default_value=_as_launch_str(tjs["input_topic"]),
+            "ee_twist_source_topic",
+            default_value=_as_launch_str(et["source_topic"]),
             description=(
-                "Remap target for target_joint_states_publisher input topic "
-                "('joint_trajectory'); typically /servo_node/joint_trajectory"
+                "PoseStamped input topic differentiated into twist "
+                "(replay_arm_path=ee_twist)"
             ),
+        ),
+        DeclareLaunchArgument(
+            "ee_twist_output_topic",
+            default_value=_as_launch_str(et["output_topic"]),
+            description="TwistStamped output topic consumed by servo (replay_arm_path=ee_twist)",
+        ),
+        DeclareLaunchArgument(
+            "ee_twist_linear_gain",
+            default_value=_as_launch_str(et["linear_gain"]),
+            description=(
+                "Linear twist gain. servo 의 command_in_type=unitless 를 보정하는 "
+                "1/scale.linear 값 (speed_units 운용 시 1.0)"
+            ),
+        ),
+        DeclareLaunchArgument(
+            "ee_twist_angular_gain",
+            default_value=_as_launch_str(et["angular_gain"]),
+            description=(
+                "Angular twist gain. servo 의 command_in_type=unitless 를 보정하는 "
+                "1/scale.rotational 값 (speed_units 운용 시 1.0)"
+            ),
+        ),
+        DeclareLaunchArgument(
+            "ee_twist_max_dt",
+            default_value=_as_launch_str(et["max_dt"]),
+            description=(
+                "Maximum sample gap in seconds. 이 값을 넘는 공백 뒤에는 속도 스파이크를 "
+                "피하기 위해 한 주기를 건너뛴다"
+            ),
+        ),
+        DeclareLaunchArgument(
+            "servo_start_timeout",
+            default_value=_as_launch_str(rp["servo_start_timeout"]),
+            description="Seconds to wait for /servo_node/start_servo (replay_arm_path=ee_twist)",
         ),
     ]
+
+
+def _resolve_arm_path(context: LaunchContext, config: dict[str, Any]) -> str:
+    """arm 재생 경로를 결정한다 (CLI 우선, 없으면 YAML).
+
+    `_build_actions` 는 이 값으로 **기동할 노드 자체를 고르므로** 즉시 읽어야
+    하는데, argument 선언은 그 함수가 반환한 뒤에야 실행된다. 따라서
+    `LaunchConfiguration(...).perform(context)` 은 쓸 수 없다 (CLI 로 값을 주지
+    않으면 "launch configuration does not exist" 로 실패한다). CLI `arg:=value`
+    는 launch 실행 전에 이미 context 에 들어와 있으므로 그것만 조회한다.
+    """
+    return context.launch_configurations.get(
+        "replay_arm_path", _as_launch_str(config["replay"]["arm_path"])
+    )
 
 
 def _build_actions(context: LaunchContext) -> list:
@@ -305,44 +358,101 @@ def _build_actions(context: LaunchContext) -> list:
         ],
     )
 
-    # --- rdfp 애플리케이션: GripperCommandSubscriber ---
+    # --- rdfp 애플리케이션: GripperControlNode ---
     # 데이터셋 재생 도구가 발행하는 `rdfp_msgs/GripperCommand` 를 받아 gripper
-    # action 에 그대로 전달한다. 녹화된 토픽 이름과 맞추기 위해 `~/gripper_cmds`
-    # 를 `/gripper_control/gripper_cmds` 로 remap 한다 (replay 모드에서는 본
-    # 토픽에 퍼블리셔가 `GripperControlNode` 가 아니라 재생 도구라는 점만 다름).
-    gripper_command_subscriber_node = Node(
+    # action 으로 중계한다. 수집 때와 **같은 노드**이며, 다른 점은 명령 토픽의
+    # 퍼블리셔가 teleop/트윈이 아니라 재생 도구라는 것뿐이다.
+    gripper_control_node = Node(
         package="rdfp",
-        executable="gripper_command_subscriber",
-        name="gripper_command_subscriber",
+        executable="gripper_control_node",
+        name="gripper_control",
         output="screen",
         emulate_tty=True,
-        remappings=[
-            ("~/gripper_cmds", "/gripper_control/gripper_cmds"),
-        ],
     )
 
-    # --- rdfp 애플리케이션: TargetJointStatesExecutor ---
-    # 재생 도구가 발행하는 `/target_joint_states` (rdfp_msgs/TargetJointStates) 를
-    # 받아 길이 1 짜리 `trajectory_msgs/JointTrajectory` 로 래핑하여
+    # --- arm 재생 경로 선택 ---
+    # `replay_arm_path` 값에 따라 arm 을 구동하는 노드 조합이 달라진다. 두 경로가
+    # 동시에 `/panda_arm_controller/joint_trajectory` 를 쓰면 명령이 충돌하므로
+    # 배타적으로만 기동한다.
+    arm_path = _resolve_arm_path(context, config)
+    if arm_path not in _ARM_PATHS:
+        raise RuntimeError(
+            f"'replay_arm_path' must be one of {list(_ARM_PATHS)}, got {arm_path!r}"
+        )
+    arm_path_nodes: list[Node] = []
+
+    # --- rdfp 애플리케이션: TargetJointCmdsExecutor (replay_arm_path=target_joint_cmds) ---
+    # 재생 도구가 발행하는 `/target_joint_cmds` (sensor_msgs/JointState) 를 받아
+    # 길이 1 짜리 `trajectory_msgs/JointTrajectory` 로 래핑하여
     # `/panda_arm_controller/joint_trajectory` 로 흘려보낸다 — panda_arm_controller
     # 가 이 토픽을 consume 하여 실제 관절 궤적을 실행한다.
-    target_joint_states_executor_node = Node(
-        package="rdfp",
-        executable="target_joint_states_executor",
-        name="target_joint_states_executor",
-        output="screen",
-        emulate_tty=True,
-        parameters=[{
-            "joint_names": [
-                "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
-                "panda_joint5", "panda_joint6", "panda_joint7",
+    #
+    # 관절 절대 위치를 그대로 재생하므로 위치 폐루프이며 여유자유도(팔꿈치 형상)까지
+    # 원본과 일치한다. 재현 충실도가 가장 높은 경로다.
+    #
+    # joint_names 를 명시하는 이유: DB 의 joint_states 테이블은 position/velocity/
+    # effort 만 저장하고 이름은 버린다. 따라서 DB 재생으로 들어온 JointState 는 name
+    # 이 비어 있고, 이 파라미터가 폴백으로 쓰인다.
+    if arm_path == _ARM_PATH_TARGET_JOINT_CMDS:
+        arm_path_nodes.append(Node(
+            package="rdfp",
+            executable="target_joint_cmds_executor",
+            name="target_joint_cmds_executor",
+            output="screen",
+            emulate_tty=True,
+            parameters=[{
+                "joint_names": _PANDA_ARM_JOINT_NAMES,
+            }],
+            remappings=[
+                ("target_joint_cmds", "/target_joint_cmds"),
+                ("joint_trajectory", "/panda_arm_controller/joint_trajectory"),
             ],
-        }],
-        remappings=[
-            ("target_joint_states", "/target_joint_states"),
-            ("joint_trajectory", "/panda_arm_controller/joint_trajectory"),
-        ],
-    )
+        ))
+
+    # --- rdfp 애플리케이션: EeTwistPublisher + ServoAutoStart (replay_arm_path=ee_twist) ---
+    # 재생된 `/ee_pose` (geometry_msgs/PoseStamped) 를 유한 차분하여 twist 로 바꾸고
+    # servo 의 Cartesian 입력 토픽으로 발행한다. servo 가 이를 관절 궤적으로 변환해
+    # `/panda_arm_controller/joint_trajectory` 로 내보낸다.
+    #
+    #   /ee_pose -> ee_twist_publisher -> /servo_node/delta_twist_cmds
+    #            -> servo_node -> /panda_arm_controller/joint_trajectory
+    #
+    # 주의: 속도 명령 기반이라 **개루프** 다. 적분 드리프트가 누적되고 시작 pose 가
+    # 다르면 전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지
+    # 않는다. 자세한 근거는 docs/replay/cartesian_path_replay_approaches.md 참고.
+    # 정확한 재현이 목적이면 target_joint_cmds 경로를 쓴다.
+    #
+    # servo 는 `start_servo` 서비스 호출 전까지 입력을 무시하므로, 호출 주체가 없는
+    # replay 스택에서는 servo_auto_start_node 를 함께 기동해야 한다.
+    if arm_path == _ARM_PATH_EE_TWIST:
+        arm_path_nodes.append(Node(
+            package="rdfp",
+            executable="ee_twist_node",
+            name="ee_twist_publisher",
+            output="screen",
+            emulate_tty=True,
+            parameters=[{
+                "source": "ee_pose",
+                "ee_pose_topic": LaunchConfiguration("ee_twist_source_topic"),
+                "twist_topic": LaunchConfiguration("ee_twist_output_topic"),
+                "base_frame": LaunchConfiguration("base_frame"),
+                "ee_frame": LaunchConfiguration("ee_frame"),
+                "linear_gain": LaunchConfiguration("ee_twist_linear_gain"),
+                "angular_gain": LaunchConfiguration("ee_twist_angular_gain"),
+                "max_dt": LaunchConfiguration("ee_twist_max_dt"),
+            }],
+        ))
+        arm_path_nodes.append(Node(
+            package="rdfp",
+            executable="servo_auto_start_node",
+            name="servo_auto_start",
+            output="screen",
+            emulate_tty=True,
+            parameters=[{
+                "servo_node_name": "/servo_node",
+                "service_timeout": LaunchConfiguration("servo_start_timeout"),
+            }],
+        ))
 
     # panda_hand_controller 기동 완료 후 MoveIt/주변 노드와 rdfp 애플리케이션
     # 노드를 일괄 spawn 한다.
@@ -353,8 +463,8 @@ def _build_actions(context: LaunchContext) -> list:
         panda_hand_controller_spawner,
         [
             move_group_node, servo_node, rviz_node,
-            rdfp_image_viewer_node, gripper_command_subscriber_node,
-            target_joint_states_executor_node,
+            rdfp_image_viewer_node, gripper_control_node,
+            *arm_path_nodes,
         ],
     )
 
@@ -375,12 +485,17 @@ def generate_launch_description() -> LaunchDescription:
     # 나머지 argument / 노드 생성은 `OpaqueFunction` 안에서 수행한다. 이렇게 해야
     # top-level CLI 뿐 아니라 `IncludeLaunchDescription(..., launch_arguments=...)`
     # 경유 호출에서도 동일하게 `config_file` override 가 반영된다.
+    #
+    # `replay_arm_path` 도 YAML(`replay.arm_path`) 에서 기본값을 가져오므로 여기가
+    # 아니라 `_declare_arguments()` 에서 선언한다. `_build_actions` 는 그 값을 즉시
+    # 읽어야 하는데 선언이 아직 실행되지 않은 시점이므로, `perform()` 대신
+    # `_resolve_arm_path()` 가 context 를 직접 조회한다.
     config_file_arg = DeclareLaunchArgument(
         "config_file",
         default_value=_default_config_path(),
         description=(
-            "Path to the rdfp_panda_mock YAML configuration file. "
-            "기본값은 <rdfp share>/config/rdfp_panda_mock.yaml 이며, "
+            "Path to the replay_panda_mock YAML configuration file. "
+            "기본값은 <rdfp share>/config/replay_panda_mock.yaml 이며, "
             "CLI 또는 IncludeLaunchDescription launch_arguments 로 "
             "'config_file:=<path>' 를 주면 덮어쓸 수 있다 "
             "($HOME 등 쉘 확장은 쉘에 맡긴다)."

@@ -1,0 +1,30 @@
+# Panda 로봇 측 설정 — rdfp_panda_mock.launch.py / rdfp_panda_jgpc_mock.launch.py 공용.
+#
+# 파일 이름이 `panda_robot` 인 이유
+# --------------------------------
+# 값이 **Panda 종속**이다 (panda_link0 / panda_hand / panda_arm_controller). 다른
+# 로봇을 붙이면 별도 파일이 필요하다. 반면 `mock` 은 붙이지 않는다 —
+# `ros2_control.hardware_type` 은 launch argument 의 기본값일 뿐이고,
+# `ros2_control_hardware_type:=isaac` 처럼 다른 백엔드로 띄워도 이 파일을 그대로
+# 쓰기 때문이다. (예전 이름: rdfp_panda_mock.yaml)
+#
+# 이미지 파이프라인(camera / image_viewer / image_recorder) 설정은 이 파일이 아니라
+# **config/image_pipeline.yaml** 에 있다. 카메라를 띄우는 launch 가 여섯이라 한 곳으로
+# 모았다 — `image_pipeline_config_file:=<path>` 로 갈아끼울 수 있다.
+#
+# YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
+
+ros2_control:
+  hardware_type: mock_components
+
+log_level: info
+
+ee_pose:
+  base_frame: panda_link0
+  ee_frame: panda_hand
+  publish_rate: 50.0
+
+# rdfp_panda_mock (JTC) 전용. JGPC 판은 arm 명령이 Float64MultiArray 라
+# `/panda_arm_controller/commands` 로 고정되어 있어 이 키를 읽지 않는다.
+target_joint_cmds:
+  input_topic: /panda_arm_controller/joint_trajectory

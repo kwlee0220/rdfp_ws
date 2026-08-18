@@ -1,0 +1,9 @@
+{
+    "cam_file": "data/251124_chessboard/intrinsic/*.png",
+    "chess_pattern_cols": 11,
+    "chess_pattern_rows": 8,
+    "chess_cellsize": 0.02,
+    "calib_option": ["CALIB_FIX_ASPECT_RATIO", "CALIB_ZERO_TANGENT_DIST", "CALIB_FIX_K1", "CALIB_FIX_K2", "CALIB_FIX_K3"],
+    "calib_output": "data/251124_chessboard/intrinsic_case2_calib.json",
+    "save_cam_pose": true
+}

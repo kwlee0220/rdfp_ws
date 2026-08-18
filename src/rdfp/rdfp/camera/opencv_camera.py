@@ -213,6 +213,61 @@ class OpenCvCamera:
         self.release()
 
 
+def main(argv: list[str] | None = None) -> int:
+    """OpenCvCamera 동작 확인용 main 함수.
+
+    카메라를 열어 지정한 시간 동안 프레임을 화면에 표시한다.
+    """
+    import argparse
+    import time
+
+    parser = argparse.ArgumentParser(description="OpenCvCamera 로 카메라를 열어 화면을 표시한다")
+    parser.add_argument("--camera-id", default="0", help="카메라 ID (정수) 또는 영상 소스 경로")
+    parser.add_argument("--duration", type=float, default=10.0, help="표시 시간(초)")
+    parser.add_argument("--resolution", default=None, help="요청 해상도 (예: 640x480)")
+    parser.add_argument("--fps", type=float, default=None, help="요청 FPS")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
+    logger = logging.getLogger(__name__)
+
+    # camera_id 가 정수 형태면 int 로 변환한다.
+    camera_id: int | str = int(args.camera_id) if args.camera_id.lstrip("-").isdigit() else args.camera_id
+
+    try:
+        camera = OpenCvCamera(camera_id, resolution=args.resolution, fps=args.fps)
+    except ValueError as exc:
+        logger.error("Invalid camera configuration: %s", exc)
+        return 2
+
+    window_name = f"OpenCvCamera[{camera_id}]"
+    try:
+        with camera:
+            actual_resolution, actual_fps = camera.resolution, camera.fps
+            logger.info(
+                "Camera opened: id=%s resolution=%s fps=%s",
+                camera_id, actual_resolution, actual_fps,
+            )
+
+            start = time.monotonic()
+            while time.monotonic() - start < args.duration:
+                frame = camera.read()
+                if frame is None:
+                    continue
+                cv2.imshow(window_name, frame)
+                # q 키 입력 시 조기 종료한다.
+                if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                    logger.info("Stop requested by user (q)")
+                    break
+    except RuntimeError as exc:
+        logger.error("%s", exc)
+        return 1
+    finally:
+        cv2.destroyAllWindows()
+
+    return 0
+
+
 def _diagnose_open_failure(camera_id: int | str) -> str:
     """카메라 열기 실패 시 원인을 추정하여 진단 메시지를 반환한다."""
     if isinstance(camera_id, int):
@@ -232,3 +287,9 @@ def _diagnose_open_failure(camera_id: int | str) -> str:
     if not os.access(camera_id, os.R_OK):
         return f'no read permission: {camera_id}'
     return f'file exists but failed to open: {camera_id}'
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

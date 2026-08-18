@@ -65,9 +65,25 @@ ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
 
 | 변수 | 용도 |
 |---|---|
-| `RDFP_DB_DSN` | PostgreSQL DSN (필수). yaml 에 평문으로 두지 않음. |
-| `RDFP_POSTPROC_LOG_DIR` | JSONL 로그 저장 경로 (선택, 기본 `<output_mp4_dir>/_logs/`) |
-| `RDFP_POSTPROC_BATCH_SIZE` | DB 배치 INSERT 버퍼 크기 (선택, 기본 1000) |
+| `RDFP_DB_DSN` | PostgreSQL DSN (필수). yaml 에 평문으로 두지 않음. 변수명 자체는 `dataset_config.yaml` 의 `db.dsn_env` 로 변경 가능. |
+
+## 운영 시 자주 만나는 함정
+
+- **`ros2 run rdfp import` 가 아무것도 적재하지 않음** — 빈 summary 만
+  출력되고 에러는 없는 경우, 대부분 rosbag2 세션 디렉터리에
+  `metadata.yaml` 이 없다 (`rosbag2` 가 SIGKILL/충돌로 graceful shutdown
+  없이 끝났을 때). `ros2 bag reindex -s mcap <session_dir>` 로 `.mcap` 에서
+  메타데이터를 재구성하면 됨.
+- **DB 스키마 미생성으로 import 실패 (`required tables not found`)** —
+  `ros2 run rdfp init-db --dsn-env RDFP_DB_DSN` 을 먼저 실행.
+- **launch 가 YAML 을 못 찾음 (`panda_robot.yaml not found`)** —
+  setup.py 의 `data_files` 글로브는 `src/rdfp/config/*` 만 share 로
+  설치한다. 워크스페이스 root 의 YAML 은 `config_file:=<absolute-path>` 로
+  넘기거나 `src/rdfp/config/` 로 옮길 것.
+- **rebuild 했는데 코드 변경이 반영 안 됨** — `src/rdfp/` 내부의 stale
+  `build/` · `install/` 가 PYTHONPATH 를 섀도잉할 수 있음.
+  `find src/rdfp -maxdepth 2 -name install -o -name build` 로 확인 후 제거.
+  `colcon build` 는 **항상 워크스페이스 root** 에서 실행.
 
 ## 설정 파일
 
@@ -87,20 +103,46 @@ rdfp_ws/
 │   ├── rdfp/                  # 애플리케이션 패키지 (자세한 README 별도)
 │   └── rdfp_msgs/             # 메시지 / 서비스 정의
 ├── docs/                      # 설계서 / 사용 설명서 / 검증 절차 (한국어)
+│   ├── rdfp_framework_design.md   # 최상위 아키텍처 + 설계서
+│   ├── INDEX.md                   # 전체 문서 인덱스
 │   ├── rosbag2/               # 데이터셋 후처리기 사용/설계 문서
-│   ├── moveit/  recorder/  session/  replay/  camera/
-│   └── plan.md
+│   └── moveit/  recorder/  session/  replay/  camera/  teleop/
+│       robot_twin/  simulation/  environment/
 ├── build/  install/  log/     # colcon 산출물 (gitignored)
 └── CLAUDE.md                  # Claude Code 용 작업 지침
 ```
 
 ## 문서
 
-- [src/rdfp/README.md](src/rdfp/README.md) — 애플리케이션 패키지 사용 walkthrough.
+> **[docs/rdfp_framework_design.md](docs/rdfp_framework_design.md) — 최상위 아키텍처 +
+> 설계서.** 이 워크스페이스가 무엇을 만드는지(imitation learning 학습 데이터 생성·저장·
+> 관리), 세 서브시스템의 경계와 인터페이스 계약, 설계 결정의 근거를 다룬다. **처음
+> 읽는다면 여기부터.**
+
+> **[docs/INDEX.md](docs/INDEX.md) — 전체 문서 인덱스.** 저장소의 모든 markdown
+> 문서를 주제별로 분류하고, 각 문서의 기술 내용·위치·현행 여부를 표로 정리했다.
+> 원하는 내용이 어느 문서에 있는지는 여기서 먼저 찾는다.
+
+패키지 walkthrough · 워크스페이스 hint:
+
+- [src/rdfp/README.md](src/rdfp/README.md) — 애플리케이션 패키지 사용
+  walkthrough (`MoveGroupClient`, `camera_node`, `image_recorder_node`,
+  `rdfp_image_recorder`, `session_control_node`, dataset CLI, replay GUI).
 - [src/rdfp/launch/README.md](src/rdfp/launch/README.md) — launch 파일 / helper 인벤토리.
-- [src/rdfp/rdfp/recorder/README.md](src/rdfp/rdfp/recorder/README.md) — `FFMpegMp4Recorder` 와 `image_recorder_node`.
-- [docs/rosbag2/](docs/rosbag2/) — 데이터셋 후처리기 CLI 설명서, 설계서, 검증 절차.
+- [src/rdfp/rdfp/recorder/README.md](src/rdfp/rdfp/recorder/README.md) — ROS 비의존
+  `FFMpegMp4Recorder` 코어 (두 ROS 어댑터 노드는 패키지 README 에서 다룸).
 - [CLAUDE.md](CLAUDE.md) — Claude Code 가 읽는 빌드/아키텍처/주의사항 요약.
+
+서브시스템별 사용 설명서 (한국어):
+
+- [docs/recorder/](docs/recorder/) — `ffmpeg_mp4_recorder_guide.md`,
+  `image_recorder_node_guide.md`, `rdfp_image_recorder_node_guide.md`.
+- [docs/session/](docs/session/) — `session_control_guide.md`,
+  `session_control_client_guide.md`.
+- [docs/moveit/](docs/moveit/), [docs/camera/](docs/camera/),
+  [docs/replay/](docs/replay/), [docs/teleop/](docs/teleop/) — 각 서브시스템 가이드.
+- [docs/rosbag2/](docs/rosbag2/) — 데이터셋 후처리기 CLI 설명서, 설계서, 검증
+  절차, 운영 방안, 샘플 yaml.
 
 ## 라이선스
 

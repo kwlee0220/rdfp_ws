@@ -1,0 +1,490 @@
+# 로봇 트윈 정의 — Panda (mock 스택 기준).
+#
+# 설계서: docs/robot_twin/robot_twin_design.md
+# 실행:   ros2 run rdfp robot_twin --config <이 파일 경로>
+#
+# 트윈 1개 = 프로세스 1개다. 같은 머신에 여러 대를 띄우려면 이 파일을 복사해
+# `twin.id` / `ros.node_name` / `http.port` 를 각각 다르게 준다 (설계서 2.4).
+
+twin:
+  id: panda01
+  description: Franka Emika Panda (mock stack)
+
+http:
+  # 인증·TLS 를 두지 않으므로 노출 범위 통제는 망 수준의 책임이다 (설계서 8.4).
+  # 이 API 에 라우팅이 닿는 주체는 누구든 로봇을 움직일 수 있다.
+  host: 0.0.0.0
+  port: 8801
+  tls: false
+
+ros:
+  domain_id: 31
+  rmw: rmw_cyclonedds_cpp
+  node_name: robot_twin_panda01
+  use_sim_time: false
+
+moveit:
+  # 필수. 'jtc' 또는 'jgpc' 만 허용하며 'auto' 는 금지한다 — 토픽 그래프 lookup 이라
+  # DDS 디스커버리 전에 호출하면 조용히 오판한다 (설계서 2.6).
+  move_group_mode: jtc
+  planning_group: panda_arm
+
+sessions:
+  retention_sec: 900      # 종료 세션 보존 15분 (설계서 6.12)
+  max_sessions: 200       # 종료 세션 상한, 초과분은 LRU 축출
+
+variables:
+  # `description` 은 주석이 아니라 **에이전트가 읽는 데이터**다. `/variables` 카탈로그로
+  # 나가며 MCP 서버가 리소스/도구 설명으로 그대로 쓴다. 무엇인지에 더해 **언제 읽는지**
+  # 를 적는다 — 비어 있으면 에이전트는 이름만 보고 추측한다.
+  - name: joint_states
+    description: >-
+      팔 7축 관절의 현재 위치(rad)·속도·토크. {관절이름: 값} 맵이라 배열 순서에
+      의존하지 않는다. 로봇이 지금 어떤 자세인지 알아야 할 때 읽는다.
+      panda_finger_joint* 도 함께 들어오므로 move_to_joints 에 그대로 되돌려 주면
+      안 된다 — 그쪽은 panda_arm 관절만 받는다.
+    source:
+      type: topic
+      topic: /joint_states
+      msg: sensor_msgs/msg/JointState
+      qos: { reliability: reliable, durability: volatile, depth: 1 }
+    # 배열 인덱스 의존을 피해 {joint_name: value} 로 정규화한다 (설계서 5.5).
+    projection: joint_state_map
+    staleness_ms: 500
+    units:
+      position: rad
+      velocity: rad/s
+      effort: Nm
+
+  - name: ee_pose
+    description: >-
+      그리퍼 끝(엔드이펙터)의 현재 위치(m)와 자세(쿼터니언 xyzw), 로봇 base 기준.
+      팔을 옮기기 전 현재 위치를 알거나, **move_linear 뒤에 실제로 도달했는지
+      확인할 때** 읽는다 — 이동 연산의 완료는 도달을 보장하지 않는다.
+    source:
+      type: topic
+      topic: /ee_pose
+      msg: geometry_msgs/msg/PoseStamped
+      qos: { reliability: reliable, durability: volatile, depth: 1 }
+    staleness_ms: 200
+    units:
+      position: m
+      orientation: quaternion_xyzw
+
+  # 그리퍼 명령의 **결과 채널**. 트윈은 액션을 직접 부르지 않고 명령 토픽으로
+  # 보내므로(설계서 6.14), 액션 result 는 gripper_control_node 가 이 토픽으로
+  # 재발행한 것을 받는다. move_gripper_to_target 의 backend.result_variable 이
+  # 이 변수를 가리킨다.
+  #
+  # **이벤트성이다** — 명령이 없는 동안 갱신되지 않으므로 연속 상태로 쓰지 않는다.
+  # 현재 그리퍼 폭은 아래 gripper_position(= joint_states 파생)에서 읽는다.
+  - name: gripper_last_command_result
+    description: >-
+      마지막 그리퍼 명령의 결과. **파지 성공 여부를 판정하는 유일한 수단**이다 —
+      target=grasp 인데 reached_goal=true 면 끝까지 닫혔다는 뜻이라 빈손이고,
+      stalled=true 면 물체에 막혀 멈춘 것이라 쥐었다는 뜻이다.
+      이벤트성이라 명령이 없는 동안은 갱신되지 않으니 연속 상태로 쓰지 않는다.
+      현재 그리퍼 폭은 gripper_position 을 본다.
+    source:
+      type: topic
+      topic: /gripper_control/gripper_action_states
+      msg: rdfp_msgs/msg/GripperActionState
+      qos: { reliability: reliable, durability: volatile, depth: 1 }
+    staleness_ms: null      # 이벤트성 — staleness 검사를 하지 않는다
+    enums:
+      status:
+        0: UNKNOWN
+        1: ACCEPTED
+        2: EXECUTING
+        3: CANCELING
+        4: SUCCEEDED
+        5: CANCELED
+        6: ABORTED
+
+  # 연속적인 그리퍼 위치는 /joint_states 의 finger joint 에서 파생한다.
+  # (derived 소스는 아직 배선되지 않아 NO_DATA 로 보고된다 — 설계서 9장)
+  - name: gripper_position
+    description: >-
+      현재 그리퍼 열림 폭(m, 손가락 하나 기준이라 손가락 사이 거리의 절반).
+      **아직 배선되지 않아 항상 NO_DATA 로 온다** — 값이 필요하면 joint_states 의
+      panda_finger_joint1 을 직접 읽는다.
+    source:
+      type: derived
+      source_variable: joint_states
+      extract: panda_finger_joint1
+    staleness_ms: 500
+    units:
+      position: m
+
+  # 씬 안의 물체 상태. 백엔드별 발행 노드(mock 은 `mock_scene_state_node`)가 planning
+  # scene / Gazebo / Isaac 을 각자 변환해 하나의 토픽으로 낸다 — 트윈은 어느 백엔드인지
+  # 모른다.
+  #
+  # **`durability: transient_local` 필수** — 원본이 TRANSIENT_LOCAL 이라 volatile 로
+  # 구독하면 매칭 자체가 안 되어 값이 영영 오지 않는다.
+  #
+  # projection 이 `objects[]` 를 {물체이름: {...}} 로 바꾼다. 배열 인덱스는 순서가
+  # 보장되지 않아 지목 수단이 될 수 없다.
+  - name: scene_objects
+    description: >-
+      씬 안 물체들의 현재 위치·자세·크기. {물체이름: {position, orientation,
+      type, dimensions}} 맵이며 좌표는 로봇 base 기준이다. **물체를 집기 전 파지
+      좌표를 여기서 얻는다** — 고정 좌표를 쓰면 물체가 그 자리에 없다.
+      dimensions 순서는 shape_msgs/SolidPrimitive 를 따르므로 cylinder 는
+      [높이, 반지름] 이다(직관과 반대). mock 백엔드에서는 물리가 없어 물체가
+      움직이지 않으므로 이 변수로 작업 성패를 관측할 수 없다.
+    source:
+      type: topic
+      topic: /scene/objects
+      msg: rdfp_msgs/msg/SceneObjects
+      qos: { reliability: reliable, durability: transient_local, depth: 1 }
+    projection: scene_object_map
+    staleness_ms: 1000
+    units:
+      position: m
+      orientation: quaternion_xyzw
+
+  # `reset_scene` 의 **결과 채널**. 백엔드 노드가 명령 하나당 1건 발행한다.
+  # /scene/objects 를 결과로 쓰지 않는 이유: 그쪽은 주기 발행이라 명령과 무관하게
+  # 갱신되므로, '갱신됨'을 완료 신호로 삼으면 리셋 이전 상태를 완료로 오인한다.
+  #
+  # **이벤트성이다** — 명령이 없는 동안 갱신되지 않는다.
+  - name: scene_last_command_result
+    description: >-
+      마지막 reset_scene 명령의 결과(success/message/applied_count). 이벤트성이라
+      명령이 없는 동안은 갱신되지 않는다. reset_scene 이 이미 이 결과를 기다렸다가
+      반환하므로 보통 직접 읽을 일은 없고, 실패 원인을 확인할 때 쓴다.
+    source:
+      type: topic
+      topic: /scene/command_results
+      msg: rdfp_msgs/msg/SceneCommandResult
+      qos: { reliability: reliable, durability: transient_local, depth: 1 }
+    staleness_ms: null
+
+  # 세션/에피소드 상태. `session_control_node` 가 전이할 때마다 발행한다.
+  # value.state 는 'IDLE' | 'IN_SESSION' | 'IN_EPISODE' 문자열이라 enums 가 필요 없다.
+  #
+  # **QoS 의 durability 를 transient_local 로 맞춰야 한다** — 원본이 TRANSIENT_LOCAL 이라
+  # volatile 로 구독하면 매칭 자체가 되지 않아 값이 영영 오지 않는다.
+  #
+  # staleness 를 검사하지 않는 이유: 전이 시점에만 발행되므로 주기성이 없다. 한 시간째
+  # IN_SESSION 인 것은 낡은 값이 아니라 현재 값이다. 늦게 붙어도 TRANSIENT_LOCAL 덕에
+  # 즉시 현재 상태를 받는다.
+  - name: session_state
+    description: >-
+      데이터 수집 상태 기계의 현재 상태 — 'IDLE' | 'IN_SESSION' | 'IN_EPISODE'.
+      **경계 연산을 부르기 전에 확인한다**: start_episode 는 IN_SESSION 에서만,
+      start_session 은 IDLE 에서만 허용되고 어긋나면 409 로 거부된다.
+      작업을 시작하기 전 IDLE 이 아니면 이전 실행이 남긴 세션이 열려 있다는 뜻이다.
+    source:
+      type: topic
+      topic: /session
+      msg: rdfp_msgs/msg/SessionCommand
+      qos: { reliability: reliable, durability: transient_local, depth: 1 }
+    staleness_ms: null
+
+  # SRDF named target 목록. 인자 없이 현재 값을 돌려주므로 연산이 아니라 변수다
+  # (설계서 5.7). 최초 조회 시 backend.method 를 lazy 하게 호출해 무기한 캐시하며,
+  # 갱신은 ?refresh=true 또는 트윈 재시작뿐이다 (설계서 4.3).
+  - name: named_targets
+    description: >-
+      로봇에 사전 정의된 자세 이름 목록(SRDF named target, 예: ready/home).
+      **move_to_named_target 의 target 에 넣을 수 있는 값이 전부 여기 있다** —
+      이름을 지어내지 말고 이 목록에서 고른다. 런타임에 변하지 않는다.
+    source:
+      type: static
+      backend: { method: get_all_named_targets }
+      timeout_sec: 2.0
+    staleness_ms: null      # 런타임 불변
+
+operations:
+  # --- arm (자원 배타) ---
+  - name: move_to_named_target
+    description: >-
+      팔을 사전 정의된 이름 자세로 옮긴다. 쓸 수 있는 이름은 named_targets 변수에
+      있다. 좌표를 모를 때, 그리고 **작업 시작 전 초기 자세를 고정할 때** 쓴다.
+      완료가 도달을 보장하지 않으므로 확인이 필요하면 ee_pose 를 읽는다.
+    kind: async
+    resource: arm
+    idempotent: true
+    backend: { method: move_to_named_target_async }
+    inputs_schema:
+      type: object
+      required: [target]
+      properties:
+        target: { type: string }
+        velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
+        max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+      additionalProperties: false
+    default_timeout_sec: 60
+
+  - name: move_linear
+    description: >-
+      팔 끝을 지정한 pose(위치 m + 쿼터니언 xyzw)로 **직선 경로**로 옮긴다.
+      목표 좌표를 아는 경우에 쓰며, 물체를 집을 때는 scene_objects 에서 읽은 위치를
+      그대로 넣는다. 위에서 접근할 때는 목표 바로 위를 먼저 경유하는 편이 안전하다.
+      **완료가 도달을 뜻하지 않는다** — 경로가 잘려도 성공으로 끝날 수 있으므로,
+      도달이 중요하면 ee_pose 를 읽어 목표와 비교한다.
+    kind: async
+    resource: arm
+    idempotent: true
+    backend: { method: follow_trajectory_async }
+    inputs_schema:
+      type: object
+      required: [pose]
+      properties:
+        pose:
+          type: object
+          required: [position, orientation]
+          properties:
+            position:
+              type: object
+              required: [x, y, z]
+              properties:
+                x: { type: number }
+                y: { type: number }
+                z: { type: number }
+            orientation:
+              type: object
+              required: [x, y, z, w]
+              properties:
+                x: { type: number }
+                y: { type: number }
+                z: { type: number }
+                w: { type: number }
+        frame_id: { type: string }
+        velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
+        max_step: { type: number, exclusiveMinimum: 0 }
+        jump_threshold: { type: number, minimum: 0 }
+        max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+      additionalProperties: false
+    default_timeout_sec: 60
+
+  # --- gripper (arm 과 독립 자원이라 병렬 실행된다) ---
+  # 목표를 이름으로 지정하는 단일 연산이다. `open` / `close` 를 각각 연산으로
+  # 두면 목표를 늘릴 때마다 연산이 늘고 클라이언트도 그때마다 새 이름을 알아야
+  # 한다. 목표 표를 backend.targets 에 **데이터로** 두었으므로 목표 추가는
+  # backend.targets 편집만으로 끝나며 코드 변경이 필요 없다.
+  #
+  # inputs_schema 의 target.enum 은 **적지 않는다** — 기동 시 backend.targets 에서
+  # 파생된다 (config.OperationConfig._derive_target_enum). 두 곳에 적으면 조용히
+  # 어긋나고, enum 만 빠지면 jsonschema 설치 여부에 따라 동작이 갈린다.
+  #
+  # 목표는 `position`(+ 선택 `max_effort`) 으로만 정의한다. 트윈은 이 값을
+  # rdfp_msgs/GripperCommand 로 만들어 backend.topic 에 발행하고 **결과가 올 때까지
+  # 기다린다** — 그래서 outputs 의 reached_goal/stalled 로 완료를 판정할 수 있다.
+  #
+  # position 은 컨트롤러가 물린 관절 하나(panda_finger_joint1)의 목표값이며 손가락
+  # 사이 거리의 **절반**이다. 실기 franka 의 move/grasp 가 쓰는 width 와 2배 차이가
+  # 난다. max_effort 는 생략하면 0 = 드라이버 기본 효과치이며, 실기에서는 0 이 파지
+  # 없는 이동으로 해석될 수 있으므로 물체를 쥐려면 명시한다.
+  - name: move_gripper_to_target
+    description: >-
+      그리퍼를 이름표 목표로 구동한다 — open(벌림) / close(빈손으로 닫음) /
+      grasp(힘을 주어 물체를 쥠). **물체를 쥘 때는 반드시 grasp** 를 쓴다; close 는
+      힘을 주지 않아 물체를 놓친다. 놓을 때는 open.
+      결과 판정은 gripper_last_command_result 로 한다 — grasp 인데 reached_goal 이면
+      끝까지 닫힌 것이라 빈손이다. 팔과 독립 자원이라 이동과 동시에 실행할 수 있다.
+    kind: sync
+    resource: gripper
+    idempotent: true
+    backend:
+      # 액션을 직접 부르지 않는다 — goal 전송은 서비스라 rosbag2 가 기록하지 못한다.
+      # 명령을 토픽으로 흘려 gripper_control_node 가 액션으로 중계하게 하고, 결과는
+      # 그 노드가 재발행하는 상태 변수로 받는다 (설계서 6.14).
+      topic: /gripper_control/gripper_cmds
+      topic_type: rdfp_msgs/msg/GripperCommand
+      result_variable: gripper_last_command_result
+      targets:
+        open: { position: 0.04 }
+        # 빈손으로 닫는다. 힘을 주지 않으므로 물체를 쥐는 용도가 아니다.
+        close: { position: 0.0 }
+        # 물체를 쥔다. 목표는 close 와 같고 max_effort 만 다르다 — 물체에 닿으면
+        # 그 힘으로 버티며 멈추므로 outputs 가 stalled=true / reached_goal=false 로
+        # 온다. 30 N 은 Franka Hand 연속 파지력(약 70 N) 안에서 보수적으로 잡은
+        # 값이며, 대상물에 맞게 조정한다.
+        grasp: { position: 0.0, max_effort: 30.0 }
+    inputs_schema:
+      type: object
+      required: [target]
+      properties:
+        target: { type: string }      # enum 은 backend.targets 에서 파생된다
+      additionalProperties: false
+    # 액션 result 가 돌아올 때까지 기다리므로 넉넉해야 한다. 이 시간 동안
+    # HTTP 요청이 블록된다 — 그리퍼는 취소 실익이 없어 동기로 둔다 (설계서 6.2).
+    sync_timeout_sec: 5.0
+
+  # 관절값 직접 지정. joints 의 키는 planning group(panda_arm) 에 속한 관절만
+  # 넣는다 — joint_states 를 그대로 되돌려 보내면 finger joint 가 섞여 계획이
+  # 실패한다. 스키마로는 막을 수 없어(키 이름이 자유) 런타임 오류로 나타난다.
+  - name: move_to_joints
+    description: >-
+      관절값을 직접 지정해 팔을 옮긴다. {관절이름: 라디안} 형태이며 **panda_arm 에
+      속한 관절만** 넣는다 — joint_states 를 그대로 되돌려 보내면 finger 관절이 섞여
+      계획이 실패한다. 데카르트 좌표로 표현하기 어려운 자세를 재현할 때 쓰고,
+      평소의 위치 이동은 move_linear 나 move_to_named_target 이 낫다.
+    kind: async
+    resource: arm
+    idempotent: true
+    backend: { method: move_to_joints_async }
+    inputs_schema:
+      type: object
+      required: [joints]
+      properties:
+        joints:
+          type: object
+          minProperties: 1
+          additionalProperties: { type: number }
+        velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
+        max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+      additionalProperties: false
+    default_timeout_sec: 60
+
+  # --- 씬 (scene + arm 을 함께 점유한다) ---
+  # 저수준 spawn/remove 를 열지 않고 레시피 이름 하나로 받는다. 씬 구성 로직이
+  # 클라이언트로 새어 나가면 "어떤 배치였는지" 가 데이터셋 밖에 남기 때문이다.
+  #
+  # **arm 도 함께 잡는다** — 로봇이 움직이는 중에 물체를 순간이동시키면 물리
+  # 백엔드에서 튀고, 반대로 리셋 중에 팔이 그 공간으로 들어와도 안 된다. 사전조건이
+  # 아니라 락인 이유는 사전조건이 한 방향만 막기 때문이다.
+  #
+  # outputs.objects 가 **실제 배치**이며 재현의 근거다. seed 만으로는 추출 방식이
+  # 바뀌는 순간 재현이 깨지므로, 호출자는 objects 를 stop_episode 의 metadata 로
+  # 넘겨 에피소드에 붙인다.
+  - name: reset_scene
+    description: >-
+      씬의 물체를 레시피(scene)대로 지우고 다시 배치한다. 위치는 레시피가 정한 범위
+      안에서 무작위 추출하며, seed 를 주면 같은 배치가 재현된다.
+      **에피소드를 시작하기 전에 부른다** — 물체를 매번 다른 곳에 두는 것이 이 수집의
+      목적이므로 리셋은 에피소드 밖이다.
+      **반환된 outputs.objects 가 실제 배치이며 이후 파지 좌표의 출처다** —
+      seed 만으로는 추출 방식이 바뀌면 재현이 깨지므로, 이 값을 stop_episode 의
+      metadata 에 넣어 에피소드에 붙인다.
+      팔과 씬을 함께 점유하므로 이동 중에는 거부된다(409).
+    kind: sync
+    resource: [scene, arm]
+    idempotent: false
+    backend:
+      topic: /scene/commands
+      topic_type: rdfp_msgs/msg/SceneCommand
+      result_variable: scene_last_command_result
+      # 레시피. 각 축은 숫자(고정) 또는 [최소, 최대] (균등 추출)다.
+      scenes:
+        one_cube:
+          objects:
+            - { name: cube_0, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.35, 0.55], y: [-0.15, 0.15], z: 0.025 }
+        cube_and_ball:
+          objects:
+            - { name: cube_0, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.35, 0.45], y: [-0.15, -0.05], z: 0.025 }
+            - { name: ball_0, type: sphere, size: [0.02],
+                x: [0.45, 0.55], y: [0.05, 0.15], z: 0.02 }
+    inputs_schema:
+      type: object
+      required: [scene]
+      properties:
+        scene: { type: string }      # enum 은 backend.scenes 에서 파생된다
+        seed: { type: integer }
+      additionalProperties: false
+    sync_timeout_sec: 10.0
+
+  # --- 세션 / 에피소드 경계 (자원 없음) ---
+  # 트윈은 `/session` 을 직접 발행하지 않고 `session_control_node` 의 클라이언트가
+  # 된다 — 상태 기계를 한 곳에 두기 위함이다. TRANSIENT_LOCAL 발행자가 둘이 되면
+  # 늦게 붙은 recorder 가 두 발행자의 latched 샘플을 각각 받아 조용히 어긋난다.
+  #
+  # **자원을 잡지 않는다.** 자원 락의 수명은 연산 실행 시간뿐인데 에피소드는
+  # start~stop 두 연산에 걸쳐 있어 락으로는 보호할 수 없다. 배타 제어는 상태 기계가
+  # 하고, 거부는 409 PRECONDITION_FAILED 로 매핑된다.
+  #
+  # 넷을 모두 노출하는 이유: start_episode 는 IN_SESSION 에서만 허용되므로 두 개만
+  # 두면 세션을 여는 주체가 없어 루프가 시작조차 못 한다.
+  - name: start_session
+    description: >-
+      데이터 수집 세션을 연다(IDLE → IN_SESSION). 에피소드는 세션 안에서만 열 수
+      있으므로 수집 루프의 첫 호출이다. task_label 은 이 세션의 모든 에피소드에
+      박히며 **나중에 고칠 수 없으니** 처음부터 채운다.
+    kind: sync
+    idempotent: false
+    backend: { session_control: start_session }
+    inputs_schema:
+      type: object
+      properties:
+        # 라벨을 별도 연산으로 두지 않는다 — 빈 라벨로 시작하면 그 세션의 모든
+        # 에피소드 행에 빈 라벨이 박히고, 기록이 끝난 뒤에는 재import 로도 못 고친다.
+        task_label: { type: string }
+      additionalProperties: false
+    sync_timeout_sec: 5.0
+
+  - name: stop_session
+    description: >-
+      수집 세션을 닫는다(→ IDLE). 열린 에피소드가 있으면 먼저 stop_episode 로
+      닫는다. 수집 루프의 마지막 호출이며, 실패로 중단할 때도 반드시 부른다.
+    kind: sync
+    idempotent: false
+    backend: { session_control: stop_session }
+    inputs_schema: { type: object, properties: {}, additionalProperties: false }
+    sync_timeout_sec: 5.0
+
+  - name: start_episode
+    description: >-
+      에피소드(학습 데이터 한 건)의 시작 경계를 찍는다. **IN_SESSION 에서만
+      허용된다** — IDLE 이면 409 로 거부되므로 start_session 을 먼저 부른다.
+      이 시점부터 stop_episode 까지의 구간이 하나의 학습 샘플이 되므로, 씬 리셋과
+      초기 자세 이동은 이 호출 **앞**에서 끝낸다.
+    kind: sync
+    idempotent: false
+    backend: { session_control: start_episode }
+    inputs_schema: { type: object, properties: {}, additionalProperties: false }
+    sync_timeout_sec: 5.0
+
+  # 에피소드를 닫는 것은 **전적으로 클라이언트 책임**이다. 트윈은 연산이 실패해도
+  # 자동으로 부르지 않는다 — 자동 수집에서 실패는 정상 경로이므로(파지 실패도 학습
+  # 데이터다) 트윈이 판단하면 유효한 실패 에피소드를 잘라먹는다.
+  - name: stop_episode
+    description: >-
+      에피소드의 끝 경계를 찍고 성패와 부가 정보를 붙인다.
+      **실패했을 때도 반드시 부른다** — 트윈은 자동으로 닫아 주지 않으며, 열린 채
+      두면 다음 start_episode 가 거부되고 그 구간의 데이터는 경계를 잃는다.
+      파지 실패도 유효한 학습 데이터이므로 outcome=failure 로 닫는 것이 정상 경로다.
+      metadata 에는 재현에 필요한 것(seed, scene, reset_scene 이 돌려준 실제 배치)을
+      넣는다. outcome 을 생략하면 '판정 없음'이며 실패로 기록되지 않는다.
+    kind: sync
+    idempotent: false
+    backend: { session_control: stop_episode }
+    inputs_schema:
+      type: object
+      properties:
+        # 생략하면 '판정 없음'이며 실패가 아니다. DB 에 NULL 로 들어간다.
+        outcome: { type: string, enum: [success, failure] }
+        # seed·scene·초기 배치 등. jsonb 컬럼에 그대로 들어가므로 object 여야 한다.
+        metadata: { type: object }
+      additionalProperties: false
+    sync_timeout_sec: 5.0
+
+  # --- 아래 둘은 rdfp 쪽 공개 API 가 없어 아직 미구현이다 (설계서 9장) ---
+  # 호출하면 EXECUTION_ABORTED 로 실패하며 사유가 메시지에 담긴다.
+  - name: move_to_pose
+    description: >-
+      **미구현이다. 호출하지 말 것** — EXECUTION_ABORTED 로 실패한다.
+      목표 pose 로의 이동은 move_linear 를 쓴다.
+    kind: async
+    resource: arm
+    idempotent: true
+    backend: { method: __not_implemented__ }
+    default_timeout_sec: 60
+
+  # 임의 폭 지정. 명령 경로 자체는 move_gripper_to_target 로 배선되었지만, 폭을
+  # 요청 인자로 받는 형태는 열지 않았다 — 쓸 수 있는 폭을 설정이 정하게 두려는
+  # 의도적 제약이다. 필요한 폭은 backend.targets 에 이름을 붙여 추가한다.
+  - name: move_gripper
+    description: >-
+      **미구현이다. 호출하지 말 것** — EXECUTION_ABORTED 로 실패한다.
+      그리퍼 구동은 move_gripper_to_target 을 쓴다. 임의 폭이 필요하면 설정의
+      backend.targets 에 이름을 붙여 추가한다.
+    kind: async
+    resource: gripper
+    idempotent: true
+    backend: { action: /panda_hand_controller/gripper_cmd }
+    default_timeout_sec: 15

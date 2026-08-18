@@ -29,6 +29,7 @@ Thumbs.db
 
 # Backup files
 *.bak
+*.bak-*
 *.orig
 *.backup
 
@@ -42,3 +43,9 @@ Thumbs.db
 # /dataset_config.yaml
 # /rosbag_config.yaml
 # /rdfp_panda_mock.yaml
+
+# Ansible 인벤토리 — 평문 자격증명(비밀번호) 포함, 커밋 금지.
+/ansible/inventory.ini
+
+# 셸 환경 파일 — RDFP_DB_DSN 평문 비밀번호 포함, 커밋 금지.
+/.rdfprc

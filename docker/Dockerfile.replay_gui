@@ -1,0 +1,21 @@
+# replay GUI 이미지.
+#
+# Tk 기반 replay_gui 콘솔 스크립트를 실행한다. replay_gui 는 PostgreSQL + MP4
+# 에서 에피소드를 읽어 재생하므로, Tk 와 dataset 파이프라인의 pip-only 의존성을
+# base 위에 추가한다. 실행 중인 replay mock 스택(MoveIt)과 ROS 로 통신한다.
+#
+#   docker build -f docker/Dockerfile.replay_gui -t rdfp-replay-gui:latest .
+FROM rdfp-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Tk GUI + dataset pip 의존성(apt 부재/구버전이라 pip 사용 — package README 참조).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-tk \
+      python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir \
+      'mcap' 'mcap-ros2-support' 'pydantic>=2' 'psycopg[binary]>=3'
+
+# ENTRYPOINT 는 base 에서 상속. CMD 만 교체한다.
+CMD ["ros2", "run", "rdfp", "replay_gui"]

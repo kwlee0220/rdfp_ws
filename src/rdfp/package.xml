@@ -19,6 +19,22 @@
   <depend>trajectory_msgs</depend>
   <exec_depend>rdfp_msgs</exec_depend>
 
+  <!-- MoveIt / 로봇 description -->
+  <exec_depend>moveit_resources_panda_moveit_config</exec_depend>
+  <exec_depend>moveit_resources_panda_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <!-- Gazebo (Fortress / gz-sim6) 백엔드 런타임 의존성 -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_image</exec_depend>
+  <exec_depend>ign_ros2_control</exec_depend>
+
   <!-- dataset.ingest 런타임 의존성 (apt 가용) -->
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>python3-opencv</exec_depend>

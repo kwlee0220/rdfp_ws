@@ -29,7 +29,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 from std_srvs.srv import Trigger
 
-from rdfp_msgs.srv import GetSessionState, SetString
+from rdfp_msgs.srv import GetSessionState, SetString, StopEpisode
 
 
 # 기본 서비스 네임스페이스. session_control_node 의 기본 노드 이름과 일치.
@@ -97,7 +97,7 @@ class SessionControlClient:
             Trigger, f"{prefix}/start_episode"
         )
         self._stop_episode_cli = node.create_client(
-            Trigger, f"{prefix}/stop_episode"
+            StopEpisode, f"{prefix}/stop_episode"
         )
         self._set_task_label_cli = node.create_client(
             SetString, f"{prefix}/set_task_label"
@@ -173,17 +173,26 @@ class SessionControlClient:
         """
         return self._call_trigger_sync(self._start_episode_cli, timeout_sec)
 
-    def stop_episode(self, timeout_sec: float = _DEFAULT_CALL_TIMEOUT) -> tuple[bool, str]:
+    def stop_episode(self, outcome: str = '', metadata: str = '',
+                     timeout_sec: float = _DEFAULT_CALL_TIMEOUT,) -> tuple[bool, str]:
         """stop_episode 서비스를 동기로 호출한다.
 
+        네 서비스 중 유일하게 `Trigger` 가 아니다 — 종료 시점에만 알 수 있는 성패·
+        부가정보를 받아 `SessionCommand` 로 흘려야 rosbag 에 기록되기 때문이다.
+
         Args:
+            outcome: 작업 성패 (`''` / `'success'` / `'failure'`). **`''` 는 실패가
+                아니라 '판정 없음'** 이며 DB 에 NULL 로 들어간다. teleop 처럼 값을 줄
+                수단이 없는 경로는 비운 채 호출한다.
+            metadata: 부가 정보의 JSON object 문자열 (seed, scene, 초기 배치 등).
+                없으면 `''`. 최상위가 object 가 아니면 서버가 거부한다.
             timeout_sec: 서비스 호출 타임아웃(초). 0 이하이면 타임아웃 없이 무한 대기한다.
         Returns:
-            (success, message) 튜플. 서버가 거부하면 success=False, message 에
-            서버가 반환한 사유가 담긴다. 서비스가 ready 가 아니거나 호출이
-            타임아웃되면 success=False 와 내부 사유 메시지가 반환된다.
+            (success, message) 튜플. 여기서 success 는 **명령 수용 여부**이며 작업의
+            성패가 아니다 (그것은 인자 `outcome` 이다). 서버가 거부하면 success=False,
+            message 에 사유가 담긴다.
         """
-        return self._call_trigger_sync(self._stop_episode_cli, timeout_sec)
+        return self._call_stop_episode_sync(outcome, metadata, timeout_sec)
 
     def set_task_label(self, task_label: str | None,
                        timeout_sec: float = _DEFAULT_CALL_TIMEOUT,) -> tuple[bool, str]:
@@ -290,9 +299,17 @@ class SessionControlClient:
         """start_episode 서비스를 비동기로 호출한다."""
         return self._call_trigger_async(self._start_episode_cli, done_callback)
 
-    def stop_episode_async(self, done_callback: Callable[[bool, str], None] | None = None,) -> Future:
-        """stop_episode 서비스를 비동기로 호출한다."""
-        return self._call_trigger_async(self._stop_episode_cli, done_callback)
+    def stop_episode_async(self, outcome: str = '', metadata: str = '',
+                           done_callback: Callable[[bool, str], None] | None = None,) -> Future:
+        """stop_episode 서비스를 비동기로 호출한다.
+
+        인자 의미는 :meth:`stop_episode` 와 같다. ``done_callback`` 이 세 번째
+        인자라는 점에 주의한다 — 기존 호출부는 키워드로 넘기고 있어 영향이 없다.
+        """
+        request = StopEpisode.Request()
+        request.outcome = outcome
+        request.metadata = metadata
+        return self._call_async(self._stop_episode_cli, request, done_callback)
 
     def set_task_label_async(self, task_label: str | None,
                              done_callback: Callable[[bool, str], None] | None = None,) -> Future:
@@ -409,13 +426,48 @@ class SessionControlClient:
     def _call_trigger_async(self, client: Client,
                             done_callback: Callable[[bool, str], None] | None,) -> Future:
         """Trigger 서비스를 비동기로 호출하는 내부 헬퍼."""
-        future = client.call_async(Trigger.Request())
+        return self._call_async(client, Trigger.Request(), done_callback)
+
+    def _call_async(self, client: Client, request,
+                    done_callback: Callable[[bool, str], None] | None,) -> Future:
+        """(success, message) 응답을 갖는 서비스를 비동기 호출한다.
+
+        `Trigger` / `SetString` / `StopEpisode` 는 요청 타입만 다르고 응답 구조가
+        같으므로 요청 객체만 받아 공통 처리한다.
+        """
+        future = client.call_async(request)
         if done_callback is not None:
             future.add_done_callback(
                 lambda fut, cb=done_callback:
                     self._invoke_bool_message_callback(cb, fut)
             )
         return future
+
+    def _call_stop_episode_sync(self, outcome: str, metadata: str,
+                                timeout_sec: float,) -> tuple[bool, str]:
+        """stop_episode 를 동기 호출한다 (요청 타입만 다르고 흐름은 Trigger 와 동일)."""
+        client = self._stop_episode_cli
+        if not client.service_is_ready():
+            return False, _NOT_READY_MSG
+
+        request = StopEpisode.Request()
+        request.outcome = outcome
+        request.metadata = metadata
+
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
+
+        if not future.done():
+            return False, _CALL_TIMEOUT_MSG
+
+        try:
+            response = future.result()
+        except Exception as exc:
+            self._logger.error(f'[session_control_client] stop_episode raised: {exc}')
+            return False, f'exception: {exc}'
+        if response is None:
+            return False, _NO_RESPONSE_MSG
+        return bool(response.success), str(response.message)
 
     def _invoke_bool_message_callback(self, callback: Callable[[bool, str], None],
                                       future: Future,) -> None:

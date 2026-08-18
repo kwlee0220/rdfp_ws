@@ -30,7 +30,7 @@ from pathlib import Path
 from rdfp.rosbag.catalog import discover_splits
 
 from .cli_common import (
-    DEFAULT_CONFIG_FILENAME, add_common_args, add_config_arg,
+    DEFAULT_CONFIG_FILE_PATH, add_common_args, add_config_arg,
     configure_logging, load_dataset_or_fail, resolve_config_path,
 )
 
@@ -54,9 +54,8 @@ def main(argv: list[str] | None = None) -> int:
 
     config_path = resolve_config_path(args)
     if config_path is None:
-        logging.error(
-            'no --config given and %s not found in the current working directory',
-            DEFAULT_CONFIG_FILENAME)
+        logging.error('no --config given and default config not found: %s',
+                        DEFAULT_CONFIG_FILE_PATH)
         return 2
     return cmd_import(args, config_path)
 

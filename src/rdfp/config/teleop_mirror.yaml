@@ -1,0 +1,46 @@
+# teleop_mirror.launch.py 설정.
+#
+# 여기의 값은 launch argument 의 **기본값**이 된다. CLI 에서 `arg:=value` 로 개별
+# 덮어쓰기가 가능하고, `config_file:=<path>` 로 다른 YAML 을 지정할 수 있다.
+# YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
+
+# --- leader EE pose 입력 ---
+# 본 런치는 이 토픽의 발행자를 만들지 않는다. 외부 어댑터가 공급한다.
+# 계약: docs/teleop/external_input_adapters.md
+leader:
+  pose_topic: /leader/ee_pose
+
+# --- follower (이미 실행 중인 Panda + MoveIt2 스택) ---
+follower:
+  pose_topic: /ee_pose                      # 팔로워 현재 pose (ee_pose_publisher)
+  target_pose_topic: /follower/target_pose  # retarget 결과
+  base_frame: panda_link0                   # target pose / twist 의 frame_id
+
+# --- retargeting ---
+retarget:
+  position_scale: 1.5    # leader -> follower 변위 배율
+  align_roll: 0.0         # R_align (rad). leader base -> follower base 자세 정렬
+  align_pitch: 0.0
+  align_yaw: 0.0          # pi 면 x/y 가 뒤집혀 거울 매핑이 된다
+  lpf_cutoff_hz: 3.0      # target pose 저역통과 차단주파수. <=0 이면 비활성
+  watchdog_timeout: 0.5   # leader 스트림이 이만큼 끊기면 자동 disengage (초)
+  max_sample_jump: 0.2    # 샘플 간 이동이 이보다 크면 자동 disengage (m)
+  workspace_min: []       # 팔로워 워크스페이스 박스 [x, y, z]. 비우면 비활성
+  workspace_max: []       # min/max 를 **둘 다** 채워야 적용된다
+
+# --- USB 풋페달 클러치 (선택) ---
+# 상세: docs/teleop/clutch_pedal_guide.md
+clutch_pedal:
+  enabled: false      # python3-evdev 와 실제 장치가 없으면 노드가 기동에 실패한다
+  device_path: ''     # 비우면 device_name 으로 탐색. /dev/input/by-id/... 권장
+  device_name: pedal  # 장치 이름 부분 문자열 (대소문자 무시)
+  key_code: ''        # 예: KEY_A. 비우면 그 장치의 아무 키나 페달로 취급한다
+  mode: hold          # hold = 데드맨(권장) / toggle = 전환 (데드맨 아님)
+  grab: false         # true 면 장치를 독점해 입력이 데스크톱·터미널로 새지 않는다
+  timeout: 0.0        # 하트비트 감시. 런치가 enabled/mode 를 보고 자동 보정한다
+
+# --- twist 출력 (MoveIt Servo 입력) ---
+twist:
+  topic: /servo_node/delta_twist_cmds
+  linear_gain: 2.5    # 1/scale.linear     (servo 가 command_in_type: unitless)
+  angular_gain: 1.25  # 1/scale.rotational

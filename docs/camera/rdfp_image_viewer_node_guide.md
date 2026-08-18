@@ -463,4 +463,4 @@ ros2 topic echo /<session_topic> --field state --once
 - [CameraNode Guide](./camera_node_guide.md) — 이미지 토픽 발행자
 - [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드
 - [SessionControlNode Guide](../session/session_control_guide.md) — 세션 제어 노드
-- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_guide.md) — 동일 세션 토픽을 사용하는 녹화 노드
+- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 동일 세션 토픽을 사용하는 녹화 노드

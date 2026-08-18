@@ -1,0 +1,29 @@
+# Docker 빌드 컨텍스트 축소. Dockerfile 은 COPY src/ 만 사용하므로
+# 나머지는 전부 제외한다.
+
+# colcon 산출물(호스트/컨테이너 혼용 방지 — 이미지 안에서 새로 빌드)
+install/
+build/
+log/
+src/**/install/
+src/**/build/
+src/**/log/
+
+# 파이썬 캐시
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# VCS / 문서 / 임시
+.git/
+.gitignore
+docs/
+*.md
+prompt.md
+scratchpad/
+
+# 데이터셋/미디어(이미지에 넣지 않음 — 런타임 볼륨 마운트)
+**/*.mp4
+**/*.mcap
+data/
+src/rdfp/data/

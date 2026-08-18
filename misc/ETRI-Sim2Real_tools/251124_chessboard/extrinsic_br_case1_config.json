@@ -1,0 +1,13 @@
+{
+    "cam_file": "data/251124_chessboard/extrinsic_br.png",
+    "chess_pattern_cols": 11,
+    "chess_pattern_rows": 8,
+    "chess_cellsize": 0.02,
+    "cam_K": [[856.5752532526008, 0.0, 639.5],
+              [0.0, 856.5752532526008, 359.5],
+              [0.0, 0.0, 1.0]],
+    "cam_distort": [0.0, 0.0, 0.0, 0.0, 0.0 ],
+    "calib_option": ["CALIB_USE_INTRINSIC_GUESS", "CALIB_FIX_FOCAL_LENGTH", "CALIB_FIX_ASPECT_RATIO", "CALIB_FIX_PRINCIPAL_POINT", "CALIB_ZERO_TANGENT_DIST", "CALIB_FIX_K1", "CALIB_FIX_K2", "CALIB_FIX_K3"],
+    "calib_output": "data/251124_chessboard/extrinsic_br_case1_calib.json",
+    "save_cam_pose": true
+}

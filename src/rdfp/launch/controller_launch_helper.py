@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -11,9 +13,15 @@ from launch_ros.actions import Node
 CONTROLLER_MANAGER_NAME = "controller_manager"
 
 
-def create_ros2_control_node(moveit_config, moveit_configs_package_name: str) -> Node:
-    """ros2_control 노드를 생성한다."""
-    ros2_controllers_file = os.path.join(
+def create_ros2_control_node(moveit_config, moveit_configs_package_name: str,
+                             controllers_file: Optional[str] = None) -> Node:
+    """ros2_control 노드를 생성한다.
+
+    `controllers_file` 에 controller 설정 YAML 의 절대경로를 주면 그 파일을
+    사용하고, 생략하면 `moveit_configs_package_name` share 의
+    `config/ros2_controllers.yaml` 을 사용한다 (기존 동작).
+    """
+    ros2_controllers_file = controllers_file or os.path.join(
         get_package_share_directory(moveit_configs_package_name),
         "config",
         "ros2_controllers.yaml",

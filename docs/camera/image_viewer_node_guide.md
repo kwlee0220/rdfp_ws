@@ -355,6 +355,6 @@ ros2 topic echo /camera_node/image_raw --field encoding --once
 
 ## 관련 문서
 
-- [CameraNode Guide](./opencv_camera_node_guide.md) — 이미지 토픽 발행자
+- [CameraNode Guide](./opencv_camera_guide.md) — 이미지 토픽 발행자
 - [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드
 - [OpenCvCamera Guide](./opencv_camera_guide.md) — 내부 카메라 래퍼

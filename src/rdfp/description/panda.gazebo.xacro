@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo (Fortress / gz-sim6) 전용 매크로 모음.
+
+  - panda_gazebo_ros2_control: controller_manager 를 Gazebo 프로세스 내부에서
+    호스팅하는 ign_ros2_control 시스템 플러그인. 별도 ros2_control_node 를 띄우지
+    않는 대신 이 플러그인이 ros2_controllers.yaml 을 로드한다.
+  - panda_gazebo_camera: 손목(panda_hand)에 장착하는 선택적 RGB 카메라 센서.
+    `simulate_camera:=true` 일 때만 포함된다. gz 토픽을 ros_gz_bridge 로 ROS
+    토픽(/camera/image_raw, /camera/camera_info)에 브리지한다.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- 로봇 베이스를 world 에 고정한다. Gazebo 는 anchor 가 없으면 베이스가
+         중력으로 떨어지므로 panda_link0 를 world 에 fixed 로 묶는다. mock 백엔드는
+         이 매크로를 호출하지 않고 static_transform_publisher 로 TF 만 publish 한다. -->
+    <xacro:macro name="panda_world_anchor">
+        <link name="world" />
+        <joint name="world_fixed" type="fixed">
+            <parent link="world" />
+            <child link="panda_link0" />
+            <origin rpy="0 0 0" xyz="0 0 0" />
+        </joint>
+    </xacro:macro>
+
+    <!-- ign_ros2_control 시스템 플러그인. ros2_controllers_file 은 launch 에서
+         절대경로로 주입한다. -->
+    <xacro:macro name="panda_gazebo_ros2_control" params="ros2_controllers_file">
+        <gazebo>
+            <plugin filename="ign_ros2_control-system" name="ign_ros2_control::IgnitionROS2ControlPlugin">
+                <parameters>${ros2_controllers_file}</parameters>
+                <controller_manager_name>controller_manager</controller_manager_name>
+            </plugin>
+        </gazebo>
+    </xacro:macro>
+
+    <!-- 선택적 손목 카메라. camera_frame_id 는 rdfp 카메라 토픽 계약과 맞춘다. -->
+    <xacro:macro name="panda_gazebo_camera" params="camera_name:=camera parent_link:=panda_hand fps:=30 width:=640 height:=480 hfov:=1.047">
+        <link name="${camera_name}_link">
+            <inertial>
+                <origin rpy="0 0 0" xyz="0 0 0" />
+                <mass value="0.01" />
+                <inertia ixx="1e-6" ixy="0.0" ixz="0.0" iyy="1e-6" iyz="0.0" izz="1e-6" />
+            </inertial>
+            <visual>
+                <geometry>
+                    <box size="0.02 0.05 0.02" />
+                </geometry>
+            </visual>
+        </link>
+        <!-- panda_hand 전방을 바라보도록 장착한다 (광축 = +x). -->
+        <joint name="${camera_name}_joint" type="fixed">
+            <parent link="${parent_link}" />
+            <child link="${camera_name}_link" />
+            <origin rpy="0 0 0" xyz="0.05 0 0.04" />
+        </joint>
+        <gazebo reference="${camera_name}_link">
+            <sensor name="${camera_name}" type="camera">
+                <always_on>1</always_on>
+                <update_rate>${fps}</update_rate>
+                <visualize>false</visualize>
+                <topic>${camera_name}/image_raw</topic>
+                <gz_frame_id>${camera_name}_link</gz_frame_id>
+                <camera>
+                    <horizontal_fov>${hfov}</horizontal_fov>
+                    <image>
+                        <width>${width}</width>
+                        <height>${height}</height>
+                        <format>R8G8B8</format>
+                    </image>
+                    <clip>
+                        <near>0.05</near>
+                        <far>10.0</far>
+                    </clip>
+                </camera>
+            </sensor>
+        </gazebo>
+    </xacro:macro>
+
+</robot>

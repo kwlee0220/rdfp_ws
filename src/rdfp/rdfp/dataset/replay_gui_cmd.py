@@ -20,8 +20,6 @@ from typing import Any, Optional
 
 import argparse
 import base64
-import logging
-import os
 import sys
 import threading
 import time
@@ -49,12 +47,22 @@ from rdfp.dataset.db.registry import (
     IMAGE_MESSAGE_TYPES, MESSAGE_TYPE_REGISTRY, resolve_message_type,
 )
 from rdfp.dataset.db.topic_message_replayer import TopicMessageReplayer
-from rdfp.moveit.move_group_client import MoveGroupClient
+from rdfp.moveit import create_move_group_client
 from rdfp.moveit.servo_client import ServoClient
 
 
 _DEFAULT_IMAGE_TOPIC = '/camera/image_raw'
 _DEFAULT_INIT_TARGET = 'ready'
+# 'auto' | 'action' | 'stream' — "위치 초기화" 의 실행 경로 선택.
+#   action: MoveGroup/ExecuteTrajectory 액션 (JointTrajectoryController 환경)
+#   stream: /panda_arm_controller/commands 직접 스트리밍 (JGPC 환경)
+#   auto  : 명령 토픽 존재 여부로 판별
+# 하위 호환을 위해 기존 파라미터 값을 유지하고, 팩토리 모드로 변환해 넘긴다.
+_DEFAULT_INIT_EXEC_MODE = 'auto'
+_INIT_EXEC_MODES = ('auto', 'action', 'stream')
+_INIT_EXEC_MODE_TO_CLIENT_MODE = {'auto': 'auto', 'action': 'jtc', 'stream': 'jgpc'}
+# JGPC(forward command) 컨트롤러의 명령 토픽. 'auto' 판별의 신호로도 쓴다.
+_ARM_COMMAND_TOPIC = '/panda_arm_controller/commands'
 # 카메라 이미지 표시 영역의 기본 크기. 720p (1280x720) 를 기본으로 한다.
 _DEFAULT_DISPLAY_W = 1280
 _DEFAULT_DISPLAY_H = 720
@@ -83,8 +91,14 @@ class ReplayControlNode(Node):
         # --- 파라미터 ---
         self.declare_parameter('image_topic', _DEFAULT_IMAGE_TOPIC)
         self.declare_parameter('init_named_target', _DEFAULT_INIT_TARGET)
+        self.declare_parameter('init_exec_mode', _DEFAULT_INIT_EXEC_MODE)
         self._image_topic: str = self.get_parameter('image_topic').value
         self._init_named_target: str = self.get_parameter('init_named_target').value
+        self._init_exec_mode: str = self.get_parameter('init_exec_mode').value
+        if self._init_exec_mode not in _INIT_EXEC_MODES:
+            raise ValueError(
+                f'init_exec_mode must be one of {_INIT_EXEC_MODES}, got {self._init_exec_mode!r}'
+            )
 
         # --- DB 설정 로드 ---
         cfg = load_dataset_or_fail(config_path)
@@ -103,7 +117,12 @@ class ReplayControlNode(Node):
         )
 
         # --- MoveGroupClient ---
-        self._move_group = MoveGroupClient(self)
+        # 컨트롤러 판별은 생성 시점에 한 번만 한다. init_exec_mode 파라미터로
+        # 강제할 수 있으며, 'auto' 면 명령 토픽 존재 여부로 판별한다.
+        self._move_group = create_move_group_client(
+            self, mode=_INIT_EXEC_MODE_TO_CLIENT_MODE[self._init_exec_mode],
+            arm_command_topic=_ARM_COMMAND_TOPIC
+        )
 
         # --- ServoClient (replay 시작 직전마다 servo 를 start 하기 위한 핸들).
         # service client 등 상태를 들고 있으므로 인스턴스 자체는 한 번만 만들고
@@ -120,6 +139,7 @@ class ReplayControlNode(Node):
         self.get_logger().info(
             f'ReplayControlNode initialized: image_topic={self._image_topic}, '
             f'init_named_target={self._init_named_target!r}, '
+            f'init_exec_mode={self._init_exec_mode!r}, '
             f'config={config_path}'
         )
 
@@ -576,12 +596,19 @@ class ReplayControlNode(Node):
     def initialize_robot_async(self) -> None:
         """SRDF named target 으로 비동기 이동을 시작한다.
 
-        실패는 로그/상태로만 표시한다 (반환값 없음).
+        실행 경로(액션 / 스트리밍) 선택은 ``__init__`` 에서
+        :func:`create_move_group_client` 가 이미 끝냈으므로 여기서는 분기하지
+        않는다. 실패는 로그/상태로만 표시한다 (반환값 없음).
         """
         name = self._init_named_target
-        self.get_logger().info(f'initialize: moving to named target {name!r}...')
+        client_kind = type(self._move_group).__name__
+        self.get_logger().info(
+            f'initialize: moving to named target {name!r} ({client_kind})...'
+        )
         try:
-            future = self._move_group.move_to_named_target_async(name)
+            # executor 가 백그라운드 스레드에서 spin 중이므로 externally_spun=True.
+            # 액션 구현은 이 인자를 무시한다.
+            future = self._move_group.move_to_named_target_async(name, externally_spun=True)
         except Exception as exc:   # noqa: BLE001
             self.get_logger().error(f'initialize failed to start: {exc}')
             return
@@ -1031,7 +1058,8 @@ class ReplayControlGui:
 # ---------------------------------------------------------------------------
 
 def _resolve_default_config() -> Optional[str]:
-    candidate = Path.cwd() / 'dataset_config.yaml'
+    from .cli_common import DEFAULT_CONFIG_FILE_PATH
+    candidate = DEFAULT_CONFIG_FILE_PATH
     return str(candidate) if candidate.is_file() else None
 
 
@@ -1041,13 +1069,13 @@ def main(args: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(description='Replay control GUI node')
     parser.add_argument(
         '--config', default=_resolve_default_config(),
-        help='dataset_config.yaml 경로. 미지정 시 cwd 의 dataset_config.yaml.',
+        help='dataset_config.yaml 경로. 미지정 시 RDFP_HOME(미설정 시 cwd) 의 dataset_config.yaml.',
     )
     # ros2 run 은 `--ros-args ...` 를 따로 분리하므로 그 외 인자만 처리한다.
     parsed, _ = parser.parse_known_args(args=args)
 
     if not parsed.config:
-        print('[FATAL] --config not given and dataset_config.yaml not found in cwd',
+        print('[FATAL] --config not given and default dataset_config.yaml not found',
               file=sys.stderr)
         rclpy.try_shutdown()
         sys.exit(2)
