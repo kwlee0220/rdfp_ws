@@ -44,7 +44,7 @@ from rdfp_msgs.msg import ClutchState
 from std_msgs.msg import Empty
 from std_srvs.srv import SetBool, Trigger
 
-from rdfp.ros2_utils import get_parameter, parse_float, parse_str
+from robot_control.ros2_utils import get_parameter, parse_float, parse_str
 from rdfp.teleop.retarget_math import (
     Quat, Vec3, clamp_to_box, compute_target, lpf_alpha, quat_from_rpy, quat_slerp
 )

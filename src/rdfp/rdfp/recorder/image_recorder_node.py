@@ -29,8 +29,9 @@ from sensor_msgs.msg import Image
 
 from rdfp_msgs.srv import StartSession, StopSession
 
-from ..types import InvalidFrameError, Resolution, Fps
-from ..ros2_utils import get_optional_parameter, get_parameter, parse_bool, parse_str, parse_int
+from robot_control.types import InvalidFrameError, Resolution, Fps
+from robot_control.ros2_utils import (
+    get_optional_parameter, get_parameter, parse_bool, parse_int, parse_str)
 from .exceptions import (
     EncoderUnavailableError,
     RecorderStateError,
@@ -110,7 +111,8 @@ class ImageRecorderNode(Node):
         self._recorder: Optional[FFMpegMp4Recorder] = None
         if self._effective_resolution is not None:
             self._recorder = self._create_recorder()
-            self.get_logger().info(f"recorder ready: selected_codec={self._recorder.selected_codec}")
+            self.get_logger().info(
+                f"recorder ready: selected_codec={self._recorder.selected_codec}")
         else:
             self.get_logger().info(
                 "recorder creation deferred: resolution will be inferred from first image"
@@ -118,13 +120,18 @@ class ImageRecorderNode(Node):
 
         # 6. 이미지 토픽 구독 (기본 이름 "image", remap 으로 override)
         #    사용 예: --ros-args -r image:=/camera/color/image_raw
-        self._image_sub = self.create_subscription(Image, "image", self._on_image, qos_profile_sensor_data,)
-        self.get_logger().info(f"subscribed to image topic (effective name={self._image_sub.topic_name})")
+        self._image_sub = self.create_subscription(
+            Image, "image", self._on_image, qos_profile_sensor_data)
+        self.get_logger().info(
+            f"subscribed to image topic (effective name={self._image_sub.topic_name})")
 
         # 7. 생명주기 서비스 생성 (노드 namespace 기준 → /image_recorder/...)
-        self._start_srv = self.create_service(StartSession, "~/start_session", self._handle_start_session)
-        self._stop_srv = self.create_service(StopSession, "~/stop_session", self._handle_stop_session)
-        self.get_logger().info(f"services ready: {self._start_srv.srv_name}, {self._stop_srv.srv_name}")
+        self._start_srv = self.create_service(
+            StartSession, "~/start_session", self._handle_start_session)
+        self._stop_srv = self.create_service(
+            StopSession, "~/stop_session", self._handle_stop_session)
+        self.get_logger().info(
+            f"services ready: {self._start_srv.srv_name}, {self._stop_srv.srv_name}")
 
         # 8. auto_start=true 이면 서비스 콜과 동일 경로로 세션을 즉시 시작한다.
         #    실패해도 노드는 살아있으며, 사용자가 수동으로 ~/start_session 을 호출해 재시도할 수 있다.
@@ -134,7 +141,8 @@ class ImageRecorderNode(Node):
             resp = StartSession.Response()
             self._handle_start_session(req, resp)
             if not resp.success:
-                self.get_logger().error("auto_start failed; waiting for manual ~/start_session call")
+                self.get_logger().error(
+                    "auto_start failed; waiting for manual ~/start_session call")
 
     # ---------- Parameter handling ------------------------------------------
 
@@ -205,14 +213,16 @@ class ImageRecorderNode(Node):
         del request  # empty 요청이므로 사용하지 않음
 
         if self._pending_start:
-            self.get_logger().warning("start_session rejected: pending start in progress "
+            self.get_logger().warning(
+                "start_session rejected: pending start in progress "
                 f"(planned={self._pending_mp4_path})")
             response.success = False
             response.mp4_path = ""
             return response
 
         if self._recorder is not None and self._recorder.state == "RECORDING":
-            self.get_logger().warning("start_session rejected: already recording "
+            self.get_logger().warning(
+                "start_session rejected: already recording "
                 f"(current={self._current_mp4_path})")
             response.success = False
             response.mp4_path = ""
@@ -257,7 +267,8 @@ class ImageRecorderNode(Node):
         self._consecutive_invalid = 0
         self._invalid_log_count = 0
 
-        self.get_logger().info(f"session started: path={mp4_path} codec={self._recorder.selected_codec}")
+        self.get_logger().info(
+            f"session started: path={mp4_path} codec={self._recorder.selected_codec}")
         response.success = True
         response.mp4_path = mp4_path
         return response
@@ -323,7 +334,8 @@ class ImageRecorderNode(Node):
         self._invalid_log_count = 0
 
         if post_state == "IDLE":
-            self.get_logger().info(f"session stopped: path={returned_path} frames_written={frames_written}")
+            self.get_logger().info(
+                f"session stopped: path={returned_path} frames_written={frames_written}")
             response.success = True
             response.mp4_path = returned_path
             return response
@@ -395,7 +407,9 @@ class ImageRecorderNode(Node):
         assert self._effective_resolution is not None  # 위 체크에서 recorder 가 RECORDING 이면 보장됨
         expected_w = self._effective_resolution.width
         expected_h = self._effective_resolution.height
-        if msg.encoding != self._pixel_format or msg.width != expected_w or msg.height != expected_h:
+
+        if (msg.encoding != self._pixel_format
+                or msg.width != expected_w or msg.height != expected_h):
             self._handle_invalid_frame(msg)
             return
 
@@ -642,7 +656,8 @@ class ImageRecorderNode(Node):
                 `main()` 이 FATAL 로 보고하고 종료한다.
         """
         if self._effective_resolution is None:
-            raise RuntimeError("internal error: _create_recorder called without effective resolution")
+            raise RuntimeError(
+                "internal error: _create_recorder called without effective resolution")
 
         try:
             # Recorder 는 stdlib logging.Logger 를 사용한다 (ROS2 비의존).
@@ -718,7 +733,7 @@ def main(args: Optional[list[str]] = None) -> None:
     rclpy.init(args=args)
 
     # Python logging(logger="rdfp.*") 출력을 ROS2 logger로 브리지한다.
-    from ..logging_bridge import configure_logging_bridge
+    from robot_control.logging_bridge import configure_logging_bridge
     configure_logging_bridge(package_logger_name='rdfp')
 
     node: Optional[ImageRecorderNode] = None

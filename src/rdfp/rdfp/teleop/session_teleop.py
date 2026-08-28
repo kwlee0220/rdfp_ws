@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import rclpy
 from rclpy.node import Node
 
-from ..ros2_utils import get_parameter, parse_int, parse_str_list
+from robot_control.ros2_utils import get_parameter, parse_int, parse_str_list
 from ..session.session_control_client import SessionControlClient
 
 

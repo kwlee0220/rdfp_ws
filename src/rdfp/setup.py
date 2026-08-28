@@ -17,48 +17,44 @@ setup(
             glob(os.path.join('launch', '*.py'))),
         (os.path.join('share', package_name, 'config'),
             glob(os.path.join('config', '*'))),
-        (os.path.join('share', package_name, 'description'),
-            glob(os.path.join('description', '*'))),
         (os.path.join('share', package_name, 'dataset', 'sql'),
             glob(os.path.join('rdfp', 'dataset', 'sql', '*.sql'))),
     ],
-    install_requires=['setuptools', 'PyTurboJPEG'],
+    install_requires=['setuptools'],
     zip_safe=True,
     maintainer='kwlee',
     maintainer_email='kwlee@todo.todo',
-    description='Franka Panda Cartesian path planning and execution using MoveIt2',
+    description='Learning-data collection layer — session lifecycle, recording, dataset ingest/replay, teleop',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            # teleop
             'teleop_keyboard = rdfp.teleop.teleop_keyboard:main',
             'session_teleop = rdfp.teleop.session_teleop:main',
             'teleop_retarget = rdfp.teleop.teleop_retarget_node:main',
             'clutch_pedal = rdfp.teleop.clutch_pedal_node:main',
-            'camera_node = rdfp.camera.camera_node:main',
+            # camera (세션 상태를 인지하는 카메라 어댑터)
             'rdfp_camera_node = rdfp.camera.rdfp_camera_node:main',
             'rdfp_image_viewer_node = rdfp.camera.rdfp_image_viewer_node:main',
-            'image_viewer_node = rdfp.camera.image_viewer_node:main',
-            'ee_pose_node = rdfp.moveit.ee_pose_publisher:main',
-            'ee_twist_node = rdfp.moveit.ee_twist_publisher:main',
-            'servo_auto_start_node = rdfp.moveit.servo_auto_start_node:main',
-            'image_recorder_node = rdfp.recorder.image_recorder_node:main',
+            # session
             'session_control_node = rdfp.session.session_control_node:main',
-            'gripper_control_node = rdfp.moveit.gripper_control_node:main',
-            'mock_scene_state_node = rdfp.scene.mock_scene_state_node:main',
+            # recorder
+            'image_recorder_node = rdfp.recorder.image_recorder_node:main',
             'rdfp_image_recorder = rdfp.recorder.rdfp_image_recorder_node:main',
+            # dataset / rosbag
             'rosbag = rdfp.rosbag.cli:main',
             'import = rdfp.dataset.import_cmd:main',
             'replay = rdfp.dataset.replay_cmd:main',
             'stats = rdfp.dataset.stats_cmd:main',
             'list = rdfp.dataset.list_cmd:main',
             'init-db = rdfp.dataset.init_db_cmd:main',
-			'target_joint_cmds_publisher = rdfp.moveit.target_joint_cmds_publisher:main',
-			'target_joint_cmds_executor = rdfp.moveit.target_joint_cmds_executor:main',
-			'target_joint_states_publisher = rdfp.moveit.target_joint_states_publisher:main',
-			'target_joint_states_executor = rdfp.moveit.target_joint_states_executor:main',
-			'replay_gui = rdfp.dataset.replay_gui_cmd:main',
-            'robot_twin = rdfp.twin.main:main',
+            'replay_gui = rdfp.dataset.replay_gui_cmd:main',
+        ],
+        # robot twin 의 세션/에피소드 백엔드를 등록한다. robot_twin 은 이 그룹을
+        # 조회할 뿐 rdfp 를 import 하지 않는다 — 계층 역행 의존을 없애는 seam 이다.
+        'robot_twin.backends': [
+            'session_control = rdfp.session.twin_backend:create_session_control_client',
         ],
     },
 )

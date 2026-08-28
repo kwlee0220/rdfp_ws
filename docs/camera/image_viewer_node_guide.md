@@ -6,20 +6,21 @@ ROS2 이미지 토픽을 OpenCV 윈도우에 표시하는 단순 뷰어 노드 �
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [토픽 연결](#토픽-연결)
-6. [동작 흐름](#동작-흐름)
-7. [에러 처리](#에러-처리)
-8. [실전 예제](#실전-예제)
-9. [개발자 확장](#개발자-확장)
-10. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [토픽 연결](#5-토픽-연결)
+6. [동작 흐름](#6-동작-흐름)
+7. [에러 처리](#7-에러-처리)
+8. [실전 예제](#8-실전-예제)
+9. [개발자 확장](#9-개발자-확장)
+10. [트러블슈팅](#10-트러블슈팅)
+11. [관련 문서](#11-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `ImageViewerNode`는 ROS2 이미지 토픽을 구독하여 OpenCV 윈도우(`cv2.imshow`)로
 표시하는 단순 뷰어 노드다. 디버깅/미리보기 용도에 최적화되어 있으며, 세션
@@ -32,7 +33,7 @@ ROS2 이미지 토픽을 OpenCV 윈도우에 표시하는 단순 뷰어 노드 �
 (`rdfp_msgs/msg/SessionCommand`) 상태를 프레임 좌상단에 오버레이한다. 이미지
 구독·표시·해상도 처리·GUI 방어 로직은 이 클래스 그대로이며, `_decorate_frame`
 훅 오버라이드와 세션 구독만 추가된다. 자세한 내용은 이 가이드의 [개발자
-확장](#개발자-확장) 절과 `RdfpImageViewerNode` 가이드 참조.
+확장](#9-개발자-확장) 절과 `RdfpImageViewerNode` 가이드 참조.
 
 **핵심 특징:**
 - `cv_bridge`로 `bgr8`/`rgb8`/`mono8` 등 일반 인코딩을 bgr8 로 자동 변환
@@ -43,7 +44,7 @@ ROS2 이미지 토픽을 OpenCV 윈도우에 표시하는 단순 뷰어 노드 �
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ```bash
 # cv_bridge + OpenCV
@@ -59,22 +60,22 @@ X/Wayland 세션이 있어야 한다. SSH 접속 시 `DISPLAY` 환경 변수 설
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # 터미널 1: 카메라 노드 (예시)
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 -p fps:=30 -p resolution:=640x480
 
 # 터미널 2: 뷰어 노드
-ros2 run rdfp image_viewer_node --ros-args -r image:=/camera_node/image_raw
+ros2 run robot_control image_viewer_node --ros-args -r image:=/camera_node/image_raw
 ```
 
 `image` 기본 토픽을 실제 퍼블리셔 토픽(`/camera_node/image_raw` 등)으로 remap 한다.
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 ### 선택 파라미터
 
@@ -91,7 +92,7 @@ ros2 run rdfp image_viewer_node --ros-args -r image:=/camera_node/image_raw
 
 ---
 
-## 토픽 연결
+## 5. 토픽 연결
 
 ### 구독 토픽
 
@@ -115,24 +116,31 @@ Bayer pattern·`mono16`·depth(`16UC1`/`32FC1`) 등 특수 인코딩은 보통 �
 
 ---
 
-## 동작 흐름
+## 6. 동작 흐름
 
-```
-Image topic                     ImageViewerNode
-     │                                │
-     ├── msg (encoding=XYZ) ─────────►│ _on_image()
-     │                                │ ├─ cv_bridge → bgr8
-     │                                │ │    └─ 실패: encoding별 1회 ERROR + drop
-     │                                │ ├─ 첫 프레임: display_resolution 고정
-     │                                │ ├─ resize (크기 불일치 시)
-     │                                │ ├─ _decorate_frame(frame)  # 서브클래스 훅
-     │                                │ ├─ cv2.imshow
-     │                                │ └─ cv2.waitKey(1)  # GUI 이벤트 펌프
-     │                                │
-     │         (사용자 Ctrl-C)         │
-     │                                ├── destroy_node()
-     │                                │ ├─ cv2.destroyWindow(self._window_name)
-     │                                │ └─ waitKey × 4 (이벤트 펌프)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Topic as Image topic
+    participant Node as ImageViewerNode
+    participant GUI as OpenCV HighGUI
+
+    Note over Node: 기동 시 cv2.namedWindow + waitKey(1) 로<br/>GUI 백엔드 선검증 (실패하면 RuntimeError)
+
+    Topic->>Node: Image msg (encoding=XYZ)
+    activate Node
+    Node->>Node: cv_bridge → bgr8
+    Note right of Node: 변환 실패 시 encoding 별 1회 ERROR 후 drop
+    Node->>Node: 첫 프레임이면 display_resolution 고정
+    Node->>Node: resize (크기 불일치 시)
+    Node->>Node: _decorate_frame(frame) — 서브클래스 훅
+    Node->>GUI: cv2.imshow
+    Node->>GUI: cv2.waitKey(1) — GUI 이벤트 펌프
+    deactivate Node
+
+    Note over Node: 사용자 Ctrl-C → destroy_node()
+    Node->>GUI: cv2.destroyWindow(window_name)
+    Node->>GUI: waitKey × 4 — 이벤트 큐 펌프
 ```
 
 - **기동 시 fail-fast**: `cv2.namedWindow` + `cv2.waitKey(1)` 로 GUI 백엔드를
@@ -148,7 +156,7 @@ Image topic                     ImageViewerNode
 
 ---
 
-## 에러 처리
+## 7. 에러 처리
 
 | 상황 | 동작 |
 |------|------|
@@ -160,18 +168,18 @@ Image topic                     ImageViewerNode
 
 ---
 
-## 실전 예제
+## 8. 실전 예제
 
 ### 기본 사용 (카메라 미리보기)
 
 ```bash
-ros2 run rdfp image_viewer_node --ros-args -r image:=/camera_node/image_raw
+ros2 run robot_control image_viewer_node --ros-args -r image:=/camera_node/image_raw
 ```
 
 ### 고정 해상도로 표시
 
 ```bash
-ros2 run rdfp image_viewer_node --ros-args \
+ros2 run robot_control image_viewer_node --ros-args \
   -r image:=/camera/image_raw \
   -p resolution:=800x600
 ```
@@ -212,11 +220,11 @@ def generate_launch_description():
 **프로세스를 나누어** 인스턴스당 별개의 OS 프로세스로 실행하는 것을 권장한다.
 
 ```bash
-ros2 run rdfp image_viewer_node --ros-args \
+ros2 run robot_control image_viewer_node --ros-args \
   -r image:=/camera/image_raw \
   -r __node:=viewer_cam0 &
 
-ros2 run rdfp image_viewer_node --ros-args \
+ros2 run robot_control image_viewer_node --ros-args \
   -r image:=/recorder/preview \
   -r __node:=viewer_recorder &
 ```
@@ -229,7 +237,7 @@ ros2 run rdfp image_viewer_node --ros-args \
 
 ---
 
-## 개발자 확장
+## 9. 개발자 확장
 
 이 클래스는 상속을 통한 기능 확장을 공식적으로 지원한다.
 
@@ -291,7 +299,7 @@ class MyViewerNode(ImageViewerNode):
 
 ---
 
-## 트러블슈팅
+## 10. 트러블슈팅
 
 ### 1. 윈도우가 뜨지 않음
 
@@ -353,7 +361,7 @@ ros2 topic echo /camera_node/image_raw --field encoding --once
 
 ---
 
-## 관련 문서
+## 11. 관련 문서
 
 - [CameraNode Guide](./opencv_camera_guide.md) — 이미지 토픽 발행자
 - [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드

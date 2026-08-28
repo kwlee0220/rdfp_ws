@@ -28,7 +28,7 @@ from sensor_msgs.msg import Image
 from rdfp.dataset.db.writers.image_stream import ImageStreamWriter
 from rdfp.recorder.ffmpeg_mp4_recorder import FFMpegMp4Recorder
 from .mp4_image_recorder import Mp4ImageRecorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 
 _logger = logging.getLogger(__name__)

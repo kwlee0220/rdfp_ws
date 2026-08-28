@@ -18,9 +18,10 @@ import pytest
 import rclpy
 from rclpy.parameter import Parameter
 
-from rdfp.camera.junk import rdfp_camera_node as node_module
-from rdfp.camera.junk.rdfp_camera_node import RdfpCameraNode
-from rdfp.types import Resolution
+from robot_control.types import Resolution
+
+from rdfp.camera import rdfp_camera_node as node_module
+from rdfp.camera.rdfp_camera_node import RdfpCameraNode
 
 from rdfp_msgs.msg import SessionCommand  # type: ignore[import-not-found]
 
@@ -318,3 +319,97 @@ class TestDestroyNode:
         n.destroy_node()
 
         n._camera.release.assert_called()
+
+
+# ---------- Tests: 끊김 감지 / 재연결 ----------------------------------------
+
+
+class TestReconnect:
+
+    def test_initial_status_is_latched(self, node: RdfpCameraNode) -> None:
+        """초기화 시 DISCONNECTED 를 한 번 실어 둔다(TRANSIENT_LOCAL latch)."""
+        assert node._last_status == "DISCONNECTED"
+
+    def test_status_not_republished_when_unchanged(self, node: RdfpCameraNode) -> None:
+        """같은 상태를 반복 발행하지 않는다."""
+        node._status_pub = MagicMock(name="status_pub")
+
+        node._publish_status("CONNECTED")
+        node._publish_status("CONNECTED")
+        node._publish_status("CONNECTED")
+
+        node._status_pub.publish.assert_called_once()
+
+    def test_disconnect_pauses_timer_and_schedules_retry(self, node: RdfpCameraNode) -> None:
+        """캡처 중 끊기면 타이머를 정지시키고 재연결 타이머를 건다."""
+        node._on_session(_make_session_msg("IN_SESSION"))
+        node._on_session(_make_session_msg("IN_EPISODE"))
+        capture_timer = node._timer
+
+        node._camera.read.return_value = None
+        node._timer_callback()
+
+        # 타이머는 정지만 하고 파기하지 않는다 (자기 콜백 안에서의 파기 금지)
+        assert node._timer is capture_timer
+        assert node._timer.is_canceled()
+        assert node._retry_timer is not None
+        assert not node._retry_timer.is_canceled()
+        assert node._last_status == "DISCONNECTED"
+        node._camera.release.assert_called()
+        # 세션은 그대로 IN_EPISODE 이므로 발행 의사는 유지된다
+        assert node._publishing is True
+
+    def test_reconnect_does_not_duplicate_capture_timer(self, node: RdfpCameraNode) -> None:
+        """재연결에 성공해도 캡처 타이머가 중복 생성되지 않는다."""
+        node._on_session(_make_session_msg("IN_SESSION"))
+        node._on_session(_make_session_msg("IN_EPISODE"))
+
+        node._camera.read.return_value = None
+        node._timer_callback()          # 끊김 감지 → 재연결 타이머 생성
+        node._camera.read.return_value = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        node._retry_callback()          # 재연결 성공
+
+        # 캡처 타이머 1개 + 재연결 타이머 1개 = 2개
+        assert len(list(node.timers)) == 2
+        assert not node._timer.is_canceled()
+        assert node._retry_timer.is_canceled()
+        assert node._last_status == "CONNECTED"
+
+    def test_retry_stops_when_session_left(self, node: RdfpCameraNode) -> None:
+        """세션이 IDLE 로 돌아가면 재연결 시도를 멈춘다."""
+        node._on_session(_make_session_msg("IN_SESSION"))
+        node._camera.read.return_value = None
+        node._timer_callback()
+        assert node._retry_timer is not None
+
+        node._on_session(_make_session_msg("IDLE"))
+        assert node._retry_timer.is_canceled()
+
+        open_calls = node._camera.open.call_count
+        node._retry_callback()
+        assert node._camera.open.call_count == open_calls
+
+    def test_open_failure_schedules_retry(self, node: RdfpCameraNode) -> None:
+        """open 실패 시에도 재연결 타이머가 걸린다."""
+        node._camera.open.side_effect = RuntimeError("device not found")
+        node._on_session(_make_session_msg("IN_SESSION"))
+
+        assert node._open_failed is True
+        assert node._retry_timer is not None
+        assert not node._retry_timer.is_canceled()
+        assert node._last_status == "ERROR"
+
+    def test_reconnect_disabled_by_zero_interval(self, mock_camera_class: MagicMock) -> None:
+        """reconnect_interval_sec=0 이면 재연결 타이머를 만들지 않는다."""
+        n = RdfpCameraNode(
+            parameter_overrides=_default_overrides(reconnect_interval_sec=0.0),
+        )
+        try:
+            n._on_session(_make_session_msg("IN_SESSION"))
+            n._camera.read.return_value = None
+            n._timer_callback()
+
+            assert n._retry_timer is None
+        finally:
+            n.destroy_node()

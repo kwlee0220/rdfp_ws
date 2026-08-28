@@ -35,7 +35,7 @@ arm 을 구동하는 노드 조합을 ``replay_arm_path`` argument 로 고른다
     전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지 않는다.
     servo 의 ``command_in_type: unitless`` 를 보정하기 위해 게인 기본값이
     ``linear 2.5`` / ``angular 1.25`` 로 설정되어 있다. 근거와 대안 비교는
-    ``docs/replay/cartesian_path_replay_approaches.md`` 참고.
+    ``docs/replay/replay_approaches.md`` 참고.
 
 ``target_joint_cmds``
     ``/target_joint_cmds`` (sensor_msgs/JointState) → ``target_joint_cmds_executor``
@@ -99,14 +99,9 @@ from __future__ import annotations
 from typing import Any
 
 import os
-import sys
 
 import yaml
 
-# ROS2 launch 러너는 본 파일을 단일 스크립트로 로드하므로, 같은 디렉터리의
-# sibling 모듈을 패키지 import 로 가져올 수 없다. 이 파일의 디렉터리를
-# sys.path 의 맨 앞에 추가하여 top-level 모듈처럼 import 한다 (sibling 우선 보장; append 로 바꾸지 말 것).
-sys.path.insert(0, os.path.dirname(__file__))
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -117,14 +112,14 @@ from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from controller_launch_helper import (
+from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
     create_panda_hand_controller_spawner,
     create_ros2_control_node,
 )
-from controller_startup_launch_helper import create_controller_startup_handlers
-from launch_helper import (
+from robot_control.launch_helpers.controller_startup import create_controller_startup_handlers
+from robot_control.launch_helpers.common import (
     MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
     build_servo_params,
@@ -363,7 +358,7 @@ def _build_actions(context: LaunchContext) -> list:
     # action 으로 중계한다. 수집 때와 **같은 노드**이며, 다른 점은 명령 토픽의
     # 퍼블리셔가 teleop/트윈이 아니라 재생 도구라는 것뿐이다.
     gripper_control_node = Node(
-        package="rdfp",
+        package="robot_control",
         executable="gripper_control_node",
         name="gripper_control",
         output="screen",
@@ -395,7 +390,7 @@ def _build_actions(context: LaunchContext) -> list:
     # 이 비어 있고, 이 파라미터가 폴백으로 쓰인다.
     if arm_path == _ARM_PATH_TARGET_JOINT_CMDS:
         arm_path_nodes.append(Node(
-            package="rdfp",
+            package="robot_control",
             executable="target_joint_cmds_executor",
             name="target_joint_cmds_executor",
             output="screen",
@@ -419,14 +414,14 @@ def _build_actions(context: LaunchContext) -> list:
     #
     # 주의: 속도 명령 기반이라 **개루프** 다. 적분 드리프트가 누적되고 시작 pose 가
     # 다르면 전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지
-    # 않는다. 자세한 근거는 docs/replay/cartesian_path_replay_approaches.md 참고.
+    # 않는다. 자세한 근거는 docs/replay/replay_approaches.md 참고.
     # 정확한 재현이 목적이면 target_joint_cmds 경로를 쓴다.
     #
     # servo 는 `start_servo` 서비스 호출 전까지 입력을 무시하므로, 호출 주체가 없는
     # replay 스택에서는 servo_auto_start_node 를 함께 기동해야 한다.
     if arm_path == _ARM_PATH_EE_TWIST:
         arm_path_nodes.append(Node(
-            package="rdfp",
+            package="robot_control",
             executable="ee_twist_node",
             name="ee_twist_publisher",
             output="screen",
@@ -443,7 +438,7 @@ def _build_actions(context: LaunchContext) -> list:
             }],
         ))
         arm_path_nodes.append(Node(
-            package="rdfp",
+            package="robot_control",
             executable="servo_auto_start_node",
             name="servo_auto_start",
             output="screen",

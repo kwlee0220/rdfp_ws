@@ -1,0 +1,37 @@
+# 이미지 파이프라인 설정 — camera -> image_viewer / image_recorder.
+#
+# 세 블록을 한 파일에 두는 이유는 서로 값을 공유하기 때문이다.
+#
+#   camera.image_topic  -> image_viewer / image_recorder 의 `image` remap 대상
+#   camera.resolution   -> image_recorder 의 resolution (별도 키가 없다)
+#   camera.fps          <-> image_recorder.fps  (어긋나면 프레임 drop)
+#
+# 이 파일을 읽는 launch (카메라를 띄우는 모든 launch 의 단일 출처):
+#
+#   rdfp_panda_mock / rdfp_panda_jgpc_mock  — image_pipeline_config_file 인자
+#   rdfp / rdfp_advanced                    — config_file 인자
+#   panda_mock / panda_jgpc_mock            — camera_launch_helper 가 기본값으로 사용
+#
+# YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
+
+camera:
+  enabled: true
+  # 장치 인덱스(예: 4) 또는 파일/URI 경로. 파일을 주면 반복 재생 소스가 된다.
+  id: /home/kwlee/development/ros/rdfp_ws/src/robot_control/data/shibuya_7_8.mp4
+  # id: 4
+  image_topic: /camera/image_raw
+  info_topic: /camera/camera_info
+  status_topic: /camera/camera_status
+  fps: 10
+  resolution: 1280x720      # image_recorder 가 그대로 가져다 쓴다
+  frame_id: camera_link
+  compress_image: false
+
+image_viewer:
+  enabled: true             # 헤드리스 환경에서는 false 로 끈다
+
+image_recorder:
+  enabled: true
+  fps: 10                   # camera.fps 와 맞춘다 — 어긋나면 프레임이 버려진다
+  output_dir: /tmp/recordings
+  auto_start: true          # rdfp_advanced 는 세션 기반이라 이 키를 쓰지 않는다

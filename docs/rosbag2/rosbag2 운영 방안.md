@@ -423,7 +423,7 @@ Type=exec
 User=ros
 Group=ros
 Environment=ROS_DOMAIN_ID=0
-Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # 선택: QoS / storage 설정 파일 경로를 환경변수로 주입
 Environment=QOS_OVERRIDES_PATH=/etc/rosbag/qos_overrides.yaml
 Environment=STORAGE_CONFIG_PATH=/etc/rosbag/mcap_storage.yaml

@@ -55,7 +55,7 @@ robot twin     ├─▶ /gripper_control/gripper_cmds ─▶ gripper_control �
 
 ```bash
 # 기본 노드명 'gripper_control'
-ros2 run rdfp gripper_control_node
+ros2 run robot_control gripper_control_node
 
 # launch 로는 panda_mock / rdfp_panda_mock / replay_panda_mock 계열에 포함되어 있다
 ros2 launch rdfp rdfp_panda_mock.launch.py

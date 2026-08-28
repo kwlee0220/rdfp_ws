@@ -354,7 +354,8 @@ def add_common_args(parser):
 
     현재는 `--log-level` 한 개만 제공한다.
     """
-    parser.add_argument('--log-level', choices=('debug', 'info', 'warning', 'error'), default='info')
+    parser.add_argument('--log-level', default='info',
+                        choices=('debug', 'info', 'warning', 'error'))
 
 
 def _enumerate_session_dirs(rosbag_dir: Path) -> list[Path]:

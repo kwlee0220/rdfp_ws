@@ -27,7 +27,7 @@ import sys
 import numpy as np
 
 from rdfp.recorder import FFMpegMp4Recorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 
 def _make_gradient_frame(width: int, height: int, t: int) -> np.ndarray:
@@ -73,7 +73,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     n_frames = int(args.fps * args.duration)
-    frame_interval_ms = int(1000 / args.fps)
 
     log.info(
         "recording: path=%s fps=%d size=%dx%d frames=%d",

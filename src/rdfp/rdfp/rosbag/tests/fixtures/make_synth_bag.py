@@ -204,7 +204,8 @@ def write_synth_bag(
             pose_schema = w.register_msgdef(
                 'geometry_msgs/msg/PoseStamped', POSE_STAMPED_SCHEMA,
             )
-            topics_with_counts['/ee_pose_publisher/ee_pose'] = ('geometry_msgs/msg/PoseStamped', len(pose_list))
+            topics_with_counts['/ee_pose_publisher/ee_pose'] = (
+                'geometry_msgs/msg/PoseStamped', len(pose_list))
 
         js_list = list(joint_state_events)
         if js_list:

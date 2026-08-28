@@ -50,7 +50,7 @@ from builtin_interfaces.msg import Time
 from rclpy.node import Node, Publisher
 from sensor_msgs.msg import Image
 
-from rdfp.types import ImageMetadata, to_ros_image_msg
+from robot_control.types import ImageMetadata, to_ros_image_msg
 
 from ._image_helpers import (
     SUPPORTED_PIXEL_FORMATS,

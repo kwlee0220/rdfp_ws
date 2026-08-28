@@ -6,7 +6,7 @@
 > **전체 구조를 먼저 알고 싶다면** [rdfp_framework_design.md](rdfp_framework_design.md) 를 읽는다 —
 > 세 서브시스템과 그 사이의 인터페이스 계약을 다루는 최상위 문서다.
 
-- **문서 총 53개** (본 인덱스 제외)
+- **문서 총 55개** (본 인덱스 제외)
 - 경로는 저장소 루트(`rdfp_ws/`) 기준이다.
 - **상태** 컬럼: `현행` = 현재 코드와 일치 / `설계안` = 코드 미반영 / `이력` = 초기
   요구사항·프롬프트 등 참고용 / `구식` = 현재 코드와 어긋난 내용 있음(주의)
@@ -24,7 +24,7 @@
 - [7. rosbag2 → 데이터셋 후처리](#7-rosbag2--데이터셋-후처리)
 - [8. 재생 (Replay)](#8-재생-replay)
 - [9. Teleoperation](#9-teleoperation)
-- [10. 시뮬레이터 백엔드](#10-시뮬레이터-백엔드)
+- [10. 시뮬레이터 백엔드 / Scene](#10-시뮬레이터-백엔드--scene)
 - [11. 외부 로봇 (OMY-L100)](#11-외부-로봇-omy-l100)
 - [12. 로봇 트윈 (REST 게이트웨이)](#12-로봇-트윈-rest-게이트웨이)
 - [13. AI 어시스턴트용 지침 (CLAUDE.md)](#13-ai-어시스턴트용-지침-claudemd)
@@ -37,9 +37,11 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [rdfp_framework_design.md](rdfp_framework_design.md) | **⭐ 최상위 아키텍처 + 설계서**. imitation learning 데이터 프레임워크의 세 서브시스템(실/가상 로봇 환경 · 에피소드 생성기 · 학습 데이터 저장/관리기)과 그 사이의 **표준 인터페이스 계약**, action/observation 구분, 2단 저장(MCAP → DBMS)의 근거, 에피소드 생명주기 시퀀스, **패키징 이슈**(ROS 워크스페이스에 저장/관리기를 두는 것이 맞는가 — 결합도 실측·선택지 비교·분리 트리거), 현재 상태/미결 항목 | 현행 |
-| [README.md](../README.md) | 워크스페이스 최상위 소개. 두 패키지(`rdfp`/`rdfp_msgs`) 구성, 빌드 순서, 주요 launch·console script 개요 | 현행 |
-| [src/rdfp/README.md](../src/rdfp/README.md) | **`rdfp` 패키지 전체 walkthrough (720줄, 가장 포괄적)**. `MoveGroupClient` API, 두 recorder 노드 파라미터표, `session_control_node` 상태머신·QoS, 데이터셋 CLI 레퍼런스, replay GUI 개요 | 현행 |
+| [rdfp_framework_design.md](rdfp_framework_design.md) | **⭐ 최상위 아키텍처 + 설계서**. imitation learning 데이터 프레임워크의 세 서브시스템(실/가상 로봇 환경 · 에피소드 생성기 · 학습 데이터 저장/관리기)과 그 사이의 **표준 인터페이스 계약**, action/observation 구분, 2단 저장(MCAP → DBMS)의 근거, 에피소드 생명주기 시퀀스, **패키징 이슈**(§7 — 절단선 두 축. §7.1~7.5 세로축: 저장/관리기를 ROS 밖으로 뺄 것인가(보류, 결합도 실측·분리 트리거). **§7.6 가로축: 제어 계층 패키지 분리(완료)** — 워크스페이스가 아니라 패키지가 단위인 이유, launch helper `sys.path` 트릭 해소, twin↔session entry point seam, 경계 테스트), 현재 상태/미결 항목 | 현행 |
+| [README.md](../README.md) | 워크스페이스 최상위 소개. 네 패키지(`rdfp_msgs`/`robot_control`/`robot_twin`/`rdfp`) 구성과 계층 의존 방향, 빌드 순서, 주요 launch·console script 개요 | 현행 |
+| [src/robot_control/README.md](../src/robot_control/README.md) | **`robot_control` — 로봇 제어 계층**. `moveit`/`camera`/`scene`/`launch_helpers` 구성, `panda_*` launch 실행법, 계층 규칙(수집 계층 import 금지와 그 강제 방법) | 현행 |
+| [src/robot_twin/README.md](../src/robot_twin/README.md) | **`robot_twin` — 로봇 트윈 패키지**. 실행법, 세션/에피소드 연산이 entry point 로 선택적으로 붙는 구조와 미설치 시 동작 | 현행 |
+| [src/rdfp/README.md](../src/rdfp/README.md) | **`rdfp` 패키지 전체 walkthrough (가장 포괄적)**. `MoveGroupClient` API, 두 recorder 노드 파라미터표, `session_control_node` 상태머신·QoS, 데이터셋 CLI 레퍼런스, replay GUI 개요 | 현행 |
 | [src/rdfp_msgs/README.md](../src/rdfp_msgs/README.md) | `rdfp_msgs` 인터페이스 패키지. `msg/`·`srv/` IDL 목록과 각 타입의 용도, 빌드 방법 | 현행 |
 | [docker/README.md](../docker/README.md) | Docker 실행 구성. `run_panda_mock.sh` / `run_replay_mock.sh` / `replay_gui` 컨테이너화. apt ROS 2 Humble 만 사용해 소스빌드 moveit 과의 ABI 충돌 회피 | 현행 |
 | [environment/python_env_guide.md](environment/python_env_guide.md) | **ROS 2 Python 환경 구성**. venv(uv)가 ROS 2 에서 깨지는 세 가지 구조적 원인(C 확장 ABI / `PYTHONPATH` 우선순위 / console script shebang), ROS·비-ROS 프로젝트 공존 방법(`~/.bashrc` 자동 source 제거), 프로젝트 생성 절차(venv 없는 기본형 + `--system-site-packages` 예외형), 트러블슈팅 표, Ubuntu 24.04/Jazzy 마이그레이션 전략 | 현행 |
@@ -48,13 +50,15 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) | **launch 파일·helper 전체 인벤토리**. 계열별 분류, launch × helper 의존관계 표, Panda 컨트롤러 순차 기동 순서와 그 근거, 각 launch 의 `post_hand_actions` 구성. **§4 "Launch 인자"** — launch 별 argument 표 + 설정 YAML 4종(`image_pipeline`=§4.2 / `rdfp_panda_mock`=§4.4 / `replay_panda_mock`=§4.5 / `teleop_mirror`=§4.6) 의 키 ↔ argument 대응 (YAML 계열은 `--show-args` 가 `config_file` 만 출력하므로 이 표가 유일한 목록). 절 번호 있음 | 현행 |
+| [src/robot_control/launch/README.md](../src/robot_control/launch/README.md) | **제어 계열 launch + helper 전체 인벤토리 (자체 완결)**. `panda_mock`/`panda_jgpc_mock`/`panda_gazebo`/`moveit`/`ros2_control`/`rviz2` 의 인자 전체(§2 — 이 계열은 `--show-args` 가 그대로 동작한다), 설정 파일 3층위 구조, 순차 기동 정책과 `post_hand_actions`, helper 9개 모듈 목록과 두 가지 의도적 argument 재사용(§5) | 현행 |
+| [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) | **수집 계열(`rdfp_*`) launch**. `rdfp_panda_mock`/`rdfp_panda_jgpc_mock`/`replay_panda_mock`/`teleop_mirror`/`rdfp`/`rdfp_advanced`. **§3 "YAML ↔ 인자 대응표"** — 설정 YAML 4종의 키 ↔ argument 대응 (이 계열은 `OpaqueFunction` 때문에 `--show-args` 가 1~2개만 출력하므로 이 표가 유일한 목록), `replay_arm_path` 배타 선택, `pedal_timeout` 자동 보정 표. **§6.1 묶음 launch ↔ 분리 조합 대응** — `panda_mock` + `rdfp_collect` 가 `rdfp_panda_mock` 과 동등함(실측 검증), Gazebo 쌍만 인자를 맞춰야 하는 이유와 명령. helper 는 `robot_control` 문서로 위임 | 현행 |
+| [robot/franka_panda_bringup_prep.md](robot/franka_panda_bringup_prep.md) | **실기 Franka Panda bringup — 준비 사항 (미착수)**. `panda_mock`/`panda_gazebo` 처럼 실기용 로봇 스택 launch 를 만들기 위한 착수 조건. 사용자가 제공해야 할 정보(모델·**시스템 버전**이 libfranka→franka_ros2 버전을 연쇄 결정·FCI 라이선스·robot_ip·엔드이펙터 load·전용 NIC·충돌 임계·안전 절차), 설치 필요 SW(현재 `franka_description` 1.0.1 만 있고 **libfranka/franka_ros2 부재** — 다만 `~/ansible/roles/franka_ros2` role 이 준비되어 있고 **실행 전 수정 3건**(`.bashrc` 자동 source 가 옵트인 정책과 충돌 · `version:` 미고정으로 FER 지원 여부 불확실 · deb 빌더 경로 불일치)), **PREEMPT_RT 실시간 커널**(FCI 1 kHz 루프 · 최악 지연 상한)과 이 PC 실측 상태(`PREEMPT_DYNAMIC` 일반 커널 · rtprio/memlock 미설정) — 단 **RT 는 팔 실행에만 걸린다**: libfranka 의 비실시간 채널(상태 읽기 · 그리퍼 · 설정)과 실시간 채널(팔 제어)을 구분해 **배선 검증 · 녹화 · 적재는 RT 없이 가능**하고 가이딩 모드로 실기 데이터까지 받을 수 있음을 3단계로 정리, 코드 변경 4건(xacro `franka` 분기 + `robot_ip` · Franka Hand 는 액션 서버라 그리퍼 어댑터 필요 · servo 설정 교체 · 안전 기동 체인), scene 은 별도 과제(읽기는 인식 노드 필요 · `reset_scene` 은 원리적 불가) | 설계안 |
 
 ## 3. MoveIt2 — 계획·실행·그리퍼
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 세 진입점(`MoveGroupClient` / `ServoClient` / `GripperControlNode`)의 계층 그림, 읽는 순서, `rdfp/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
+| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 세 진입점(`MoveGroupClient` / `ServoClient` / `GripperControlNode`)의 계층 그림, 읽는 순서, `robot_control/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
 | [moveit/MoveGroupClient_UserGuide.md](moveit/MoveGroupClient_UserGuide.md) | **공통 인터페이스 + JTC 구현**. 추상 base + `create_move_group_client()` 팩토리 + 구현별 API 가용성 대조표, Cartesian waypoint 경로 계획·실행, SRDF named target 이동, joint 목표값 이동(`move_to_joints`), 계획 전용 API(`plan_named_target`/`plan_joints`), 동작 중단(`cancel`), 동기/비동기 API, 파라미터 튜닝, Threading 주의사항, 실전 예제. JGPC 상세는 아래 문서로 위임 | 현행 |
 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) | **JGPC 구현 전담**. `FollowJointTrajectory` 가 없는 컨트롤러에서 계획(plan_only)과 실행(명령 토픽 스트리밍)을 분리하는 방법. `MoveGroupJgpcClient` 전체 API(`stream_trajectory`/`*_streamed`/JGPC `cancel`), `TrajectoryStreamer`, joint 순서 자동 조회, `publish_rate` 보간 실측치, `tolerance` 가 최종 자세를 결정하는 이유, `replay_gui` 연동 | 현행 |
 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) | `ServoClient` — `/servo_node` 시작/정지/상태 확인 유틸리티. **Node 가 아님**에 따른 사용 제약, `ServoStatus` 상태 전이, 무인 스택용 `servo_auto_start_node`, 실제 사용처 4곳 | 현행 |
@@ -66,6 +70,7 @@
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
 | [camera/camera_node_guide.md](camera/camera_node_guide.md) | `CameraNode` — OpenCV `VideoCapture` 로 카메라/비디오/파일을 열어 `Image`(또는 `CompressedImage`) + `CameraInfo` + 상태 토픽 발행 | 현행 |
+| [camera/image_capture_node_guide.md](camera/image_capture_node_guide.md) | `ImageCaptureNode` — `ReconnectingCamera` 로 캡처해 JPEG `CompressedImage` 만 발행하는 경량 노드. `max_attempts=0` 의 비대칭 동작(기동 시 무한 재시도 / 사용 중 끊기면 종료) 포함 | 현행 |
 | [camera/rdfp_camera_node_guide.md](camera/rdfp_camera_node_guide.md) | `RdfpCameraNode` — 세션 상태에 따라 카메라를 열고 닫으며 `IN_EPISODE` 구간에서만 이미지 발행 | 현행 |
 | [camera/image_viewer_node_guide.md](camera/image_viewer_node_guide.md) | `ImageViewerNode` — 이미지 토픽을 OpenCV 윈도우에 표시하는 단순 뷰어 | 현행 |
 | [camera/rdfp_image_viewer_node_guide.md](camera/rdfp_image_viewer_node_guide.md) | `RdfpImageViewerNode` — 프레임 좌상단에 세션 상태를 오버레이하는 뷰어 | 현행 |
@@ -99,6 +104,7 @@
 | [rosbag2/데이터셋 후처리기 설계서.md](rosbag2/데이터셋%20후처리기%20설계서.md) | **후처리 파이프라인 설계 원본**. 에피소드 분할 규칙, DB 스키마, 적재 트랜잭션, 이미지 MP4 분기 구조 | 현행 |
 | [rosbag2/데이터셋 후처리기 CLI 사용 설명서.md](rosbag2/데이터셋%20후처리기%20CLI%20사용%20설명서.md) | 후처리 CLI 실행 명령·옵션 레퍼런스, `dataset_config.yaml` 구조 | ⚠️ 구식 |
 | [rosbag2/데이터셋 후처리기 실환경 검증 절차.md](rosbag2/데이터셋%20후처리기%20실환경%20검증%20절차.md) | 실 인프라(Docker PostgreSQL·실 rosbag·성능 측정) 검증 runbook | 현행 |
+| [rosbag2/scene_objects_observation_decision.md](rosbag2/scene_objects_observation_decision.md) | **`scene_objects` 를 학습 입력(observation)에 넣을 것인가 — 선택지 비교**. '적재할 것인가'(확정·구현 완료)와 '관측에 넣을 것인가'(미결)를 분리하는 이유(적재는 비가역, 관측은 export 컬럼 매핑이라 번복 가능), 세 선택지(A 카메라만 / B GT 직접 / C 보조 손실·teacher-student·별도 estimator) 비교, **A 가 실패하는 조건**(물체가 어떤 채널에도 안 담기면 부분 관측 → 행동 다중성 → mode averaging), 현재 스택의 한시적 제약 3가지(씬 카메라 부재·mock 물리 없음·단일 시점), 권고와 재검토 트리거, 넣기로 할 경우의 실무 쟁점(가변 길이 인코딩·좌표계·xyzw·dimensions 순서) | 설계안 |
 | [rosbag2/rosbag2 운영 방안.md](rosbag2/rosbag2%20운영%20방안.md) | MCAP 기반 장기 저장 운영 설계. 날짜-시간/토픽 기준 조회를 고려한 분할·보관 정책 | 현행 |
 
 > ⚠️ **CLI 사용 설명서 주의**: 문서는 `ros2 run rdfp dataset <subcommand>` 형태로
@@ -113,8 +119,7 @@
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
 | [replay/replay_mock_stack_guide.md](replay/replay_mock_stack_guide.md) | **`replay_panda_mock.launch.py` 구조·사용법·주의점**. 제외 노드와 그 사유, `replay_arm_path` 3경로(`ee_twist`(기본)/`target_joint_cmds`/`none`) 비교, launch 인자표, ROS 환경 불일치·`start_servo` 누락·배속 역효과·stale stamp 등 함정 12가지 | 현행 |
-| [replay/cartesian_path_replay_approaches.md](replay/cartesian_path_replay_approaches.md) | **twist vs pose vs joint 명령 비교**. "위치 명령은 폐루프, 속도 명령은 개루프" 원리와 드리프트 없는 EE 경로 재생 방법 | 현행 |
-| [replay/design_chatgpt.md](replay/design_chatgpt.md) | Panda mock joint replay 설계 문서. demo playback(1차) / teaching 동작 재현(2차) 목적 | 설계안 |
+| [replay/replay_approaches.md](replay/replay_approaches.md) | **twist vs pose vs joint 명령 비교**. "위치 명령은 폐루프, 속도 명령은 개루프" 원리, 방법 A(Servo pose tracking) / B(Cartesian path) / **C(joint replay)** 를 각각 절로 다루고 선택 기준을 표로 정리. **C 가 팔꿈치(여유자유도)까지 맞는 유일한 방법**이지만 씬이 바뀌면 대응하지 못하고, A·B 는 그 반대라는 대비가 핵심. **고주기(50 Hz 이상) 녹화를 B 에 그대로 넣으면 계산량이 아니라 시간축이 문제** — `GetCartesianPath` 요청에 시각 필드가 없어 속도 프로파일이 버려지고 출력은 TOTG 가 ~10 Hz 로 리샘플하므로, waypoint 를 촘촘히 줘도 얻는 것이 없다. **부록에 데시메이션 설명** — 균일 간격이 아니라 거리·각도 기반이어야 코너가 살아남는 이유, RDP, 자세까지 함께 판정해야 하는 이유. **Servo pose tracking(방법 A)은 Humble 의 `servo_node` 로는 쓸 수 없다** — `delta_twist_cmds`/`delta_joint_cmds` 만 받으며 pose tracking 은 C++ 라이브러리 클래스라 노드를 새로 작성해야 한다(Jazzy 부터 `servo_node` 1급 명령 타입) | 현행 |
 
 > replay **GUI**(`ros2 run rdfp replay_gui`) 전용 문서는 없다. GUI 사용법은
 > [src/rdfp/README.md](../src/rdfp/README.md), "위치 초기화" 버튼의 컨트롤러별
@@ -137,12 +142,15 @@
 > 있다 (ROS 2 Jazzy + `rmw_zenoh` 라 rdfp 와 런타임을 공유할 수 없다). 연결
 > 규약은 위 `external_input_adapters.md` 가 정의한다.
 
-## 10. 시뮬레이터 백엔드
+## 10. 시뮬레이터 백엔드 / Scene
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
+| [scene/scene_objects_guide.md](scene/scene_objects_guide.md) | **⭐ scene 물체 상태 계약 통합 문서**. 백엔드(mock/Gazebo/Isaac) 차이를 발행 노드가 흡수하고 `/scene/objects` 하나만 내보내는 경계, `SceneObject` 필드별 계약(`type` 이 문자열인 이유, `dimensions` 가 `SolidPrimitive` 순서라 **cylinder 는 [높이, 반지름]**, 배열-of-구조체인 이유, orientation **xyzw** 와 Isaac wxyz 함정), `SceneObjects` 의 stamp 필수·frame_id·빈 배열 의미, 명령 경로(`reset` 하나뿐인 이유·무작위 추출이 트윈인 이유·결과를 별도 토픽으로 둔 이유), `mock_scene_state_node`(서비스 폴링→diff 누적 실측 근거, QoS 두 개, 좌표 이중 합성, **mesh 는 읽기만 되고 배치는 불가**, mock 은 물리 없음), 트윈 변수·`reset_scene`(resource `[scene,arm]`)·레시피 문법, launch 인자(기본 on 인 이유·이름 충돌·replay 제외), DB 적재, 함정 11가지 | 현행 |
 | [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md) | Gazebo Fortress(gz-sim 6) 백엔드 브링업. `mock_components` 를 물리 시뮬레이션으로 교체해 실행하는 절차. `panda_gazebo.launch.py` 사용 | 현행 |
 | [simulation/multi_simulator_backend_design.md](simulation/multi_simulator_backend_design.md) | mock / Gazebo / Isaac Sim 을 교체 가능한 백엔드로 꽂는 구조 설계. 문서 자체가 "코드 미반영" 명시 | 설계안 |
+| [simulation/functionbay_backend_design.md](simulation/functionbay_backend_design.md) | **펑션베이 백엔드 (토픽 연동형) 설계**. ros2_control 없이 MoveIt 스택을 올리는 구성 — `joint_state_fusion`(이름 없는 배열에 이름 부여) · `readiness_gate`(spawner 대체, 종료코드 게이팅). 보간 없는 시뮬레이터라 `publish_rate=50` 이 필수인 근거(10 Hz vs 50 Hz 실측), 그리퍼가 Robotiq 2F-145 라 Panda Hand 전제와 어긋나 보류한 경위, 수집 계층 조합 실측 | 현행 |
+| [simulation/functionbay_open_work.md](simulation/functionbay_open_work.md) | **펑션베이 백엔드 인수인계 — 남은 작업**. 2회 실측(2026-08-18 / 08-28). 제어 계층은 명령 경로까지 전 구간 검증 완료 — 1차의 "명령 무반응" 블로커는 **해소**됐고 그 오독 경위도 기록. 네 가지 특성 — **중력 처짐**(원인은 낮은 제어기 강성 — 오차 = 중력토크/K_p 가 실측으로 확인됨: 팔을 펼수록 joint2 오차 12배, 중력 중립축 joint1·joint7 은 세 자세 모두 정확히 0; action↔observation 이 계통적으로 어긋나 데이터셋 설계에 영향), **자기충돌**(MoveIt 계획 불가 자세에 빠짐 — `fb_recover.py` 로 우회 복구), **servo(twist) 경로 무동작**(단순 중계 브리지는 트위스트를 1/10 로 줄여도 3 사이클 만에 증분 190배 폭증 후 NaN), **시간 특성**(dead time 40.9 ms / 시정수 141.2 ms — 네트워크는 0.3 ms 라 같은 머신으로 옮겨도 무의미; 배속 0.99993; 시계 오프셋 2.22 s; 카메라 `stamp=0`; sim time 이 servo 에 무효인 근거). 설계 문서 정정 대기 5건, 재현 절차, 진단 스크립트 6종 | 현행 |
 
 ## 11. 외부 로봇 (OMY-L100)
 
@@ -163,10 +171,10 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md) | **로봇 트윈 사용 설명서**. 시작/종료 절차(`--config` 절대경로·PGID 종료), REST 인터페이스 전체와 응답 형식(`quality`·ETag/304·배치 조회 보장 수준·오류 코드표), curl/Python 예제 프로그램(재시도·취소·모니터링), 로봇 연동 설정(`move_group_mode` 필수·다른 로봇 붙이기), 제공 상태 변수·연산 목록과 미구현 항목, **자동 에피소드 수집 경로**(`reset_scene` 로 물체 랜덤 배치 + `start_session`/`start_episode`/`stop_episode`/`stop_session` 경계 + 수집 루프 예제, 씬 노드는 mock 계열 launch 가 기본 기동), 자원 락, 새 변수/연산 추가 방법, 운영 주의(인증 없음·E-stop 한계·워치독), 트러블슈팅 표 | 현행 |
+| [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md) | **로봇 트윈 사용 설명서**. 시작/종료 절차(`--config` 절대경로·PGID 종료), REST 인터페이스 전체와 응답 형식(`quality`·ETag/304·배치 조회 보장 수준·오류 코드표), 제공 상태 변수·연산 목록과 미구현 항목, 자원 락, curl/Python 예제 프로그램(재시도·취소·모니터링), 로봇 연동 설정(`move_group_mode` 필수·다른 로봇 붙이기), **자동 에피소드 수집 경로**(`reset_scene` 로 물체 랜덤 배치 + `start_session`/`start_episode`/`stop_episode`/`stop_session` 경계 + 수집 루프 예제, scene 노드는 mock 계열 launch 가 기본 기동), 새 변수/연산 추가 방법, 운영 주의(인증 없음·E-stop 한계·워치독), 트러블슈팅 표 | 현행 |
 | [robot_twin/robot_twin_design.md](robot_twin/robot_twin_design.md) | **로봇 트윈 설계서 (1,589줄)**. `rdfp` 내 `twin/` 서브패키지로 구현하는 단일 Python 프로세스 게이트웨이. 스레드 모델(executor 전용 스레드 + 불변 스냅샷 원자 교체, `externally_spun=True`, `mode='auto'` 금지), 선언적 트윈 정의 YAML, 상태 변수의 품질(`OK`/`STALE`/`NO_DATA`/`SOURCE_UNAVAILABLE`/`ERROR`)·조회 API(envelope·ETag·배치·부분실패)·JSON 직렬화 규약, extern_op 기반 연산(다중 세션·`kind` 고정·자원 락 admission control·`phase: CANCELING`·E-stop·오류 코드), 미채택 요소(`IDLE`/`Idempotency-Key`/인증/TLS)와 그 근거, rdfp 구현 격차. **부록 B(extern_op 확장 목록)는 확장 명세 초안으로 사용 가능** | 설계안 |
 | [robot_twin/mcp_server_design.md](robot_twin/mcp_server_design.md) | **로봇 트윈 MCP 서버 설계서**. LLM 에이전트가 대화만으로 로봇 상태를 읽고 연산을 조합하게 하는 경로(`~/development/mdtpy/robot-twin` 의 `mcp_server.py`). **트윈이 자기 능력을 알리기 위한 변경**(`config.py`/`api.py` 에 `description` 필드 + 카탈로그 노출, 설정 YAML 19건 작성)과 그 필요성(`extra='forbid'` 라 YAML 만으로는 기동 실패), 도구 18개의 생성 규칙(카탈로그 자동 생성 5 + 검증 래퍼 교체 2 + 추가 11, 감춤 4), 결정 13건(상태 변수를 resource 가 아닌 tool 로 노출한 이유, 여는 연산만 감춘 비대칭, 작업 상태를 서버가 소유하고 metadata 자동 병합, SDK 2.0 에서 low-level API 를 쓴 경위), 이슈(인증 없는 경로 위임·카탈로그 캐시·동시 호출 무보호·타임아웃 2층) | 현행 |
-| [robot_twin/auto_episode_collection_draft.md](robot_twin/auto_episode_collection_draft.md) | **자동 에피소드 수집을 위한 트윈 확장 (임시 초안)**. 물체 위치를 랜덤화하며 스크립트 pick-and-place 를 반복해 학습 데이터를 양산하는 경로. mock/Gazebo/Isaac 은 인터페이스는 통일 가능하나 **mock 은 물체가 움직이지 않아 자동 라벨링이 불가능**하다는 구분, 백엔드별 발행 노드 → `/scene/objects` 단일 토픽 → 트윈(코드 변경 0) 배선, `rdfp_msgs/SceneObjects` 제안(stamp 필수·frame `panda_link0` 고정), 저수준 spawn API 대신 `reset_scene(scene, seed)` + 레시피 config(그리퍼 `targets` 패턴 재사용)와 **실제 배치 pose 를 outputs 로 남겨야 재현된다**는 근거, 최대 구멍인 **트윈의 에피소드 경계 부재**(`start_episode`/`stop_episode` 우선)와 `sessions` 스키마 확장 필요성, 작업 순서·미결정 체크리스트. **작업 후 정식 문서로 옮기고 삭제 예정** | 설계안 |
+| [robot_twin/auto_episode_collection_draft.md](robot_twin/auto_episode_collection_draft.md) | **자동 에피소드 수집을 위한 트윈 확장 (임시 초안)**. 물체 위치를 랜덤화하며 스크립트 pick-and-place 를 반복해 학습 데이터를 양산하는 경로. mock/Gazebo/Isaac 은 인터페이스는 통일 가능하나 **mock 은 물체가 움직이지 않아 자동 라벨링이 불가능**하다는 구분, 백엔드별 발행 노드 → `/scene/objects` 단일 토픽 → 트윈(코드 변경 0) 배선, `rdfp_msgs/SceneObjects` 제안(stamp 필수·frame `panda_link0` 고정), 저수준 spawn API 대신 `reset_scene(scene, seed)` + 레시피 config(그리퍼 `targets` 패턴 재사용)와 **실제 배치 pose 를 outputs 로 남겨야 재현된다**는 근거, 최대 구멍인 **트윈의 에피소드 경계 부재**(`start_episode`/`stop_episode` 우선)와 `sessions` 스키마 확장 필요성, 작업 순서·미결정 체크리스트. **§6 작업 1~5b 완료(2026-08-17) — 남은 것은 Gazebo(6)·Isaac(7) 연동뿐이며, 완료 표시가 붙은 절은 이미 코드에 반영됨.** 작업 후 정식 문서로 옮기고 삭제 예정 | 설계안 |
 
 ## 13. AI 어시스턴트용 지침 (CLAUDE.md)
 
@@ -186,16 +194,23 @@
 | 하고 싶은 것 | 볼 문서 |
 |---|---|
 | 처음 빌드하고 실행해 본다 | [README.md](../README.md) → [src/rdfp/README.md](../src/rdfp/README.md) |
+| 학습 데이터 없이 로봇 제어 스택만 쓴다 | [src/robot_control/README.md](../src/robot_control/README.md) |
+| 패키지가 왜 넷으로 나뉘어 있는지 알고 싶다 | [rdfp_framework_design.md](rdfp_framework_design.md) §7.6 |
 | Python 가상환경(uv)과 ROS 2 가 충돌한다 / 새 ROS 2 프로젝트를 만든다 | [environment/python_env_guide.md](environment/python_env_guide.md) |
 | Ubuntu 24.04 / ROS 2 Jazzy 로 옮긴다 | [environment/python_env_guide.md](environment/python_env_guide.md) 의 "마이그레이션" 절 |
-| 어떤 launch 를 써야 할지 모르겠다 | [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) §9 "파일 사용 가이드" |
+| 제어 스택은 두고 수집만 재시작하고 싶다 | [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) §6.1 (`rdfp_collect`) |
+| 어떤 launch 를 써야 할지 모르겠다 | 제어만 → [src/robot_control/launch/README.md](../src/robot_control/launch/README.md) §6 / 수집까지 → [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) §6 |
+| `panda_mock` 의 인자를 알고 싶다 | [src/robot_control/launch/README.md](../src/robot_control/launch/README.md) §2.1 |
 | MoveIt 문서 중 뭘 볼지 모르겠다 | [moveit/README.md](moveit/README.md) |
 | 로봇을 특정 pose 로 움직인다 | [moveit/MoveGroupClient_UserGuide.md](moveit/MoveGroupClient_UserGuide.md) |
+| 실기 Franka Panda 를 붙인다 | [robot/franka_panda_bringup_prep.md](robot/franka_panda_bringup_prep.md) |
+| scene 에 물체를 놓거나 물체 좌표를 읽는다 | [scene/scene_objects_guide.md](scene/scene_objects_guide.md) |
 | JGPC(비-JTC) 환경에서 움직인다 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) |
 | servo 로 실시간 제어한다 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) |
 | 그리퍼를 연다/닫는다 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) |
 | 그리퍼가 안 움직인다 / 상태가 안 온다 | [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) |
 | 카메라 영상을 토픽으로 낸다 | [camera/camera_node_guide.md](camera/camera_node_guide.md) |
+| 카메라 영상을 JPEG 압축으로만 낸다 | [camera/image_capture_node_guide.md](camera/image_capture_node_guide.md) |
 | 영상을 MP4 로 녹화한다 | 서비스 제어 → [recorder/image_recorder_node_guide.md](recorder/image_recorder_node_guide.md) / 세션 자동 → [recorder/rdfp_image_recorder_node_guide.md](recorder/rdfp_image_recorder_node_guide.md) |
 | 세션·에피소드를 시작/종료한다 | [session/session_control_guide.md](session/session_control_guide.md) |
 | rosbag 을 DB 에 적재한다 | [rosbag2/데이터셋 후처리기 CLI 사용 설명서.md](rosbag2/데이터셋%20후처리기%20CLI%20사용%20설명서.md) (⚠️ 명령 형태는 구식) |
@@ -205,6 +220,8 @@
 | OMY-L100 리더로 로봇을 움직인다 | [teleop/omy_leader_teleop_guide.md](teleop/omy_leader_teleop_guide.md) |
 | 새 입력 장치(게임패드·시뮬레이터 등)를 붙인다 | [teleop/external_input_adapters.md](teleop/external_input_adapters.md) |
 | 리더-팔로워 매핑을 튜닝한다 (스케일·정렬·필터) | [teleop/teleop_retarget_node_guide.md](teleop/teleop_retarget_node_guide.md) |
+| 펑션베이 시뮬레이터로 돌린다 | [simulation/functionbay_backend_design.md](simulation/functionbay_backend_design.md) |
+| 펑션베이 작업을 이어서 한다 (남은 작업·블로커) | [simulation/functionbay_open_work.md](simulation/functionbay_open_work.md) |
 | Gazebo 로 돌린다 | [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md) |
 | Docker 로 실행한다 | [docker/README.md](../docker/README.md) |
 | 외부 시스템에 REST 로 로봇을 노출한다 | [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md) (사용) → [robot_twin_design.md](robot_twin/robot_twin_design.md) (설계 근거) |
@@ -221,3 +238,4 @@
 | 구식 CLI 안내 | [rosbag2/데이터셋 후처리기 CLI 사용 설명서.md](rosbag2/데이터셋%20후처리기%20CLI%20사용%20설명서.md) | `ros2 run rdfp dataset <sub>` 형태로 안내하나, 실제로는 `import`/`replay`/`stats`/`list`/`init-db` 독립 명령으로 분리됨 |
 | 디렉터리 불일치 | [camera/initial_requirements.md](camera/initial_requirements.md) | 제목·내용이 "MP4 Recorder 노드 요구사항" 인데 `docs/camera/` 에 위치 |
 | 문서 없음 | — | `replay_gui` (Tk GUI) 전용 가이드가 없다. `src/rdfp/README.md` 에 개요만 있음 |
+| 미등재 문서 | [data/README.md](../data/README.md) | 검증용 rosbag(`ee_pose_bag`) 설명이 인덱스 표에 없다. `replay_panda_mock` 의 `ee_twist` 경로 검증에 쓰인다 |

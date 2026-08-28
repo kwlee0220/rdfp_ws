@@ -72,7 +72,7 @@ from rclpy.node import Node
 
 from std_msgs.msg import Empty
 
-from rdfp.ros2_utils import get_parameter, parse_bool, parse_float, parse_str
+from robot_control.ros2_utils import get_parameter, parse_bool, parse_float, parse_str
 from rdfp.teleop.clutch_client import ClutchClient
 
 

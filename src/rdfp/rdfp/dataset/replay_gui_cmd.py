@@ -47,8 +47,8 @@ from rdfp.dataset.db.registry import (
     IMAGE_MESSAGE_TYPES, MESSAGE_TYPE_REGISTRY, resolve_message_type,
 )
 from rdfp.dataset.db.topic_message_replayer import TopicMessageReplayer
-from rdfp.moveit import create_move_group_client
-from rdfp.moveit.servo_client import ServoClient
+from robot_control.moveit import create_move_group_client
+from robot_control.moveit.servo_client import ServoClient
 
 
 _DEFAULT_IMAGE_TOPIC = '/camera/image_raw'

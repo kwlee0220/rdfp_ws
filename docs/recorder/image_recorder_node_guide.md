@@ -6,22 +6,23 @@ ROS2 이미지 토픽(`sensor_msgs/Image`)을 MP4 파일로 녹화하는 ROS2 �
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [서비스 인터페이스](#서비스-인터페이스)
-6. [토픽](#토픽)
-7. [녹화 생명주기](#녹화-생명주기)
-8. [프레임 검증 및 자동 종료](#프레임-검증-및-자동-종료)
-9. [노드 종료 시 동작](#노드-종료-시-동작)
-10. [실전 예제](#실전-예제)
-11. [에러 처리](#에러-처리)
-12. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [서비스 인터페이스](#5-서비스-인터페이스)
+6. [토픽](#6-토픽)
+7. [녹화 생명주기](#7-녹화-생명주기)
+8. [프레임 검증 및 자동 종료](#8-프레임-검증-및-자동-종료)
+9. [노드 종료 시 동작](#9-노드-종료-시-동작)
+10. [실전 예제](#10-실전-예제)
+11. [에러 처리](#11-에러-처리)
+12. [트러블슈팅](#12-트러블슈팅)
+13. [관련 문서](#13-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `ImageRecorderNode`는 ROS2 이미지 토픽을 구독하여 `FFMpegMp4Recorder`로
 MP4 파일을 생성하는 어댑터 노드이다.
@@ -38,7 +39,7 @@ MP4 파일을 생성하는 어댑터 노드이다.
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ### 시스템
 
@@ -47,7 +48,7 @@ MP4 파일을 생성하는 어댑터 노드이다.
 sudo apt install ffmpeg
 
 # rdfp_msgs 빌드 (StartSession, StopSession 서비스 정의)
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -58,11 +59,11 @@ source install/setup.bash
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # 터미널 1: 카메라 노드 실행
-ros2 run rdfp camera_node --ros-args -p camera_id:=0 -p fps:=30 -p resolution:=640x480
+ros2 run robot_control camera_node --ros-args -p camera_id:=0 -p fps:=30 -p resolution:=640x480
 
 # 터미널 2: 레코더 노드 실행
 ros2 run rdfp image_recorder_node --ros-args \
@@ -101,7 +102,7 @@ ros2 run rdfp image_recorder_node --ros-args \
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 ### 필수 파라미터
 
@@ -161,7 +162,7 @@ ros2 run rdfp image_recorder_node --ros-args \
 
 ---
 
-## 서비스 인터페이스
+## 5. 서비스 인터페이스
 
 ### `~/start_session` (`rdfp_msgs/srv/StartSession`)
 
@@ -235,7 +236,7 @@ ros2 service call /image_recorder/stop_session rdfp_msgs/srv/StopSession
 
 ---
 
-## 토픽
+## 6. 토픽
 
 ### 구독 토픽
 
@@ -259,37 +260,26 @@ ros2 run rdfp image_recorder_node --ros-args \
 
 ---
 
-## 녹화 생명주기
+## 7. 녹화 생명주기
 
-```
-Node start
-  │
-  ├─ Load parameters (validate session_prefix)
-  ├─ Create output_dir
-  ├─ if resolution is set → Create FFMpegMp4Recorder (encoder probe)
-  │   else                → Defer recorder creation
-  ├─ Subscribe to image topic
-  ├─ Register services
-  └─ if auto_start=true → invoke _handle_start_session()
-       │
-       ▼
-  ┌─ Idle (receive images but drop) ◄───────────────┐
-  │                                                 │
-  │  ~/start_session called (or auto_start)         │
-  ▼                                                 │
-  ┌────────────────────────────────────────┐        │
-  │ (deferred) Pending start               │        │
-  │  — wait for first valid image          │        │
-  │  — infer resolution, lazy-create       │        │
-  │    recorder, call recorder.start()     │        │
-  │  ~/stop_session → cancel pending ──────┤        │
-  └────────────────┬───────────────────────┘        │
-                   ▼                                │
-  Recording (images → recorder.write())             │
-  │                                                 │
-  ├─ ~/stop_session called ────► finalize ──────────┘
-  ├─ 5 consecutive mismatches ──► auto stop ────────┘
-  └─ SIGINT/SIGTERM ───────────► destroy_node()
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: 노드 기동 (auto_start=true 이면 곧바로 start_session)
+
+    note right of Idle
+        기동 순서: 파라미터 로드(session_prefix 검증) → output_dir 생성
+        → resolution 이 지정돼 있으면 FFMpegMp4Recorder 생성(인코더 probe),
+          없으면 생성 지연 → 이미지 구독 → 서비스 등록
+        Idle 구간에 들어오는 이미지는 로그 없이 버린다.
+    end note
+
+    Idle --> Recording: ~/start_session (resolution 지정)
+    Idle --> PendingStart: ~/start_session (resolution 미지정 = deferred)
+    PendingStart --> Recording: 첫 유효 이미지로 해상도 추론 후 recorder.start()
+    PendingStart --> Idle: ~/stop_session (대기 취소)
+    Recording --> Idle: ~/stop_session → finalize
+    Recording --> Idle: 해상도 불일치 5회 연속 → auto stop
+    Recording --> [*]: SIGINT / SIGTERM → destroy_node()
 ```
 
 - 녹화 중이 아닐 때 수신되는 이미지는 **로그 없이 조용히 버려진다**
@@ -300,7 +290,7 @@ Node start
 
 ---
 
-## 프레임 검증 및 자동 종료
+## 8. 프레임 검증 및 자동 종료
 
 이미지 콜백에서 다음을 검증한다 (deferred 모드의 첫 이미지는 추가 검증이 앞에 붙는다):
 
@@ -333,7 +323,7 @@ frame은 동일하게 카운터에 반영된다.
 
 ---
 
-## 노드 종료 시 동작
+## 9. 노드 종료 시 동작
 
 `destroy_node()`가 호출되면:
 
@@ -345,13 +335,13 @@ frame은 동일하게 카운터에 반영된다.
 
 ---
 
-## 실전 예제
+## 10. 실전 예제
 
 ### 카메라 녹화 기본
 
 ```bash
 # 카메라 + 레코더 동시 실행
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 -p fps:=30 -p resolution:=640x480 &
 
 ros2 run rdfp image_recorder_node --ros-args \
@@ -480,7 +470,7 @@ def generate_launch_description():
 
 ---
 
-## 에러 처리
+## 11. 에러 처리
 
 ### 노드 초기화 실패
 
@@ -512,7 +502,7 @@ def generate_launch_description():
 
 ---
 
-## 트러블슈팅
+## 12. 트러블슈팅
 
 ### 1. `start_session`이 항상 실패함
 
@@ -590,7 +580,7 @@ deferred 모드(`resolution` 미지정)의 정상 동작이다. pending 상태�
 
 ---
 
-## 관련 문서
+## 13. 관련 문서
 
 - [FFMpegMp4Recorder Programmer's Guide](./ffmpeg_mp4_recorder_guide.md) — 녹화 엔진 상세
 - [OpenCvCamera Programmer's Guide](../camera/opencv_camera_guide.md) — 카메라 입력 소스

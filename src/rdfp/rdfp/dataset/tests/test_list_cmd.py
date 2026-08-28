@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 import rdfp.dataset.list_cmd as list_cmd_mod
 

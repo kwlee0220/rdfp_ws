@@ -39,7 +39,7 @@ Changes to interface fields (rename, type swap, removal) are not picked up by
 the `rdfp` package until **both** are rebuilt and the env is re-sourced:
 
 ```bash
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 

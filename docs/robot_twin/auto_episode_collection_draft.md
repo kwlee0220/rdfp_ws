@@ -1,20 +1,24 @@
 # 자동 에피소드 수집을 위한 트윈 확장 (초안)
 
-> **상태: 초안 / 임시.** 코드에 반영된 것이 없다. 2026-08-17 논의를 정리한 것이며, 이 문서를 기준으로 작업을 진행한 뒤 확정 내용은 각 정식 문서 ([robot_twin_design.md](robot_twin_design.md), [robot_twin_user_guide.md](robot_twin_user_guide.md), [../simulation/multi_simulator_backend_design.md](../simulation/multi_simulator_backend_design.md))로 옮기고 이 파일은 삭제한다.
+> **상태: 작업 기록 — §6 의 1~5b 완료, 6~7 미착수 (갱신 2026-08-22).** 2026-08-17 논의를
+> 정리한 초안으로 시작했으나 이후 작업이 이 문서 안에서 진행되어, **절 제목에
+> `(구현 완료, 2026-08-17)` 또는 `(결정, 2026-08-17)` 이 붙은 것은 이미 코드에 반영된
+> 내용**이다. 남은 것은 Gazebo 연동(§6 작업 6) · Isaac 연동(§6 작업 7) 과 §7 의
+> 용어 분리(조건부 보류)뿐이다.
 >
-> 문서 안의 YAML·메시지 정의는 **제안**이며 이름·필드는 확정 전이다.
+> 확정 내용을 정식 문서 ([robot_twin_design.md](robot_twin_design.md), [robot_twin_user_guide.md](robot_twin_user_guide.md), [../simulation/multi_simulator_backend_design.md](../simulation/multi_simulator_backend_design.md))로 옮기고 이 파일을 삭제하는 계획은 그대로 유효하다.
+>
+> 완료 표시가 없는 절의 YAML·메시지 정의는 **제안**이며 이름·필드가 확정 전이다.
+>
+> 경로 표기는 **제어 계층 패키지 분리 이후** 기준이다 — 최초 작성 당시 트윈은 `rdfp` 패키지의 `twin/` 서브패키지였고 scene 노드도 `rdfp` 에 있었으나, 지금은 각각 독립 패키지 `robot_twin` 과 제어 계층 `robot_control` 소속이다.
 
 ---
 
 ## 0. 목표
 
-**물체 위치를 매 회 랜덤화하면서 스크립트 pick-and-place 를 반복해 에피소드를
-자동으로 찍어내는 것.** 사람이 티칭하지 않고도 학습 데이터를 양산하는 경로다.
+**물체 위치를 매 회 랜덤화하면서 스크립트 pick-and-place 를 반복해 에피소드를 자동으로 찍어내는 것.** 사람이 티칭하지 않고도 학습 데이터를 양산하는 경로다.
 
-이를 위해 로봇 트윈에 필요한 상태 변수·연산을 정한다. 클라이언트는
-`~/development/mdtpy/robot-twin` (사용 설명서 4.9 예제를 옮긴 별도 프로젝트) 처럼
-**HTTP 만으로** 루프를 돌 수 있어야 한다 — 중간에 ROS 서비스를 직접 불러야 한다면
-트윈의 전제가 깨진다.
+이를 위해 로봇 트윈에 필요한 상태 변수·연산을 정한다. 클라이언트는 `~/development/mdtpy/robot-twin` (사용 설명서 5.9 예제를 옮긴 별도 프로젝트) 처럼 **HTTP 만으로** 루프를 돌 수 있어야 한다 — 중간에 ROS 서비스를 직접 불러야 한다면 트윈의 전제가 깨진다.
 
 수집 루프는 다음과 같다. **어디까지가 에피소드 안인지가 설계의 핵심**이다.
 
@@ -35,8 +39,7 @@ flowchart LR
     style EP fill:#eef6ff,stroke:#5b8dd9
 ```
 
-물체 순간이동(`reset_scene`)과 홈 복귀(`move_to_named_target`)는 **에피소드 밖**이어야
-한다. 안에 들어가면 물리적으로 불가능한 장면이 학습 데이터에 섞인다.
+물체 순간이동(`reset_scene`)과 홈 복귀(`move_to_named_target`)는 **에피소드 밖**이어야 한다. 안에 들어가면 물리적으로 불가능한 장면이 학습 데이터에 섞인다.
 
 ---
 
@@ -50,21 +53,13 @@ flowchart LR
 | Gazebo (gz-sim, Fortress) | 물리 엔진 | ✓ | ✓ |
 | Isaac Sim | 물리 엔진 | ✓ | ✓ |
 
-mock 의 planning scene 물체는 **절대 움직이지 않는다.** 파지에 실패해도, 놓다가
-굴러떨어져도 pose 가 그대로다. 물체를 그리퍼에 따라오게 하려면
-`AttachedCollisionObject` 를 클라이언트가 선언해야 하는데, 그 순간 "성공했다고
-선언했으니 성공"인 **자기충족 라벨**이 된다.
+mock 의 planning scene 물체는 **절대 움직이지 않는다.** 파지에 실패해도, 놓다가 굴러떨어져도 pose 가 그대로다. 물체를 그리퍼에 따라오게 하려면 `AttachedCollisionObject` 를 클라이언트가 선언해야 하는데, 그 순간 "성공했다고 선언했으니 성공"인 **자기충족 라벨**이 된다.
 
-→ **mock 지원의 값은 배관 검증이다.** 변수·연산·기록 경로가 도는지 확인하는 용도이며,
-실제 에피소드 수집은 Gazebo 이상에서만 성립한다.
+→ **mock 지원의 값은 배관 검증이다.** 변수·연산·기록 경로가 도는지 확인하는 용도이며, 실제 에피소드 수집은 Gazebo 이상에서만 성립한다.
 
-> **`simulated` 플래그는 두지 않는다 (결정, 2026-08-17).** mock 은 테스트 중에만 쓰고
-> 실제 수집에는 사용하지 않으므로, "mock 데이터가 학습셋에 섞이는" 상황 자체가
-> 운용상 발생하지 않는다. 메시지에 필드를 더하면 세 백엔드 모두가 그 값을 채울 책임을
-> 지게 되는데, 막으려는 사고가 없다면 값을 치르는 쪽만 남는다.
+> **`simulated` 플래그는 두지 않는다 (결정, 2026-08-17).** mock 은 테스트 중에만 쓰고 실제 수집에는 사용하지 않으므로, "mock 데이터가 학습셋에 섞이는" 상황 자체가 운용상 발생하지 않는다. 메시지에 필드를 더하면 세 백엔드 모두가 그 값을 채울 책임을 지게 되는데, 막으려는 사고가 없다면 값을 치르는 쪽만 남는다.
 >
-> 나중에 출처를 남길 필요가 생기면 **에피소드 `metadata` (jsonb, §4.5)** 가 자연스러운
-> 자리다 — 자유 형식이라 메시지·스키마를 고치지 않고 `backend: 'mock'` 을 넣을 수 있다.
+> 나중에 출처를 남길 필요가 생기면 **에피소드 `metadata` (jsonb, §4.5)** 가 자연스러운 자리다 — 자유 형식이라 메시지·스키마를 고치지 않고 `backend: 'mock'` 을 넣을 수 있다.
 
 ---
 
@@ -72,10 +67,7 @@ mock 의 planning scene 물체는 **절대 움직이지 않는다.** 파지에 �
 
 ### 2.1 배선 — 트윈은 코드를 고치지 않는다
 
-`twin/variables.py` 는 `topic` 과 `static` 두 소스만 구현되어 있다
-(`SourceType` Literal 에는 `tf`/`service`/`derived` 도 있으나 미배선). 따라서
-**백엔드마다 "씬 상태를 ROS 토픽으로 내는 노드"를 하나씩 두고, 트윈은 토픽 하나만
-구독**하는 형태가 맞다.
+`robot_twin/variables.py` 는 `topic` 과 `static` 두 소스만 구현되어 있다 (`SourceType` Literal 에는 `tf`/`service`/`derived` 도 있으나 미배선). 따라서 **백엔드마다 "scene 상태를 ROS 토픽으로 내는 노드"를 하나씩 두고, 트윈은 토픽 하나만 구독**하는 형태가 맞다.
 
 ```mermaid
 flowchart LR
@@ -90,19 +82,14 @@ flowchart LR
 이 구조의 이점은 세 가지다.
 
 1. **트윈 설정이 세 백엔드에서 동일**해지고, 트윈 코드 변경이 0 이다 (YAML 만 추가).
-2. "트윈은 환경 구현을 모른다" 는 원칙이 유지된다. 트윈 안에 백엔드 분기를 넣는
-   순간 그 원칙이 깨지고, 백엔드가 늘 때마다 트윈을 고치게 된다.
-3. 토픽이므로 **rosbag2 에 그대로 기록된다.** 트윈만 보는 채널로 만들면 물체 위치가
-   데이터셋에 남지 않는다 — `rdfp_msgs/GripperCommand` 를 만든 것과 같은 이유다.
+2. "트윈은 환경 구현을 모른다" 는 원칙이 유지된다. 트윈 안에 백엔드 분기를 넣는 순간 그 원칙이 깨지고, 백엔드가 늘 때마다 트윈을 고치게 된다.
+3. 토픽이므로 **rosbag2 에 그대로 기록된다.** 트윈만 보는 채널로 만들면 물체 위치가 데이터셋에 남지 않는다 — `rdfp_msgs/GripperCommand` 를 만든 것과 같은 이유다. **적재까지 배선 완료 (2026-08-23)** — `config/recording_topics.list` 등록 + `scene_objects` 테이블 + writer/reader. 관측으로 쓸지는 별개다(§5).
 
-[멀티 시뮬레이터 백엔드 설계안](../simulation/multi_simulator_backend_design.md) §5.3 은
-"world 정의 / 환경 오브젝트" 를 선택(MAY) 으로 두고 있다. 이 작업은 그것을
-**`/scene/objects` 토픽 계약으로 승격**하는 것에 해당한다.
+[멀티 시뮬레이터 백엔드 설계안](../simulation/multi_simulator_backend_design.md) §5.3 은 "world 정의 / 환경 오브젝트" 를 선택(MAY) 으로 두고 있다. 이 작업은 그것을 **`/scene/objects` 토픽 계약으로 승격**하는 것에 해당한다.
 
 ### 2.2 메시지 타입 (구현 완료, 2026-08-17)
 
-`geometry_msgs/PoseArray` 는 **이름이 없어 물체를 식별할 수 없으므로** 쓸 수 없었다.
-새 타입 둘을 만들었다 — 상세 주석은 실물에 있다.
+`geometry_msgs/PoseArray` 는 **이름이 없어 물체를 식별할 수 없으므로** 쓸 수 없었다. 새 타입 둘을 만들었다 — 상세 주석은 실물에 있다.
 
 - [`rdfp_msgs/msg/SceneObject.msg`](../../src/rdfp_msgs/msg/SceneObject.msg) —
   `name` / `type` / `dimensions` / `pose`
@@ -111,26 +98,14 @@ flowchart LR
 
 못 박은 것은 넷이다.
 
-- **`header.stamp` 필수.** 기록되는 채널이므로 비우면 `extract_stamp` 가 epoch 0 으로
-  적재해 **어느 에피소드에도 속하지 못한다.** 로봇은 정상 동작하므로 데이터를
-  열어보기 전까지 드러나지 않는다.
-- **`header.frame_id` 는 로봇 베이스 프레임**(현재 스택에서는 `panda_link0`). Gazebo 의
-  world frame 은 로봇 베이스와 다르므로 변환 책임은 발행 노드가 진다. 여기서 안 맞추면
-  세 백엔드가 각자 다른 좌표를 내보내고 데이터셋이 조용히 오염된다.
-- **`orientation` 은 ROS 규약 xyzw.** 좌표계 고정과 같은 성격의 표현 규약이며, 역시
-  발행 노드가 맞춘다. Isaac 은 wxyz(스칼라 우선)라 그대로 옮기면 조용히 틀린다 — §2.5.
-- **`type` 은 `uint8` 이 아니라 `string`.** 트윈의 `enums` 가 중첩 필드에 닿지 않아
-  숫자가 그대로 노출되기 때문이다 — 근거는 §2.4.
+- **`header.stamp` 필수.** 기록되는 채널이므로 비우면 `extract_stamp` 가 epoch 0 으로 적재해 **어느 에피소드에도 속하지 못한다.** 로봇은 정상 동작하므로 데이터를 열어보기 전까지 드러나지 않는다.
+- **`header.frame_id` 는 로봇 베이스 프레임**(현재 스택에서는 `panda_link0`). Gazebo 의 world frame 은 로봇 베이스와 다르므로 변환 책임은 발행 노드가 진다. 여기서 안 맞추면 세 백엔드가 각자 다른 좌표를 내보내고 데이터셋이 조용히 오염된다.
+- **`orientation` 은 ROS 규약 xyzw.** 좌표계 고정과 같은 성격의 표현 규약이며, 역시 발행 노드가 맞춘다. Isaac 은 wxyz(스칼라 우선)라 그대로 옮기면 조용히 틀린다 — §2.5.
+- **`type` 은 `uint8` 이 아니라 `string`.** 트윈의 `enums` 가 중첩 필드에 닿지 않아 숫자가 그대로 노출되기 때문이다 — 근거는 §2.4.
 
-`dimensions` 가 가변 길이라는 점 때문에 **JointState 식 병렬 배열(`string[] name` +
-`Pose[] pose` + …)로는 표현할 수 없다.** ROS IDL 에 ragged array 가 없다.
-배열-of-구조체가 유일한 선택이며, 이것이 §2.4 의 projection 결정을 낳는다.
+`dimensions` 가 가변 길이라는 점 때문에 **JointState 식 병렬 배열(`string[] name` + `Pose[] pose` + …)로는 표현할 수 없다.** ROS IDL 에 ragged array 가 없다. 배열-of-구조체가 유일한 선택이며, 이것이 §2.4 의 projection 결정을 낳는다.
 
-> **`dimensions` 순서는 `shape_msgs/SolidPrimitive` 를 그대로 따른다.** 초안에는
-> cylinder 를 "반지름, 높이" 로 적었으나 SolidPrimitive 는 `CYLINDER_HEIGHT=0`,
-> `CYLINDER_RADIUS=1` 즉 **높이·반지름** 순이다. 자체 순서를 정하면 mock 백엔드가
-> planning scene 의 값을 재배열해야 하고, **그 재배열이 조용히 틀릴 수 있는 지점을
-> 새로 만든다.** 직관과 반대라 `.msg` 주석에 경고를 달아 두었다.
+> **`dimensions` 순서는 `shape_msgs/SolidPrimitive` 를 그대로 따른다.** 초안에는 cylinder 를 "반지름, 높이" 로 적었으나 SolidPrimitive 는 `CYLINDER_HEIGHT=0`, `CYLINDER_RADIUS=1` 즉 **높이·반지름** 순이다. 자체 순서를 정하면 mock 백엔드가 planning scene 의 값을 재배열해야 하고, **그 재배열이 조용히 틀릴 수 있는 지점을 새로 만든다.** 직관과 반대라 `.msg` 주석에 경고를 달아 두었다.
 
 물리 유무를 나타내는 `simulated` 플래그는 **두지 않는다** — 근거는 §1.
 
@@ -151,12 +126,11 @@ flowchart LR
     orientation: quaternion_xyzw
 ```
 
-`transient_local` 로 두면 늦게 뜬 트윈도 현재 씬을 즉시 본다 (`/session` 과 같은 근거).
+`transient_local` 로 두면 늦게 뜬 트윈도 현재 scene 을 즉시 본다 (`/session` 과 같은 근거).
 
 ### 2.4 projection 과 enums — 확인 결과 (2026-08-17)
 
-기존 `projection: name_value_map` 을 재사용하려 했으나 **불가**하다. 코드를 읽고
-실제로 돌려 확인했다.
+기존 `projection: name_value_map` 을 재사용하려 했으나 **불가**하다. 코드를 읽고 실제로 돌려 확인했다.
 
 ```
 projection -> SerializationError: JointState-like message has empty "name"; cannot build map
@@ -165,7 +139,7 @@ enums      -> {'objects': [{'name': 'cube_0', 'type': 1, ...}]}    # type 이 �
 
 #### (1) `name_value_map` 은 JointState 전용이다
 
-[serialize.py:104-158](../../src/rdfp/rdfp/twin/serialize.py#L104-L158) 이 네 가지를 하드코딩한다.
+[serialize.py:104-158](../../src/robot_twin/robot_twin/serialize.py#L104-L158) 이 네 가지를 하드코딩한다.
 
 | # | 전제 | 위반 시 (조사 당시) | 현재 |
 |:-:|---|---|---|
@@ -174,55 +148,39 @@ enums      -> {'objects': [{'name': 'cube_0', 'type': 1, ...}]}    # type 이 �
 | 3 | **병렬 배열** — `name[i]` ↔ `position[i]` | 길이 불일치 시 `SerializationError` | 동일 |
 | 4 | 결과에서 `name` 키를 제거한다 | — | 동일 |
 
-`SceneObjects` 는 배열-of-구조체라 1번에서 즉시 걸린다. 실패는
-[variables.py:433-440](../../src/rdfp/rdfp/twin/variables.py#L433-L440) 이 잡아 500 이 아니라
-`quality: ERROR` + `SERIALIZATION_FAILED` 로 나오지만, **기동 시점이 아니라 첫 조회
-때** 드러난다 — config 검증에서 걸리지 않는다.
+`SceneObjects` 는 배열-of-구조체라 1번에서 즉시 걸린다. 실패는 [variables.py:433-440](../../src/robot_twin/robot_twin/variables.py#L433-L440) 이 잡아 500 이 아니라 `quality: ERROR` + `SERIALIZATION_FAILED` 로 나오지만, **기동 시점이 아니라 첫 조회 때** 드러난다 — config 검증에서 걸리지 않는다.
 
-> **조치 완료 (2026-08-17).** 1·2 번의 조용한 손실을 명시적 실패로 바꾸고, 함수명을
-> `project_name_value_map` → **`project_joint_state_map`** 으로 좁혔다. 범용처럼 보이는
-> 이름이 오용을 부르던 것이 원인의 일부였다. **설정값 `projection: name_value_map` 은
-> 그대로 두었다** — 공개 설정 표면이라 새 projection 어휘와 함께 정했다 (§6.1).
+> **조치 완료 (2026-08-17).** 1·2 번의 조용한 손실을 명시적 실패로 바꾸고, 함수명을 `project_name_value_map` → **`project_joint_state_map`** 으로 좁혔다. 범용처럼 보이는 이름이 오용을 부르던 것이 원인의 일부였다. **설정값 `projection: name_value_map` 은 그대로 두었다** — 공개 설정 표면이라 새 projection 어휘와 함께 정했다 (§6.1).
 
 #### (2) 왜 joint_states 는 projection 이 "필요"했나
 
-`JointState` 는 병렬 배열이라 **인덱스가 밀리면 값이 뒤섞인다.** `position[3]` 이 어느
-관절인지 `name[3]` 없이 알 수 없고 ROS 는 순서를 보장하지 않는다 — **정확성 문제**였다.
+`JointState` 는 병렬 배열이라 **인덱스가 밀리면 값이 뒤섞인다.** `position[3]` 이 어느 관절인지 `name[3]` 없이 알 수 없고 ROS 는 순서를 보장하지 않는다 — **정확성 문제**였다.
 
-`SceneObjects` 는 각 원소가 자기 `name` 을 들고 있어 **순서가 바뀌어도 값이 섞이지
-않는다.** 정보 손실이 없으므로 **편의 문제**다. 성격이 다르다.
+`SceneObjects` 는 각 원소가 자기 `name` 을 들고 있어 **순서가 바뀌어도 값이 섞이지 않는다.** 정보 손실이 없으므로 **편의 문제**다. 성격이 다르다.
 
 #### (3) 결정: projection 을 신규 추가하고, **처음부터** 적용한다
 
-편의 문제이므로 "나중에" 가 가능해 보이지만, **배열 → map 은 breaking change** 다.
-지금은 이 변수를 읽는 클라이언트가 하나도 없어 **공짜**이고, 나중엔 마이그레이션이
-붙는다. 비용도 작다.
+편의 문제이므로 "나중에" 가 가능해 보이지만, **배열 → map 은 breaking change** 다. 지금은 이 변수를 읽는 클라이언트가 하나도 없어 **공짜**이고, 나중엔 마이그레이션이 붙는다. 비용도 작다.
 
 | 파일 | 변경 |
 |---|---|
-| [serialize.py](../../src/rdfp/rdfp/twin/serialize.py) | 함수 하나 (~20줄) |
-| [config.py](../../src/rdfp/rdfp/twin/config.py) | `projection` Literal 에 값 추가 |
-| [variables.py](../../src/rdfp/rdfp/twin/variables.py) | `PROJECTIONS` 표에 한 줄 |
+| [serialize.py](../../src/robot_twin/robot_twin/serialize.py) | 함수 하나 (~20줄) |
+| [config.py](../../src/robot_twin/robot_twin/config.py) | `projection` Literal 에 값 추가 |
+| [variables.py](../../src/robot_twin/robot_twin/variables.py) | `PROJECTIONS` 표에 한 줄 |
 
 `name` 키는 `joint_states` 와 맞춰 **제거**한다 (map 의 키로 이미 들어간다).
 
 #### (4) `enums` 는 중첩 필드에 닿지 않는다
 
-[serialize.py:151-158](../../src/rdfp/rdfp/twin/serialize.py#L151-L158) 의 `apply_enums` 는
-**최상위 dict 의 키만** 훑는다. `gripper_last_command_result.status` 가 심볼로 나오는
-것은 그것이 최상위 필드이기 때문이다.
+[serialize.py:151-158](../../src/robot_twin/robot_twin/serialize.py#L151-L158) 의 `apply_enums` 는 **최상위 dict 의 키만** 훑는다. `gripper_last_command_result.status` 가 심볼로 나오는 것은 그것이 최상위 필드이기 때문이다.
 
-변환 순서가 `to_jsonable` → `projection` → `apply_enums` 이므로, projection 으로
-map 을 만든 뒤에도 `type` 은 여전히 한 겹 안쪽이라 닿지 않는다.
+변환 순서가 `to_jsonable` → `projection` → `apply_enums` 이므로, projection 으로 map 을 만든 뒤에도 `type` 은 여전히 한 겹 안쪽이라 닿지 않는다.
 
-→ **`SceneObject.type` 을 `string` 으로 둔다** (§2.2). 트윈 변경이 필요 없고, 기록되는
-채널이라 데이터셋 가독성에도 낫다. `apply_enums` 를 중첩 지원으로 확장하려면 경로
-표기(`objects.*.type`)가 필요해져 config 만 복잡해지고 얻는 것이 없다.
+→ **`SceneObject.type` 을 `string` 으로 둔다** (§2.2). 트윈 변경이 필요 없고, 기록되는 채널이라 데이터셋 가독성에도 낫다. `apply_enums` 를 중첩 지원으로 확장하려면 경로 표기(`objects.*.type`)가 필요해져 config 만 복잡해지고 얻는 것이 없다.
 
 ### 2.5 백엔드 좌표 규약 어댑터 (결정, 2026-08-17)
 
-**변환은 전부 백엔드 발행 노드가 한다.** 좌표계(`panda_link0`)·단위·쿼터니언 순서가
-모두 같은 성격의 표현 규약이므로 한 자리에 모은다.
+**변환은 전부 백엔드 발행 노드가 한다.** 좌표계(`panda_link0`)·단위·쿼터니언 순서가 모두 같은 성격의 표현 규약이므로 한 자리에 모은다.
 
 | 후보 | 판단 |
 |---|---|
@@ -232,20 +190,16 @@ map 을 만든 뒤에도 `type` 은 여전히 한 겹 안쪽이라 닿지 않는
 
 #### Isaac 의 쿼터니언은 조용히 틀린다 ⚠️
 
-Isaac 은 **wxyz(스칼라 우선)**, ROS 는 xyzw 다. 순서만 다르므로 **둘 다 float 4개이고
-둘 다 unit norm** 이라 타입 검사도 정규화 검사도 전부 통과한다. 크래시가 아니라
-**그럴듯하게 틀린 자세**가 나온다.
+Isaac 은 **wxyz(스칼라 우선)**, ROS 는 xyzw 다. 순서만 다르므로 **둘 다 float 4개이고 둘 다 unit norm** 이라 타입 검사도 정규화 검사도 전부 통과한다. 크래시가 아니라 **그럴듯하게 틀린 자세**가 나온다.
 
 ```
 Isaac 의 "회전 없음"    (w,x,y,z) = (1, 0, 0, 0)
 순서만 옮기면           (x,y,z,w) = (1, 0, 0, 0)   ← x축 180° 회전
 ```
 
-하필 `(1,0,0,0)` 은 pick 예제의 `DOWN` 상수, 즉 **"그리퍼가 아래를 본다"** 는 지극히
-정상적인 자세다. 로그로도 `ros2 topic echo` 로도 RViz 로도 이상해 보이지 않는다.
-`simulated` 플래그를 두지 않기로 했으므로(§1) 사후에 출처를 되짚을 수단도 없다.
+하필 `(1,0,0,0)` 은 pick 예제의 `DOWN` 상수, 즉 **"그리퍼가 아래를 본다"** 는 지극히 정상적인 자세다. 로그로도 `ros2 topic echo` 로도 RViz 로도 이상해 보이지 않는다. `simulated` 플래그를 두지 않기로 했으므로(§1) 사후에 출처를 되짚을 수단도 없다.
 
-#### 검증 방법 — 노름 검사는 무력하다
+#### 검증 방법 — norm 검사는 무력하다
 
 양쪽 다 통과하므로 다음 셋으로 확인한다.
 
@@ -267,9 +221,7 @@ Isaac 의 "회전 없음"    (w,x,y,z) = (1, 0, 0, 0)
 
 ### 2.6 mock 백엔드는 서비스 폴링이 아니라 diff 누적이다 (실측 후 변경, 2026-08-17)
 
-§2.1 은 mock 을 `/get_planning_scene` **폴링**으로 잡았다. "토픽은 diff 라 상태를
-누적해야 하지만 서비스는 완전한 스냅샷을 준다" 는 이유였는데, **이 스택에서는
-성립하지 않았다.**
+§2.1 은 mock 을 `/get_planning_scene` **폴링**으로 잡았다. "토픽은 diff 라 상태를 누적해야 하지만 서비스는 완전한 스냅샷을 준다" 는 이유였는데, **이 스택에서는 성립하지 않았다.**
 
 ```
 물체 3개가 있는 상태에서 1초 간격 10회 조회 → [3, 0, 0, 0, 0, 0, 3, 3, 3, 0]
@@ -283,28 +235,24 @@ Isaac 의 "회전 없음"    (w,x,y,z) = (1, 0, 0, 0)
 | 내 노드와의 동시 조회 | 노드를 끄고 단독 조회해도 진동 |
 | RViz 가 `/planning_scene` 을 덮어씀 | RViz 종료 후에도 진동 (`/planning_scene` 발행자 0) |
 
-move_group 의 planning scene monitor 가 diff scene 과 parent 를 오가는 것으로 보인다.
-**서비스는 이 스택에서 신뢰할 수 있는 스냅샷 소스가 아니다.**
+move_group 의 planning scene monitor 가 diff scene 과 parent 를 오가는 것으로 보인다. **서비스는 이 스택에서 신뢰할 수 있는 스냅샷 소스가 아니다.**
 
 #### 채택: `/monitored_planning_scene` diff 누적
 
-노드가 `is_diff` 와 `operation`(ADD/REMOVE/MOVE/APPEND)을 반영해 상태를 들고 있는다.
-함정 세 가지를 테스트로 고정했다.
+노드가 `is_diff` 와 `operation`(ADD/REMOVE/MOVE/APPEND)을 반영해 상태를 들고 있는다. 함정 세 가지를 테스트로 고정했다.
 
-- **`is_diff=True` 에 물체가 없는 것은 "씬을 비우라"가 아니다.** 로봇 상태만 바뀐
+- **`is_diff=True` 에 물체가 없는 것은 "scene 을 비우라"가 아니다.** 로봇 상태만 바뀐
   diff 도 같은 토픽으로 온다. 비움으로 해석하면 물체가 매 주기 사라져 **서비스 폴링과
   똑같은 증상**이 된다
-- `is_diff=False` 인 빈 씬은 반대로 "전부 지웠다"가 맞다
+- `is_diff=False` 인 빈 scene 은 반대로 "전부 지웠다"가 맞다
 - `REMOVE` 에 id 가 비면 **전체 제거**다 (MoveIt 규약)
 
 #### 구독은 이벤트, 발행은 주기 유지
 
 두 가지 때문이다.
 
-1. 물리 백엔드(Gazebo/Isaac)는 물체가 계속 움직여 주기 발행이 자연스럽다. mock 만
-   이벤트성이면 트윈의 `staleness_ms` 를 백엔드별로 달리 잡아야 한다
-2. **발행자가 죽은 것을 감지할 수 있다.** 이벤트 발행이면 씬이 조용히 얼어붙은 것과
-   정상인 것이 구분되지 않는다
+1. 물리 백엔드(Gazebo/Isaac)는 물체가 계속 움직여 주기 발행이 자연스럽다. mock 만 이벤트성이면 트윈의 `staleness_ms` 를 백엔드별로 달리 잡아야 한다
+2. **발행자가 죽은 것을 감지할 수 있다.** 이벤트 발행이면 scene 이 조용히 얼어붙은 것과 정상인 것이 구분되지 않는다
 
 덕분에 §2.3 의 `staleness_ms: 1000` 을 그대로 둘 수 있었다.
 
@@ -323,13 +271,13 @@ HTTP 응답에 그대로 반영됐다.
 
 | 후보 | 판단 |
 |---|---|
-| `spawn_object` / `remove_object` / `set_object_pose` | **반대.** 씬 구성 로직이 클라이언트로 새어 나가고, "어떤 배치였는지"가 데이터셋 밖에 남는다. 그리퍼에서 심볼을 버리고 숫자를 실은 것과 같은 문제다 |
+| `spawn_object` / `remove_object` / `set_object_pose` | **반대.** scene 구성 로직이 클라이언트로 새어 나가고, "어떤 배치였는지"가 데이터셋 밖에 남는다. 그리퍼에서 심볼을 버리고 숫자를 실은 것과 같은 문제다 |
 | `randomize_scene(seed)` | 인자가 늘수록 파라미터 괴물이 된다 |
 | **`reset_scene(scene, seed)` + 레시피를 config 에** | **채택.** `move_gripper_to_target` 의 `backend.targets` 와 같은 패턴이다 |
 
 ### 3.2 배선은 그리퍼와 동일하다
 
-명령 토픽 + result 변수 구조를 그대로 재사용한다. `backends.py` 의
+명령 토픽 + result 변수 구조를 그대로 재사용한다. `robot_twin/backends.py` 의
 `_send_gripper_command` 를 일반화하면 새 핸들러가 사실상 필요 없다.
 
 ```yaml
@@ -388,13 +336,13 @@ HTTP 응답에 그대로 반영됐다.
 | 안 | 내용 | 판단 |
 |:-:|---|---|
 | **A** | `resource` 를 리스트로 확장 | **채택** |
-| B | `resource: scene` + "arm 점유 중이면 409" 사전조건 | **기각.** `scene` 만 점유하므로 **위 표의 두 번째 방향이 열려 있다.** 게다가 [runtime.py:241](../../src/rdfp/rdfp/twin/runtime.py#L241) 의 `_check_preconditions` 는 [runtime.py:244](../../src/rdfp/rdfp/twin/runtime.py#L244) 의 `sessions.create` 보다 먼저, 즉 `SessionStore._lock` **밖**에서 돌아 검사·점유 사이에 창이 있다. 그 창을 없애려 검사를 락 안으로 옮기면 결국 A 와 같은 코드가 된다 |
-| C | `scene` 자원을 만들지 않고 `reset_scene` 이 `arm` 을 점유 | **기각.** 코드 변경 0 으로 두 방향을 다 막지만, `/resources` 에 씬 작업이 드러나지 않는다 — 수집 루프가 멈췄을 때 "무엇이 점유 중인가" 가 디버깅의 출발점이다(사용 설명서 4.9 의 `TimeoutError` 핸들러). 씬만 건드리는 연산이 생기면 결국 A 로 온다. **급할 때의 우회책으로만 기억한다** |
+| B | `resource: scene` + "arm 점유 중이면 409" 사전조건 | **기각.** `scene` 만 점유하므로 **위 표의 두 번째 방향이 열려 있다.** 게다가 [runtime.py:241](../../src/robot_twin/robot_twin/runtime.py#L241) 의 `_check_preconditions` 는 [runtime.py:244](../../src/robot_twin/robot_twin/runtime.py#L244) 의 `sessions.create` 보다 먼저, 즉 `SessionStore._lock` **밖**에서 돌아 검사·점유 사이에 창이 있다. 그 창을 없애려 검사를 락 안으로 옮기면 결국 A 와 같은 코드가 된다 |
+| C | `scene` 자원을 만들지 않고 `reset_scene` 이 `arm` 을 점유 | **기각.** 코드 변경 0 으로 두 방향을 다 막지만, `/resources` 에 scene 작업이 드러나지 않는다 — 수집 루프가 멈췄을 때 "무엇이 점유 중인가" 가 디버깅의 출발점이다(사용 설명서 5.9 의 `TimeoutError` 핸들러). scene 만 건드리는 연산이 생기면 결국 A 로 온다. **급할 때의 우회책으로만 기억한다** |
 
 #### A 가 싼 이유 — 데드락 걱정이 없다
 
 다중 자원 락은 보통 락 순서·부분 획득·데드락을 낳지만 **이 구조에서는 해당 없다.**
-[session.py:182-206](../../src/rdfp/rdfp/twin/session.py#L182-L206) 의 `create()` 가 검사→점유→세션
+[session.py:182-206](../../src/robot_twin/robot_twin/session.py#L182-L206) 의 `create()` 가 검사→점유→세션
 생성을 **하나의 `self._lock` 안에서 전부-또는-전무**로 처리하기 때문이다. 통상적인
 비용이 들지 않아 ~40줄 규모다.
 
@@ -405,11 +353,11 @@ HTTP 응답에 그대로 반영됐다.
 
 | 위치 | 변경 |
 |---|---|
-| [config.py:30,190](../../src/rdfp/rdfp/twin/config.py#L30) | `ResourceName` 에 `scene` 추가 + `list[ResourceName]` 허용 |
-| [session.py:188-203](../../src/rdfp/rdfp/twin/session.py#L188-L203) | 검사·점유를 루프로 |
-| [session.py:246](../../src/rdfp/rdfp/twin/session.py#L246) | 해제를 루프로 |
-| [errors.py:68](../../src/rdfp/rdfp/twin/errors.py#L68) | `resource_busy(resource: str, …)` — **어느 자원이 막았는지** 응답에 담기 |
-| [session.py:288](../../src/rdfp/rdfp/twin/session.py#L288) | `resources()` 의 `('arm','gripper')` 하드코딩 제거 → config 에서 수집 |
+| [config.py:30,190](../../src/robot_twin/robot_twin/config.py#L30) | `ResourceName` 에 `scene` 추가 + `list[ResourceName]` 허용 |
+| [session.py:188-203](../../src/robot_twin/robot_twin/session.py#L188-L203) | 검사·점유를 루프로 |
+| [session.py:246](../../src/robot_twin/robot_twin/session.py#L246) | 해제를 루프로 |
+| [errors.py:68](../../src/robot_twin/robot_twin/errors.py#L68) | `resource_busy(resource: str, …)` — **어느 자원이 막았는지** 응답에 담기 |
+| [session.py:288](../../src/robot_twin/robot_twin/session.py#L288) | `resources()` 의 `('arm','gripper')` 하드코딩 제거 → config 에서 수집 |
 
 마지막 두 줄이 놓치기 쉽다. `resources()` 를 함께 고치지 않으면 **`scene` 이 응답에서
 조용히 빠진다.**
@@ -419,21 +367,16 @@ HTTP 응답에 그대로 반영됐다.
 
 ### 3.5 무작위 추출은 트윈이 한다 (구현, 2026-08-17)
 
-명령 토픽(`/scene/commands`)에는 **이미 정해진 배치**가 실린다. 백엔드 노드는 그대로
-적용만 한다.
+명령 토픽(`/scene/commands`)에는 **이미 정해진 배치**가 실린다. 백엔드 노드는 그대로 적용만 한다.
 
 백엔드가 뽑게 하면 두 가지가 깨진다.
 
 - 같은 seed 로도 **백엔드마다 다른 배치**가 나온다 (mock/Gazebo/Isaac 의 RNG 가 다르다)
 - 트윈이 실제 배치를 몰라 **에피소드 metadata 에 남길 수 없다**
 
-레시피는 `backend.scenes` 에 두고 축마다 숫자(고정) 또는 `[최소, 최대]`(균등 추출)를
-받는다. `scene` 의 enum 은 그 표에서 파생한다 — 그리퍼 `targets` 와 같은 방식이며,
-`_derive_enum_from` 으로 일반화했다.
+레시피는 `backend.scenes` 에 두고 축마다 숫자(고정) 또는 `[최소, 최대]`(균등 추출)를 받는다. `scene` 의 enum 은 그 표에서 파생한다 — 그리퍼 `targets` 와 같은 방식이며, `_derive_enum_from` 으로 일반화했다.
 
-> **`outputs.objects` 가 재현의 근거다.** seed 는 사람이 실행을 식별하는 용도일 뿐,
-> 추출 방식이 바뀌면 같은 seed 가 다른 배치를 만든다. 호출자는 `objects` 를
-> `stop_episode` 의 metadata 로 넘겨 에피소드에 붙인다.
+> **`outputs.objects` 가 재현의 근거다.** seed 는 사람이 실행을 식별하는 용도일 뿐, 추출 방식이 바뀌면 같은 seed 가 다른 배치를 만든다. 호출자는 `objects` 를 `stop_episode` 의 metadata 로 넘겨 에피소드에 붙인다.
 
 결과 채널은 `/scene/command_results` 를 따로 둔다. **`/scene/objects` 를 결과로 쓰면
 안 된다** — 그쪽은 주기 발행이라 명령과 무관하게 갱신되므로, '갱신됨'을 완료 신호로
@@ -450,8 +393,7 @@ arm 이동 중 reset_scene → 409 RESOURCE_BUSY  ← §3.4 의 양방향 배타
 
 ### 3.6 Gazebo 실측 — sync 로 충분하다 (2026-08-17)
 
-`reset_scene` 을 sync 로 둘지 async 로 둘지는 **물리 안정화 대기 시간**에 달려 있었다.
-Gazebo Fortress(`empty.sdf`, 5 cm 상자 0.1 kg)에서 쟀다.
+`reset_scene` 을 sync 로 둘지 async 로 둘지는 **물리 안정화 대기 시간**에 달려 있었다. Gazebo Fortress(`empty.sdf`, 5 cm 상자 0.1 kg)에서 쟀다.
 
 | 항목 | 측정값 |
 |---|---|
@@ -461,35 +403,27 @@ Gazebo Fortress(`empty.sdf`, 5 cm 상자 0.1 kg)에서 쟀다.
 | 20 cm 위에서 낙하 | z 0.3250 → 0.1250, **안정까지 약 1.7 s** |
 | `dynamic_pose/info` 발행 | 55 Hz |
 
-**결론: sync 로 충분하다.** 최악(20 cm 낙하)이 스폰 388 ms + 안정화 1.7 s ≈ **2.1 s** 로
-현재 `sync_timeout_sec: 10.0` 안에 넉넉히 들어온다.
+**결론: sync 로 충분하다.** 최악(20 cm 낙하)이 스폰 388 ms + 안정화 1.7 s ≈ **2.1 s** 로 현재 `sync_timeout_sec: 10.0` 안에 넉넉히 들어온다.
 
-레시피가 물체를 **안착 높이에 놓기 때문에**(`z: 0.025` = 상자 절반) 실제 수집 루프에서는
-낙하 자체가 없다 — 안정화 대기가 0 이다. 낙하를 의도적으로 넣더라도 sync 가 유효하다.
+레시피가 물체를 **안착 높이에 놓기 때문에**(`z: 0.025` = 상자 절반) 실제 수집 루프에서는 낙하 자체가 없다 — 안정화 대기가 0 이다. 낙하를 의도적으로 넣더라도 sync 가 유효하다.
 
-> 측정 주의 두 가지. (1) `dynamic_pose/info` 는 `position` 과 `orientation` **양쪽에
-> `z:` 필드가 있어** 순진하게 파싱하면 값이 번갈아 잡히고 "영원히 안 멈춤"으로 보인다.
-> (2) 안정 판정 창(20 샘플 ≈ 361 ms)이 하한이므로, 안착 높이 스폰의 "330 ms" 는 실제
-> 움직임이 아니라 **판정 창 그 자체**다.
+> 측정 주의 두 가지. (1) `dynamic_pose/info` 는 `position` 과 `orientation` **양쪽에 `z:` 필드가 있어** 순진하게 파싱하면 값이 번갈아 잡히고 "영원히 안 멈춤"으로 보인다. (2) 안정 판정 창(20 샘플 ≈ 361 ms)이 하한이므로, 안착 높이 스폰의 "330 ms" 는 실제 움직임이 아니라 **판정 창 그 자체**다.
 
 ---
 
 ## 4. 가장 큰 구멍 — 트윈에 에피소드 경계가 없다
 
-`twin/` 전체에 session/episode 개념이 **하나도 없다.** 현재 `/session` 은
-`session_control_node` 가 관리하고, 클라이언트가 ROS 서비스를 직접 불러야 한다.
+`robot_twin/` 전체에 session/episode 개념이 **하나도 없다.** 현재 `/session` 은 `session_control_node` 가 관리하고, 클라이언트가 ROS 서비스를 직접 불러야 한다.
 
-그러면 **"HTTP 만으로 로봇을 쓴다" 는 트윈의 전제가 깨진다.** 수집 스크립트가 rclpy
-의존을 갖게 되고, 트윈을 쓰는 의미가 절반 사라진다.
+그러면 **"HTTP 만으로 로봇을 쓴다" 는 트윈의 전제가 깨진다.** 수집 스크립트가 rclpy 의존을 갖게 되고, 트윈을 쓰는 의미가 절반 사라진다.
 
 > **판단: `start_episode` / `stop_episode` 가 `scene_objects` 보다 우선순위가 높다.**
-> 씬 랜덤화가 없어도 손으로 배치를 바꾸며 수집은 가능하지만, 에피소드 경계가
+> scene 랜덤화가 없어도 손으로 배치를 바꾸며 수집은 가능하지만, 에피소드 경계가
 > 없으면 루프 자체가 성립하지 않는다.
 
 ### 4.1 `/session` 의 주인 — `session_control_node` 로 유지한다 (결정, 2026-08-17)
 
-**트윈은 `SessionControlClient` 를 쓰는 클라이언트가 된다.** `/session` 을 직접 발행하지
-않는다.
+**트윈은 `SessionControlClient` 를 쓰는 클라이언트가 된다.** `/session` 을 직접 발행하지 않는다.
 
 #### "주인" 이란
 
@@ -501,8 +435,7 @@ Gazebo Fortress(`empty.sdf`, 5 cm 상자 0.1 kg)에서 쟀다.
 3. 전이마다 `/session` 발행 — `TRANSIENT_LOCAL` / `RELIABLE` / `depth=1`
 4. 쓰기 창구를 서비스 6개로 한정 (`~/start_session` … `~/get_session_state`)
 
-**토픽은 읽기 전용 브로드캐스트이고 쓰기는 서비스로만** 일어난다. 발행자가 하나라는
-것이 이 구조의 전제다.
+**토픽은 읽기 전용 브로드캐스트이고 쓰기는 서비스로만** 일어난다. 발행자가 하나라는 것이 이 구조의 전제다.
 
 #### 직접 발행(기각안)이 깨뜨리는 것
 
@@ -529,7 +462,7 @@ Gazebo Fortress(`empty.sdf`, 5 cm 상자 0.1 kg)에서 쟀다.
 #### 자원 락이 구조적으로 맞지 않는다
 
 트윈 자원 락의 수명은 **연산 실행 시간**이다 —
-[runtime.py:244](../../src/rdfp/rdfp/twin/runtime.py#L244) 에서 잡고 세션이 끝나면 풀린다
+[runtime.py:244](../../src/robot_twin/robot_twin/runtime.py#L244) 에서 잡고 세션이 끝나면 풀린다
 (sync 연산도 같다). `start_episode` 는 서비스 호출 하나라 **ms 안에 끝나므로 락도 즉시
 풀린다.**
 
@@ -550,7 +483,7 @@ pick·place 가 계속 돌아야 한다. 즉 `resource: episode` 는 **에피소
 보호를 전부 상태 기계가 하게 되면, **그 거부를 HTTP 로 어떻게 내보낼지**가 새 결정이
 된다. 서비스는 예외를 던지지 않고 `(False, reason)` 을 돌려주기 때문이다.
 
-**`PRECONDITION_FAILED` 로 매핑했다** ([errors.py](../../src/rdfp/rdfp/twin/errors.py) 에
+**`PRECONDITION_FAILED` 로 매핑했다** ([errors.py](../../src/robot_twin/robot_twin/errors.py) 에
 이미 있는 코드라 신설이 필요 없었다). 서비스가 준 `reason` 을 message 에 그대로 싣는다 —
 안 그러면 클라이언트가 거부 사유를 알 수 없다.
 
@@ -674,7 +607,7 @@ finally:
 `stop_session` 이 `409` 로 돌아와 루프가 시작 전에 죽는다.
 
 > **적어만 두고 넣지 않는 틈.** `reset_scene` 은 `[scene, arm]` 을 잡지만 `start_episode`
-> 는 아무것도 잡지 않으므로, **씬 리셋 중에 에피소드가 시작될 수 있다** (§0 이 금지한
+> 는 아무것도 잡지 않으므로, **scene 리셋 중에 에피소드가 시작될 수 있다** (§0 이 금지한
 > 상황 — 물체 순간이동이 학습 데이터에 들어간다). 막는다면 자원이 아니라 **사전조건**
 > (`scene` 점유 중이면 `start_episode` 거절)이 맞다. §3.4 에서 사전조건을 기각한 것과
 > 모순이 아니다 — 거기는 **양방향** 배타가 필요했고 여기는 **한 방향**뿐이다. 수집
@@ -692,7 +625,7 @@ success   BOOLEAN,   -- NULL 은 '판정 없음'이며 실패가 아니다
 metadata  JSONB      -- seed, scene, 초기 물체 배치, 실패 사유
 ```
 
-**정규화하지 않고 `jsonb` 로 둔 이유**: `metadata` 의 형태가 씬 레시피와 백엔드마다
+**정규화하지 않고 `jsonb` 로 둔 이유**: `metadata` 의 형태가 scene 레시피와 백엔드마다
 달라진다. 정규화하면 레시피를 추가할 때마다 마이그레이션이 따라온다.
 
 **`success` 만 별도 컬럼으로 뺀 이유**: 학습셋을 고를 때 항상 걸리는 조건이라 jsonb
@@ -803,6 +736,12 @@ place 성공 판정은 "물체가 목표 지점 근처에 있는가" 이고, 그
 실기 이관을 염두에 두면 학습 입력은 카메라 → pose estimation 경로를 거치고,
 ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 쓰는 편이 안전하다.
 
+**적재와 관측은 다른 결정이다.** 적재는 빠뜨리면 되돌릴 수 없어 먼저 확정했고(2026-08-23
+구현), 관측 포함 여부는 export 단계에서 컬럼 매핑으로 고르므로 뒤로 미룰 수 있다.
+선택지 비교·판단 기준·재검토 트리거는
+[scene_objects_observation_decision.md](../rosbag2/scene_objects_observation_decision.md) 에
+분리했다.
+
 ---
 
 ## 6. 작업 순서
@@ -810,12 +749,12 @@ ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 �
 | # | 작업 | 규모 | 비고 |
 |:-:|---|---|---|
 | ~~1~~ | ~~`rdfp_msgs/SceneObject(s)` + `/scene/objects` 토픽 계약 확정~~ | **완료** | 2026-08-17. `dimensions` 순서는 `shape_msgs/SolidPrimitive` 를 따른다 (cylinder 는 **높이·반지름**) |
-| ~~2~~ | ~~mock 용 `scene_state_node`~~ | **완료** | 2026-08-17. `mock_scene_state_node`. **서비스 폴링이 아니라 diff 누적** (§2.6). TF 합성은 `scene/pose_math.py` (ROS 없이 테스트) |
+| ~~2~~ | ~~mock 용 `scene_state_node`~~ | **완료** | 2026-08-17. `mock_scene_state_node`. **서비스 폴링이 아니라 diff 누적** (§2.6). TF 합성은 `robot_control/scene/pose_math.py` (ROS 없이 테스트) |
 | ~~3~~ | ~~트윈 변수 `scene_objects` + projection~~ | **완료** | 2026-08-17. 어휘는 **B안**(입력 메시지 기준): `joint_state_map` / `scene_object_map` |
 | ~~4~~ | ~~`start_episode`/`stop_episode` 연산 + `sessions` 스키마 확장~~ | **완료** | 2026-08-17. 연산 4개(§4.4), 거부는 `PRECONDITION_FAILED`(§4.2), 스키마·생산 경로(§4.5·§4.6) |
 | ~~5~~ | ~~`reset_scene` 연산 + mock 구현 + `resource` 리스트 확장~~ | **완료** | 2026-08-17. 무작위 추출은 **트윈**이 하고 백엔드는 배치를 받아 적용만 한다 (§3.5) |
-| ~~5b~~ | ~~씬 노드를 mock 계열 launch 에 편입~~ | **완료** | 2026-08-17. `scene_launch_helper` + `enable_scene_node`(기본 `true`). 스택↔어댑터 짝을 사용자가 고르지 않게 한다 |
-| 6 | Gazebo 백엔드 연동 | 중 | **여기서부터 진짜 데이터.** `gazebo_scene_state_node` 를 만들고 `scene_launch_helper` 에 형제 팩토리를 추가해 `panda_gazebo` 계열에 같은 인자로 붙인다 |
+| ~~5b~~ | ~~scene 노드를 mock 계열 launch 에 편입~~ | **완료** | 2026-08-17. `robot_control/launch_helpers/scene.py` + `enable_scene_node`(기본 `true`). 스택↔어댑터 짝을 사용자가 고르지 않게 한다 |
+| 6 | Gazebo 백엔드 연동 | 중 | **여기서부터 진짜 데이터.** `gazebo_scene_state_node` 를 만들고 `launch_helpers/scene.py` 에 형제 팩토리를 추가해 `panda_gazebo` 계열에 같은 인자로 붙인다 |
 | 7 | Isaac Sim 연동 + **좌표 규약 어댑터** | 중 | wxyz·단위·up-axis. identity + 비대칭 회전으로 검증 (§2.5) |
 
 1~3 은 반나절 규모다. 4 를 먼저 확정하지 않으면 5 이후가 헛돈다.
@@ -847,7 +786,7 @@ B안의 대가("메시지마다 projection 이 는다")는 **구현을 공유해
 
 #### 적용 순서 (수행함)
 
-값 변경 자체의 위험은 낮다. [config.py:36](../../src/rdfp/rdfp/twin/config.py#L36) 이
+값 변경 자체의 위험은 낮다. [config.py:36](../../src/robot_twin/robot_twin/config.py#L36) 이
 `extra='forbid'` 이고 `projection` 은 `Literal` 이라 **옛 값이 든 YAML 은 기동 시
 ValidationError 로 즉시 죽는다** — 조용한 오작동이 아니다.
 
@@ -856,8 +795,8 @@ ValidationError 로 즉시 죽는다** — 조용한 오작동이 아니다.
    실제 설치본을 가리는 알려진 함정).
 2. **alias 를 두지 않고 값을 교체한다.** `name_value_map` 도 함께 받으면 어휘가 둘이
    되어 애초 목적이 반쯤 무너진다. fail-fast 가 이미 안전망이다.
-3. [config.py:165](../../src/rdfp/rdfp/twin/config.py#L165) ·
-   [variables.py:147](../../src/rdfp/rdfp/twin/variables.py#L147) ·
+3. [config.py:165](../../src/robot_twin/robot_twin/config.py#L165) ·
+   [variables.py:147](../../src/robot_twin/robot_twin/variables.py#L147) ·
    `robot_twin_panda01.yaml` · 설계서 5.5 · 사용 설명서 8.1 표를 **같은 커밋에** 고친다.
 
 주의: 사용 설명서 7장이 "설정 파일을 복사해 여러 대 운용" 을 권하므로 **리포 밖
@@ -902,12 +841,18 @@ YAML 이 정상 사용 패턴**이다. 그 파일들은 `colcon build` 로 갱�
       트윈 API 로 노출하는 순간 (한 응답에 `session_endpoint` 와 `episode_id` 가 함께
       오면 문서로 못 막는다)
 - [x] ~~`sessions` 테이블 확장 방식 (jsonb 단일 컬럼 vs 정규화)~~ → **`success BOOLEAN` +
-      `metadata JSONB` 로 구현 완료.** 형태가 씬 레시피마다 달라져 정규화하지 않고,
+      `metadata JSONB` 로 구현 완료.** 형태가 scene 레시피마다 달라져 정규화하지 않고,
       학습셋 필터 조건인 `success` 만 별도 컬럼으로 뺐다. `--drop` 불필요 (§4.5)
 - [x] ~~Isaac 의 쿼터니언 변환 지점~~ → **백엔드 발행 노드.** 좌표계 고정과 같은
-      성격이라 새 결정이 아니었다. 실제 쟁점은 **노름 검사로는 못 잡는다**는 것 —
+      성격이라 새 결정이 아니었다. 실제 쟁점은 **norm 검사로는 못 잡는다**는 것 —
       identity + 비대칭 회전 + TF 교차 검증으로 확인한다. 단위·up-axis 까지 묶어
       "좌표 규약 어댑터" 로 7번 작업에 편입 (§2.5, 2026-08-17 결정)
+- [ ] **`scene_objects` 를 observation 에 넣을지** → **보류 (실 카메라 연결 후 실측).**
+      적재는 완료했으므로 지금 결정하지 않아도 손실이 없다. 현재는 씬 카메라가 없어
+      (실 카메라 미연결로 mp4 파일을 임시 소스로 쓴다) 카메라만 쓰는 안도 GT 를 직접
+      넣는 안도 검증이 불가능하다. 선택지·판단 기준·재검토 트리거는
+      [scene_objects_observation_decision.md](../rosbag2/scene_objects_observation_decision.md)
+      (2026-08-23 분리)
 - [x] ~~mock 에서 수집한 에피소드를 학습셋에서 배제하는 장치~~ → **불필요.** mock 은
       테스트 중에만 쓰고 실제 수집에는 사용하지 않으므로 섞일 상황이 없다.
       `SceneObject.simulated` 필드도 두지 않는다. 나중에 출처가 필요하면 에피소드
@@ -917,7 +862,7 @@ YAML 이 정상 사용 패턴**이다. 그 파일들은 `colcon build` 로 갱�
 
 ## 8. 참고
 
-- [robot_twin_user_guide.md](robot_twin_user_guide.md) — 4.9 절(pick 시퀀스), 8.1/8.2
+- [robot_twin_user_guide.md](robot_twin_user_guide.md) — 5.9 절(pick 시퀀스), 8.1/8.2
   (새 변수·연산 추가 방법), 6.4 (자원 락)
 - [robot_twin_design.md](robot_twin_design.md) — 5.5 (projection), 6.14 (그리퍼 명령
   경로), 부록 B (extern_op 확장 목록)

@@ -14,7 +14,7 @@
 
 ```bash
 cd ~/development/ros/rdfp_ws
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -37,7 +37,11 @@ source install/setup.bash
 | `TargetJointStates` | `target_joint_states_publisher` / `target_joint_states_executor` | 단일 `trajectory_msgs/JointTrajectoryPoint` 에 `Header` 를 부여한 timestamped joint setpoint. |
 | `ClutchState` | `teleop_retarget` | teleop 클러치 상태(`engaged`) 와 해제 사유(`reason`). 상태 변경 시에만 발행하며 QoS 는 `TRANSIENT_LOCAL`. |
 | `SceneObject` | `SceneObjects` 의 원소 | 물체 하나 — `name`, `type`(`'box'`/`'sphere'`/`'cylinder'`/`'mesh'` **문자열**), `dimensions`(종류마다 길이가 다르다), `pose`. `orientation` 은 **ROS xyzw** 이며 Isaac(wxyz)은 발행 노드가 변환해야 한다. |
-| `SceneObjects` | 백엔드별 `scene_state_node` → `/scene/objects` | 한 시점의 씬 물체 전체. mock / Gazebo / Isaac 이 각자 이 타입으로 변환해 발행하므로 트윈·후처리기가 환경 구현을 모른다. `frame_id` 는 로봇 베이스(`panda_link0`) 고정, QoS 는 `TRANSIENT_LOCAL`. |
+| `SceneObjects` | 백엔드별 `scene_state_node` → `/scene/objects` | 한 시점의 scene 물체 전체. mock / Gazebo / Isaac 이 각자 이 타입으로 변환해 발행하므로 트윈·후처리기가 환경 구현을 모른다. `frame_id` 는 로봇 베이스(`panda_link0`) 고정, QoS 는 `TRANSIENT_LOCAL`. |
+
+> scene 계열 4종(`SceneObject` / `SceneObjects` / `SceneCommand` / `SceneCommandResult`)의
+> 필드 계약·발행 노드·트윈 연산·함정은 [docs/scene/scene_objects_guide.md](../../docs/scene/scene_objects_guide.md)
+> 에 모아 두었다.
 
 ### 서비스 (`srv/`)
 

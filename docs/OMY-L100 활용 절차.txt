@@ -1,0 +1,81 @@
+[OMY-L100 연결]
+
+-------------------------------------------------------
+
+[터미널 1] - 미들웨어 띄우기
+cd $HOME/development/ros/omy100_ws/open_manipulator/docker
+./container.sh start
+./container.sh enter
+ros2 run rmw_zenoh_cpp rmw_zenohd
+
+[터미널 2] - OMY-L100 띄우기
+cd $HOME/development/ros/omy100_ws/open_manipulator/docker
+./container.sh enter
+ros2 launch open_manipulator_bringup omy_l100_leader_ai.launch.py port_name:=/dev/ttyUSB0
+
+[터미널 3] - OMY-L100 동작 확인
+cd $HOME/development/ros/omy100_ws/open_manipulator/docker
+./container.sh enter
+ros2 node list
+ros2 control list_controllers -c /leader/controller_manager
+timeout 3 ros2 topic echo /leader/joint_states sensor_msgs/msg/JointState
+
+----------------------------------------------------
+
+[Leader bridge 실행]
+cd ~/development/ros/omy_leader_bridge
+./bridge.sh start
+./bridge.sh status
+
+[Leader 스트림 확인]
+ros2 topic hz /leader/ee_pose
+ros2 topic echo /leader/ee_pose
+
+----------------------------------------------------
+
+[미러링 launch 실행]
+ros2 launch rdfp teleop_mirror.launch.py
+
+
+[현재 클러치 상태 확인]
+ros2 service call /teleop_retarget/get_clutch_state std_srvs/srv/Trigger   # 동기 조회
+ros2 service call /teleop_retarget/clutch std_srvs/srv/SetBool "{data: true}" # Engage 시키기
+ros2 service call /teleop_retarget/clutch std_srvs/srv/SetBool "{data: false}" # Disengage 시키기
+
+[Follower 스트림 확인]
+timeout 3 ros2 topic hz /follower/target_pose
+ros2 topic echo /follower/target_pose
+
+timeout 3 ros2 topic hz /servo_node/delta_twist_cmds
+ros2 topic echo /servo_node/delta_twist_cmds
+
+----------------------------------------------------
+
+# 1) servo 기동 --> 미러링 런치 전에 수행시켜야 할 수도
+ros2 service call /servo_node/start_servo std_srvs/srv/Trigger
+
+[Follower 스택 실행]
+ros2 launch rdfp rdfp_panda_jgpc_mock.launch.py
+
+----------------------------------------------------
+[풋 페달 연동]
+
+[evdev 설치]
+sudo apt install python3-evdev
+
+[권한 설정]
+id -nG | tr ' ' '\n' | grep -x input
+sudo usermod -aG input $USER
+
+[페달 꽂은 후 장치 확인]
+# 장치 이름  → §4 의 pedal_device_name (ros2 run 은 device_name) 에 넣는다
+grep -E "^N: Name" /proc/bus/input/devices
+
+# 밟았을 때 나오는 키코드  → §4 의 pedal_key_code (ros2 run 은 key_code) 에 넣는다
+python3 -m evdev.evtest
+
+[미러링 런치 실행]
+ros2 launch rdfp teleop_mirror.launch.py \
+    enable_clutch_pedal:=true \
+    pedal_device_name:=FootSwitch \
+    pedal_key_code:=KEY_B

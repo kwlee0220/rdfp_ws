@@ -39,6 +39,8 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
                         'position', 'max_effort', 'label'],
     'gripper_action_states': ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
                               'position', 'effort', 'stalled', 'reached_goal', 'status'],
+    'scene_objects':   ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
+                        'frame_id', 'objects'],
     'image_frames':    ['id', 'episode_id', 'topic_id', 'frame_index',
                         'stamp_sec', 'stamp_nanosec'],
     'image_streams':   ['id', 'episode_id', 'topic_id', 'mp4_path', 'codec',

@@ -5,7 +5,7 @@
 사용하는지**에 초점을 두며, 공개 API 의 상세는
 [recorder/README.md](../../src/rdfp/rdfp/recorder/README.md) 를 참고하세요.
 
-## 개요
+## 1. 개요
 
 `FFMpegMp4Recorder`는 호출자가 주입하는 프레임을 별도 writer 스레드가
 `ffmpeg` stdin으로 전달하여 CFR(Constant Frame Rate) MP4 파일을 생성합니다.
@@ -22,7 +22,7 @@ ROS2에 의존하지 않는 순수 Python 클래스이므로 독립 스크립트
 - **컨텍스트 매니저 지원**: 예외 경로에서도 `shutdown()` 보장
 - **오디오 미지원**: 비디오 전용
 
-## 설치 및 의존성
+## 2. 설치 및 의존성
 
 ### 시스템 의존성
 
@@ -57,7 +57,7 @@ from rdfp.recorder import (
 from rdfp.types import Resolution
 ```
 
-## 생성자 시그니처
+## 3. 생성자 시그니처
 
 ```python
 FFMpegMp4Recorder(
@@ -100,20 +100,26 @@ FFMpegMp4Recorder(
 | `ValueError` | `resolution` 파싱 실패 (음수, 잘못된 문자열 등) |
 | `EncoderUnavailableError` | `encoder_mode="gpu"`인데 사용 가능한 HW 인코더가 없는 경우 |
 
-## 상태 모델
+## 4. 상태 모델
 
-```
-       start()                stop() (success)
- IDLE ─────────► RECORDING ─────────────────────► IDLE
-  ▲                │                                │
-  │                │ stop() (error) / writer error  │
-  │                ▼                                │
-  │             STOPPING ────────► FAILED           │
-  │                                   │             │
-  └───────────────────────────────────┘             │
-                  start() from FAILED               │
-                                                    │
-  IDLE / RECORDING / STOPPING / FAILED ──shutdown()─┴─► SHUTDOWN (terminal)
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> RECORDING: start()
+    RECORDING --> STOPPING: stop()
+    STOPPING --> IDLE: finalize 성공
+    STOPPING --> FAILED: finalize 실패
+    RECORDING --> FAILED: writer 오류 (BrokenPipe 등)
+    FAILED --> RECORDING: start() 로 재시작
+    IDLE --> SHUTDOWN: shutdown()
+    RECORDING --> SHUTDOWN: shutdown()
+    STOPPING --> SHUTDOWN: shutdown()
+    FAILED --> SHUTDOWN: shutdown()
+    SHUTDOWN --> [*]
+
+    note right of SHUTDOWN
+        종착 상태 — 이후 어떤 public 메서드도 호출할 수 없다
+    end note
 ```
 
 - `start()`는 `IDLE` 또는 `FAILED`에서만 호출 가능
@@ -124,7 +130,7 @@ FFMpegMp4Recorder(
 
 현재 상태는 `recorder.state` 프로퍼티로 확인할 수 있습니다 (스냅샷).
 
-## 기본 사용법
+## 5. 기본 사용법
 
 ### 1. 가장 단순한 패턴
 
@@ -189,7 +195,7 @@ with FFMpegMp4Recorder(fps=30, resolution=(640, 480)) as rec:
 `(H, W, 1)` 형태의 mono8 프레임은 내부에서 자동으로 `(H, W)`로 reshape됩니다.
 잘못된 shape/dtype은 `InvalidFrameError`(ValueError 서브클래스)로 거부됩니다.
 
-## 고급 사용법
+## 6. 고급 사용법
 
 ### 1. 인코더 폴백 전략
 
@@ -290,7 +296,7 @@ output_path = rec.stop(timeout=15.0)  # 기본값 5초
 예산이 소진되면 `terminate` → `kill` 순으로 ffmpeg을 강제 종료하며, 이 경우
 인스턴스는 `FAILED`로 전이되고 출력 파일은 사용 불가능할 수 있습니다.
 
-## 에러 처리
+## 7. 에러 처리
 
 ### 예외 계층
 
@@ -362,7 +368,7 @@ except EncoderUnavailableError as e:
     print(f"no GPU encoder: {e}")
 ```
 
-## 로깅
+## 8. 로깅
 
 `FFMpegMp4Recorder`는 Python 표준 `logging` 모듈을 사용합니다.
 
@@ -398,7 +404,7 @@ logging.getLogger(
 ).setLevel(logging.DEBUG)
 ```
 
-## Best Practices
+## 9. Best Practices
 
 ### 1. 자원 관리
 
@@ -471,7 +477,7 @@ def record_with_retry(rec, base_path, frames_source, max_retries=3):
             rec.logger.warning("attempt %d failed, retrying", attempt)
 ```
 
-## 예제
+## 10. 예제
 
 ### 1. OpenCV 웹캠 → MP4 녹화
 
@@ -551,7 +557,7 @@ with FFMpegMp4Recorder(fps=FPS, resolution=(1280, 720)) as rec:
     rec.stop()
 ```
 
-## 트러블슈팅
+## 11. 트러블슈팅
 
 ### 1. `EncoderUnavailableError: no hardware encoder available`
 
@@ -645,6 +651,6 @@ cmd = build_ffmpeg_command(
 print(" ".join(cmd))
 ```
 
-## 관련 문서
+## 12. 관련 문서
 
 - [OpenCvCamera Programmer's Guide](../camera/opencv_camera_guide.md) — 카메라 입력 소스

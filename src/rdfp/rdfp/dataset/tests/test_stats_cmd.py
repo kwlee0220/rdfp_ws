@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 import rdfp.dataset.stats_cmd as stats_cmd_mod
 

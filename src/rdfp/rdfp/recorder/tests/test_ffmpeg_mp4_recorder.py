@@ -18,7 +18,7 @@ from rdfp.recorder.exceptions import (
 )
 from rdfp.recorder.ffmpeg_command import CODEC_LIBX264
 from rdfp.recorder.ffmpeg_mp4_recorder import FFMpegMp4Recorder
-from rdfp.types import InvalidFrameError, Resolution
+from robot_control.types import InvalidFrameError, Resolution
 
 
 # ---------- Fake subprocess.Popen --------------------------------------------

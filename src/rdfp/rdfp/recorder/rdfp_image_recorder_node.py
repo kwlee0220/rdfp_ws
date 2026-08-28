@@ -38,20 +38,15 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import (
-    QoSDurabilityPolicy,
-    QoSHistoryPolicy,
-    QoSProfile,
-    QoSReliabilityPolicy,
-    qos_profile_sensor_data,
-)
+from rclpy.qos import qos_profile_sensor_data
 from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import Image
 
 from rdfp_msgs.msg import SessionCommand
 
-from ..types import Fps, Resolution
-from ..ros2_utils import SYSTEM_QOS, get_parameter, parse_int, parse_stripped_str, parse_str
+from robot_control.types import Fps, Resolution
+from robot_control.ros2_utils import (
+    SYSTEM_QOS, get_parameter, parse_int, parse_str, parse_stripped_str)
 from .exceptions import EncoderUnavailableError, RecorderStateError
 from .ffmpeg_mp4_recorder import FFMpegMp4Recorder
 
@@ -727,7 +722,7 @@ def main(args: Optional[list[str]] = None) -> None:
     """
     rclpy.init(args=args)
 
-    from ..logging_bridge import configure_logging_bridge
+    from robot_control.logging_bridge import configure_logging_bridge
     configure_logging_bridge(package_logger_name='rdfp')
 
     node: Optional[RdfpImageRecorderNode] = None

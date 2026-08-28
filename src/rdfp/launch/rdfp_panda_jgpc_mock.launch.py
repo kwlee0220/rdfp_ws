@@ -85,14 +85,9 @@ from __future__ import annotations
 from typing import Any
 
 import os
-import sys
 
 import yaml
 
-# ROS2 launch 러너는 본 파일을 단일 스크립트로 로드하므로, 같은 디렉터리의
-# sibling 모듈을 패키지 import 로 가져올 수 없다. 이 파일의 디렉터리를
-# sys.path 의 맨 앞에 추가하여 top-level 모듈처럼 import 한다 (sibling 우선 보장; append 로 바꾸지 말 것).
-sys.path.insert(0, os.path.dirname(__file__))
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -103,22 +98,22 @@ from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch_ros.actions import Node
 
-from camera_launch_helper import create_camera_node
-from controller_launch_helper import (
+from robot_control.launch_helpers.camera import create_camera_node
+from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
     create_panda_hand_controller_spawner,
     create_ros2_control_node,
 )
-from controller_startup_launch_helper import create_controller_startup_handlers
-from ee_pose_launch_helper import create_ee_pose_node
-from gripper_launch_helper import create_gripper_control_node
-from image_pipeline_launch_helper import (
+from robot_control.launch_helpers.controller_startup import create_controller_startup_handlers
+from robot_control.launch_helpers.ee_pose import create_ee_pose_node
+from robot_control.launch_helpers.gripper import create_gripper_control_node
+from robot_control.launch_helpers.image_pipeline import (
     declare_config_file_argument as declare_image_pipeline_config_file_argument,
     declare_image_pipeline_arguments,
     load_config as load_image_pipeline_config,
 )
-from launch_helper import (
+from robot_control.launch_helpers.common import (
     MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
     build_servo_params,
@@ -128,7 +123,7 @@ from launch_helper import (
     create_servo_node,
     create_static_tf_node,
 )
-from scene_launch_helper import create_mock_scene_node, declare_scene_arguments
+from robot_control.launch_helpers.scene import create_mock_scene_node, declare_scene_arguments
 
 # YAML 설정 파일의 기본 경로. rdfp_panda_mock 과 동일한 파일을 공유한다.
 # setup.py 가 ``config/*`` 를 ``share/rdfp/config/`` 로 설치하므로 share 에서 읽는다.
@@ -152,7 +147,7 @@ def _default_config_path() -> str:
 
 def _controllers_config_path() -> str:
     """패키지 share 경로의 JGPC controller 설정 YAML 위치를 반환한다."""
-    return os.path.join(get_package_share_directory("rdfp"), CONTROLLERS_CONFIG_RELPATH)
+    return os.path.join(get_package_share_directory("robot_control"), CONTROLLERS_CONFIG_RELPATH)
 
 
 def _load_config(config_path: str) -> dict[str, Any]:
@@ -336,7 +331,7 @@ def _build_actions(context: LaunchContext) -> list:
     # rdfp_msgs/TargetJointStates 는 JGPC 스택에서 만들 수 없다 — 그 변환의 입력인
     # JointTrajectory 발행자가 이 스택에 존재하지 않기 때문이다.
     target_joint_cmds_publisher = Node(
-        package="rdfp",
+        package="robot_control",
         executable="target_joint_cmds_publisher",
         name="target_joint_cmds_publisher",
         output="screen",

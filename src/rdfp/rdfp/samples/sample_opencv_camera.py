@@ -18,9 +18,9 @@ if __package__ in (None, ""):
     package_root = pathlib.Path(__file__).resolve().parents[2]
     if str(package_root) not in sys.path:
         sys.path.insert(0, str(package_root))
-    from rdfp.camera.opencv_camera import OpenCvCamera
-else:
-    from ..camera.opencv_camera import OpenCvCamera
+
+# 제어 계층은 별도 패키지이므로 항상 절대 import 다.
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 
 def build_parser() -> argparse.ArgumentParser:

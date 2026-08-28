@@ -273,7 +273,9 @@ class SessionControlClient:
     # 비동기 API
     # ------------------------------------------------------------------
 
-    def start_session_async(self, done_callback: Callable[[bool, str], None] | None = None,) -> Future:
+    def start_session_async(
+        self, done_callback: Callable[[bool, str], None] | None = None
+    ) -> Future:
         """start_session 서비스를 비동기로 호출한다.
 
         Args:
@@ -291,11 +293,15 @@ class SessionControlClient:
         """
         return self._call_trigger_async(self._start_session_cli, done_callback)
 
-    def stop_session_async(self, done_callback: Callable[[bool, str], None] | None = None,) -> Future:
+    def stop_session_async(
+        self, done_callback: Callable[[bool, str], None] | None = None
+    ) -> Future:
         """stop_session 서비스를 비동기로 호출한다."""
         return self._call_trigger_async(self._stop_session_cli, done_callback)
 
-    def start_episode_async(self, done_callback: Callable[[bool, str], None] | None = None,) -> Future:
+    def start_episode_async(
+        self, done_callback: Callable[[bool, str], None] | None = None
+    ) -> Future:
         """start_episode 서비스를 비동기로 호출한다."""
         return self._call_trigger_async(self._start_episode_cli, done_callback)
 
@@ -331,7 +337,9 @@ class SessionControlClient:
             )
         return future
 
-    def get_session_state_async(self, done_callback: Callable[[str, str], None] | None = None,) -> Future:
+    def get_session_state_async(
+        self, done_callback: Callable[[str, str], None] | None = None
+    ) -> Future:
         """get_session_state 서비스를 비동기로 호출한다.
 
         Args:

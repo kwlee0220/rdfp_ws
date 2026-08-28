@@ -10,7 +10,7 @@ from sensor_msgs.msg import Image
 
 from rdfp.dataset.db.writers.image_frame import ImageFrameWriter
 from rdfp.recorder.ffmpeg_mp4_recorder import FFMpegMp4Recorder
-from rdfp.types import InvalidFrameError
+from robot_control.types import InvalidFrameError
 
 
 _DEFAULT_BATCH_SIZE: int = 100

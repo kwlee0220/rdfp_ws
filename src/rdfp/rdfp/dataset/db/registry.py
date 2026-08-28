@@ -17,6 +17,7 @@ from .readers.gripper_action_state import GripperActionStateReader
 from .readers.joint_jog import JointJogReader
 from .readers.joint_state import JointStateReader
 from .readers.pose_stamped import PoseStampedReader
+from .readers.scene_objects import SceneObjectsReader
 from .readers.target_joint_states import TargetJointStatesReader
 from .readers.twist_stamped import TwistStampedReader
 from .writers.base import WriterBase
@@ -25,6 +26,7 @@ from .writers.gripper_action_state import GripperActionStateWriter
 from .writers.joint_jog import JointJogWriter
 from .writers.joint_state import JointStateWriter
 from .writers.pose_stamped import PoseStampedWriter
+from .writers.scene_objects import SceneObjectsWriter
 from .writers.target_joint_states import TargetJointStatesWriter
 from .writers.twist_stamped import TwistStampedWriter
 
@@ -86,6 +88,16 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
         table='pose_stampeds',
         writer_cls=PoseStampedWriter,
         reader_cls=PoseStampedReader,
+    ),
+    # 관련 토픽: /scene/objects
+    #   - 백엔드별 scene 상태 노드가 내는 물체들의 ground-truth pose.
+    #   - **학습 입력(observation)이 아니라 라벨·큐레이션용으로 적재한다.**
+    #     시뮬레이터의 ground truth 는 실기에 없으므로 관측에 넣을지는 export
+    #     단계의 별도 결정이다 (docs/rosbag2/scene_objects_observation_decision.md).
+    'rdfp_msgs/msg/SceneObjects': TypeBinding(
+        table='scene_objects',
+        writer_cls=SceneObjectsWriter,
+        reader_cls=SceneObjectsReader,
     ),
     # 관련 토픽: /gripper_control/gripper_cmds
     #   - 그리퍼 제어 명령. (open/close)

@@ -10,19 +10,23 @@ GUI 포함) 까지 한 패키지로 묶여 있습니다.
 
 ## 1. 패키지 구조
 
+> **`rdfp` 는 학습 데이터 수집 계층이다.** MoveIt2 클라이언트 · 카메라 · scene 상태는
+> 하위 패키지 [`robot_control`](../robot_control/README.md) 로 분리되어 있고, 로봇 트윈은
+> [`robot_twin`](../robot_twin/README.md) 이다. 분리 근거는 설계서
+> [§7.6](../../docs/rdfp_framework_design.md) 참고.
+
 ```
 rdfp/
 ├── package.xml                # ROS 2 패키지 메타데이터
-├── setup.py                   # Python 패키지 설정 + console_scripts entry points
+├── setup.py                   # console_scripts + robot_twin.backends entry point
 ├── setup.cfg                  # 설치 경로 설정
-├── config/                    # share 로 설치되는 YAML / RViz config
-├── launch/                    # *.launch.py + *_launch_helper.py (launch/README.md 참고)
+├── config/                    # panda_robot / replay_panda_mock / teleop_mirror YAML
+├── launch/                    # rdfp_*.launch.py, replay_panda_mock, teleop_mirror
 ├── resource/rdfp              # ament 리소스 마커
 └── rdfp/                      # Python 소스 root
-    ├── moveit/                # MoveGroup 클라이언트(JTC/JGPC) / ServoClient / EE pose / gripper / target_joint_states
-    ├── camera/                # camera_node, image_viewer, OpenCV capture 헬퍼
-    ├── recorder/              # FFMpegMp4Recorder + image_recorder_node (ROS adapter)
     ├── session/               # session_control_node — IDLE / IN_SESSION / IN_EPISODE 상태 머신
+    │                          # twin_backend.py — robot_twin 에 세션 연산을 제공하는 entry point
+    ├── recorder/              # FFMpegMp4Recorder + image_recorder_node (ROS adapter)
     ├── teleop/                # teleop_keyboard, session_teleop, teleop_retarget,
     │                          # clutch_pedal(USB 풋페달), ClutchClient
     ├── rosbag/                # MCAP catalog/discovery + `rosbag` CLI
@@ -33,14 +37,22 @@ rdfp/
 
 ## 2. Launch 구조
 
-`src/rdfp/launch/` 디렉터리는 launch 진입점과 재사용 helper를 함께 포함합니다.
+launch 진입점은 **계층별로 두 패키지에 나뉘어 있고**, 공유 helper 는 하위 패키지의
+설치 모듈이다.
 
-- `*.launch.py`
-  - 실제 `ros2 launch ...` 진입점
-- `*_launch_helper.py`
-  - 여러 launch 파일이 공유하는 argument 선언, `Node` 생성, startup orchestration helper
+| 위치 | 내용 |
+|---|---|
+| `src/rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp`, `rdfp_advanced`, `replay_panda_mock`, `teleop_mirror` |
+| `src/robot_control/launch/` | `panda_mock`, `panda_jgpc_mock`, `panda_gazebo` |
+| `robot_control/launch_helpers/` | 공유 argument 선언 · `Node` 팩토리 · startup orchestration |
 
-현재 Panda mock 전체 스택의 메인 진입점은 `launch/panda_mock.launch.py` 입니다.
+```python
+from robot_control.launch_helpers.camera import create_camera_node
+```
+
+Panda mock 전체 스택의 메인 진입점은 `ros2 launch rdfp rdfp_panda_mock.launch.py`
+이고, 수집 노드 없이 제어 스택만 필요하면
+`ros2 launch robot_control panda_mock.launch.py` 입니다.
 launch 파일 간 역할 분리와 의존 관계의 상세 설명은 `launch/README.md` 를 참고하세요.
 
 ## 3. 활용 절차
@@ -49,7 +61,7 @@ launch 파일 간 역할 분리와 의존 관계의 상세 설명은 `launch/REA
 #### 3.1.1 워크스페이스 빌드 및 환경 설정
 ```bash
 cd ~/development/ros/rdfp_ws
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -97,7 +109,7 @@ watch rdfp_list_topics.sh
 ros2 launch rdfp rdfp_panda_mock.launch.py
 ```
 실행 후 RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control,
-mock_scene_state 노드가 모두 실행되어야 합니다 (씬 노드는 `enable_scene_node:=false` 로 끌 수 있습니다).
+mock_scene_state 노드가 모두 실행되어야 합니다 (scene 노드는 `enable_scene_node:=false` 로 끌 수 있습니다).
 
 #### 3.2.3 키보드기반 teleop 으로 학습 데이터 생성 (별도 터미널)
 ```bash
@@ -184,11 +196,11 @@ MoveIt2 서비스/액션 인터페이스를 사용하여 카테시안 경로를 
 
 | 클래스 | 역할 |
 |---|---|
-| [`MoveGroupClient`](rdfp/moveit/move_group_client.py) | 계획 + SRDF 조회. **추상 클래스라 직접 생성 불가** |
-| [`MoveGroupJtcClient`](rdfp/moveit/move_group_jtc_client.py) | `JointTrajectoryController` 환경 — MoveGroup/ExecuteTrajectory 액션으로 실행 |
-| [`MoveGroupJgpcClient`](rdfp/moveit/move_group_jgpc_client.py) | forward command 컨트롤러 환경 — `Float64MultiArray` 명령 스트리밍으로 실행. **open loop** |
+| [`MoveGroupClient`](../robot_control/robot_control/moveit/move_group_client.py) | 계획 + SRDF 조회. **추상 클래스라 직접 생성 불가** |
+| [`MoveGroupJtcClient`](../robot_control/robot_control/moveit/move_group_jtc_client.py) | `JointTrajectoryController` 환경 — MoveGroup/ExecuteTrajectory 액션으로 실행 |
+| [`MoveGroupJgpcClient`](../robot_control/robot_control/moveit/move_group_jgpc_client.py) | forward command 컨트롤러 환경 — `Float64MultiArray` 명령 스트리밍으로 실행. **open loop** |
 
-핵심 진입점은 [`create_move_group_client(node)`](rdfp/moveit/move_group_factory.py) 팩토리입니다.
+핵심 진입점은 [`create_move_group_client(node)`](../robot_control/robot_control/moveit/move_group_factory.py) 팩토리입니다.
 `/panda_arm_controller/commands` 토픽 존재 여부로 컨트롤러를 판별해 알맞은 구현을 돌려주므로,
 호출부는 어느 스택인지 몰라도 됩니다. 확실히 알고 있다면 `mode='jtc'` / `mode='jgpc'` 로 강제합니다.
 
@@ -274,7 +286,7 @@ source install/setup.bash
 먼저 별도의 터미널에서 Panda MoveIt 환경(RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control, mock_scene_state)을 실행합니다.
 
 ```bash
-ros2 launch rdfp panda_mock.launch.py
+ros2 launch robot_control panda_mock.launch.py
 # 또는 YAML 기반 풀 스택 (camera / recorder / ee_pose 까지)
 ros2 launch rdfp rdfp_panda_mock.launch.py
 ```
@@ -350,7 +362,7 @@ client.follow_trajectory(waypoints, velocity_scaling=0.5)  # 이 호출만 50%
 ### 8.1 실행 예 (`ros2 run`)
 
 ```bash
-ros2 run rdfp camera_node \
+ros2 run robot_control camera_node \
   --ros-args \
   -p camera_id:=0 \
   -p fps:=30 \
@@ -384,7 +396,7 @@ ROS2 인터페이스 ↔ recorder 간 얇은 어댑터 역할을 수행합니다
 - 서비스 인터페이스가 정의된 별도 패키지 `rdfp_msgs` 가 함께 빌드되어야 합니다.
 
 ```bash
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -489,7 +501,7 @@ ros2 service call /image_recorder/stop_session  rdfp_msgs/srv/StopSession
 서비스/메시지 인터페이스가 정의된 `rdfp_msgs` 패키지가 함께 빌드되어야 합니다.
 
 ```bash
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 

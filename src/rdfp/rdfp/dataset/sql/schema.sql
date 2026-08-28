@@ -206,6 +206,53 @@ CREATE INDEX IF NOT EXISTS idx_pose_stampeds_topic    ON pose_stampeds (topic_id
 CREATE INDEX IF NOT EXISTS idx_pose_stampeds_stamp_ts ON pose_stampeds (stamp_ts);
 
 
+-- /scene/objects → rdfp_msgs/msg/SceneObjects
+-- 씬 안 물체들의 ground-truth 상태. 자동 라벨링(place 성공 판정), 오프라인 큐레이션
+-- (파지 오차 계산·실패 에피소드 선별), pose estimator 학습 라벨이 모두 여기서 나온다.
+--
+-- **정책의 학습 입력(observation)으로 쓸지는 export 단계의 별도 결정**이며 적재 단계에서
+-- 정하지 않는다 — 시뮬레이터의 ground truth 는 실기에 존재하지 않으므로 그대로 관측에
+-- 넣으면 sim 에서만 도는 정책이 된다. 비교는
+-- docs/rosbag2/scene_objects_observation_decision.md 에 있다.
+--
+-- **한 메시지가 한 행이다.** 물체마다 행을 나누지 않는 이유는 둘이다.
+--   1. reader 계약이 **row 1개 → 메시지 1개** 이므로(db/readers/base.py), 물체별 행은
+--      복원 시 재조립이 필요해 registry 구조를 벗어난다.
+--   2. `dimensions` 길이가 종류마다 다르다 (box 3 / sphere 1 / cylinder 2). 고정 컬럼으로
+--      정규화되지 않으며, 이것이 메시지가 배열-of-구조체인 이유이기도 하다.
+-- 물체 단위 조회는 `jsonb_array_elements(objects)` 로 푼다.
+CREATE TABLE IF NOT EXISTS scene_objects (
+    id              BIGSERIAL     PRIMARY KEY,
+    episode_id      BIGINT        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    topic_id        BIGINT        NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
+    stamp_sec       INTEGER       NOT NULL,
+    stamp_nanosec   BIGINT        NOT NULL,
+    stamp_ts        TIMESTAMPTZ   GENERATED ALWAYS AS
+                        (to_timestamp(stamp_sec::double precision
+                                      + stamp_nanosec::double precision / 1e9))
+                        STORED,
+    -- 좌표 기준 프레임. 다른 테이블은 frame_id 를 버리지만 여기서는 남긴다 — 백엔드가
+    -- world→base 변환을 빠뜨려도 값 자체는 그럴듯해서, 프레임을 함께 적지 않으면
+    -- 데이터를 열어보기 전까지 오염이 드러나지 않기 때문이다. 현재 스택에서는
+    -- 'panda_link0' 이어야 한다.
+    frame_id        TEXT          NOT NULL DEFAULT '',
+    -- SceneObject 배열. 원소 형태는
+    --   {"name": str, "type": str, "dimensions": [float, ...],
+    --    "position": [x, y, z], "orientation": [x, y, z, w]}
+    -- 이며 orientation 은 **ROS 규약 xyzw** 다 (Isaac 의 wxyz 가 아니다).
+    -- 물체가 없으면 빈 배열이고, 그것도 '씬이 비었다'는 유효한 상태다.
+    objects         JSONB         NOT NULL,
+    -- 빈 씬 제외 같은 필터를 매번 배열을 풀지 않고 걸 수 있게 한다.
+    object_count    INTEGER       GENERATED ALWAYS AS (jsonb_array_length(objects)) STORED,
+    CHECK (jsonb_typeof(objects) = 'array')
+);
+CREATE INDEX IF NOT EXISTS idx_scene_objects_episode  ON scene_objects (episode_id);
+CREATE INDEX IF NOT EXISTS idx_scene_objects_topic    ON scene_objects (topic_id);
+CREATE INDEX IF NOT EXISTS idx_scene_objects_stamp_ts ON scene_objects (stamp_ts);
+-- objects 에는 GIN 을 두지 않는다. sessions.metadata 와 같은 판단이다 — 조회가
+-- 느려지면 그때 더한다.
+
+
 -- /camera/image_raw 등 sensor_msgs/msg/Image 토픽의 mp4 sidecar (글로벌 메타).
 -- 에피소드×토픽 당 한 행. mp4 파일 자체의 정보 (경로, 코덱, 해상도, fps, frame_id,
 -- 총 프레임 수, 생성 시각) 를 보관한다. 프레임별 stamp 는 image_frames 테이블

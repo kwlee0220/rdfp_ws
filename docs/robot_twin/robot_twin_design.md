@@ -147,7 +147,7 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 - `move_to_named_target_async` / `follow_trajectory_async` / `plan_*_async` 계열만 사용한다.
 - 이들 메서드의 **`externally_spun=True` 인자를 반드시 전달한다.** executor 가 다른
   스레드에서 Node 를 spin 중임을 알리는 플래그다
-  ([move_group_client.py:396](../../src/rdfp/rdfp/moveit/move_group_client.py#L396)).
+  ([move_group_client.py:396](../../src/robot_control/robot_control/moveit/move_group_client.py#L396)).
 - 완료 판정은 트윈의 세션 상태 머신이 `Future` 콜백으로 수행한다. extern_op 이
   비동기 세션 모델이므로 프로토콜과도 자연스럽게 맞는다.
 
@@ -186,10 +186,10 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 
 | 항목 | 위치 |
 |---|---|
-| 소스 | `src/rdfp/rdfp/twin/` |
-| 진입점 | `ros2 run rdfp robot_twin --config <yaml>` (`setup.py` console_scripts) |
+| 소스 | `src/robot_twin/robot_twin/` |
+| 진입점 | `ros2 run robot_twin robot_twin --config <yaml>` (`setup.py` console_scripts) |
 | 트윈 정의 YAML | `src/rdfp/config/` (setup.py 의 `config/*` glob 이 share 로 설치) |
-| 테스트 | `src/rdfp/rdfp/twin/tests/` |
+| 테스트 | `src/robot_twin/robot_twin/tests/` |
 
 **근거**
 
@@ -213,7 +213,7 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 | FastAPI / uvicorn 은 `package.xml` 이 아니라 **README 의 pip 의존성 절**에 기재한다 | 기존 관례 준수. `rosdep` 이 잡지 못하는 의존성임을 명시 |
 | 테스트는 ROS 불필요 부분과 필요 부분을 분리한다 | 스냅샷 캐시 · 직렬화 · 세션 상태 머신은 ROS 없이 검증 가능하다. ROS 의존 테스트는 `pytest.importorskip` 으로 자체 skip |
 
-**분리 트리거** — 다음 중 하나가 실제로 발생하면 그때 `rdfp_twin` 으로 옮긴다.
+**분리 트리거** — 다음 중 하나가 실제로 발생하면 그때 `robot_twin` 으로 옮긴다.
 
 - 트윈을 별도 Docker 이미지로 배포해야 할 때
 - 트윈이 `rdfp` 와 다른 릴리스 주기를 가져야 할 때
@@ -277,7 +277,7 @@ http:
 
 ros:
   domain_id: 31
-  rmw: rmw_cyclonedds_cpp
+  rmw: rmw_fastrtps_cpp
   node_name: robot_twin_panda01
   use_sim_time: false
 
@@ -1195,7 +1195,7 @@ pose 로의 이동은 **계획 방식이 두 가지**이고, 이를 하나의 �
 `goal_error` 와 같은 원칙).
 
 **계획 파이프라인은 이미 준비되어 있다** — `panda_mock` 계열 launch 가 OMPL / PILZ /
-CHOMP 세 개를 로드한다 ([launch_helper.py:56](../../src/rdfp/launch/launch_helper.py#L56)).
+CHOMP 세 개를 로드한다 ([launch_helper.py:56](../../src/robot_control/robot_control/launch_helpers/common.py#L56)).
 `planner_id` 미지정 시 기본 파이프라인을 사용한다.
 
 **`move_gripper_to_target` 이 동기인 근거** — 6.2 의 기준(물리적으로 움직이는
@@ -1392,7 +1392,7 @@ VLAN 등), 물리적 접근 통제. 트윈은 **신뢰된 폐쇄망 안에 있�
 | `move_gripper_to_target` | `rdfp_msgs/GripperCommand` 토픽 발행 → `gripper_control_node` 가 액션으로 중계 — **사용 가능**. 액션 직접 호출은 rosbag2 가 기록하지 못해 채택하지 않았다 |
 | `move_gripper` (임의 폭) | **의도적 미개방.** 액션 경로는 이미 있으나 폭을 요청 인자로 받지 않는다 — 쓸 수 있는 폭은 설정(`backend.targets`)이 정한다 |
 | `move_linear` (Cartesian) | `follow_trajectory_async()` — **사용 가능**. `fraction` 을 `outputs` 로 노출하도록 반환값 확인 필요 |
-| **`move_to_pose`** (자유 계획) | **공개 API 없음.** `_build_move_group_goal()` 이 `JointConstraint` 만 만들므로([move_group_client.py:953](../../src/rdfp/rdfp/moveit/move_group_client.py#L953)), pose 목표는 `PositionConstraint` + `OrientationConstraint` 를 추가하거나 IK(`GetPositionIK`)로 joint 값을 구해 기존 경로에 태워야 한다 |
+| **`move_to_pose`** (자유 계획) | **공개 API 없음.** `_build_move_group_goal()` 이 `JointConstraint` 만 만들므로([move_group_client.py:953](../../src/robot_control/robot_control/moveit/move_group_client.py#L953)), pose 목표는 `PositionConstraint` + `OrientationConstraint` 를 추가하거나 IK(`GetPositionIK`)로 joint 값을 구해 기존 경로에 태워야 한다 |
 | ~~`move_to_joints`~~ | **해소됨.** `MoveGroupClient` 에 `plan_joints()` / `plan_joints_async()` 를 두고, 실행은 구현별로 `move_to_joints()` / `move_to_joints_async()` (JTC=MoveGroup 액션, JGPC=command 스트리밍). 관절 이름이 planning group 에 속하는지는 검사하지 않으므로 그룹 밖 관절은 계획 단계에서 실패한다 |
 | `gripper_position` 연속 상태 | `/joint_states` 에서 파생 추출 필요 (5.7) |
 | 상태 스냅샷 캐시 계층 | 신규 구현 |

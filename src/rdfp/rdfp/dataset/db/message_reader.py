@@ -5,8 +5,9 @@
 타입별 복원은 `registry.MESSAGE_TYPE_REGISTRY` 에 등록된 `ReaderBase`
 서브클래스가 담당하며, 각 reader 는 메시지 패키지를 lazy import 로 로드한다.
 
-`header.frame_id` 는 DB 에 저장되지 않으므로 복원 메시지에서 설정하지
-않으며, 메시지 기본값 ('') 이 유지된다.
+`header.frame_id` 는 대부분의 테이블에 저장되지 않으므로 복원 메시지에서
+설정하지 않으며, 메시지 기본값 ('') 이 유지된다. 예외는 `scene_objects` 로,
+좌표 기준 프레임이 값의 의미를 좌우해 컬럼으로 저장하고 복원도 한다.
 
 공개 함수:
     read_topic_messages_by_name(conn, episode_id, topic_name)

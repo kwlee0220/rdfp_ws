@@ -18,7 +18,7 @@ rdfp 로봇(`rdfp_panda_mock` / `rdfp_panda_jgpc_mock` 등)은 **입력 장치�
 | | rdfp | OMY-L100 |
 |---|---|---|
 | ROS 배포판 | Humble | **Jazzy** |
-| RMW | `rmw_cyclonedds_cpp` | **`rmw_zenoh_cpp`** |
+| RMW | `rmw_fastrtps_cpp` (기본) | **`rmw_zenoh_cpp`** |
 | 제약 사유 | Isaac Sim 등 외부 시스템 연동 | 장비 자체 제약 |
 
 같은 colcon 워크스페이스에 넣을 수도, 같은 오버레이를 공유할 수도 없다. 그래서
@@ -83,11 +83,16 @@ ros2 launch rdfp teleop_mirror.launch.py
 
 ```
 ROS_DOMAIN_ID      = 31
-RMW_IMPLEMENTATION = rmw_cyclonedds_cpp
+RMW_IMPLEMENTATION = rmw_fastrtps_cpp
 ```
 
-`~/.ros2rc` 에 정의되어 있다. **`~/.bashrc` 가 자동으로 부르지 않으므로**
-터미널·스크립트마다 `source ~/.ros2rc` 해야 한다.
+**중요한 것은 특정 RMW 가 아니라 "양쪽이 같을 것"이다.** `.ros2rc` 와 docker
+이미지 모두 `rmw_fastrtps_cpp` 로 통일돼 있으므로 위 값이 표준이다. 다른 RMW 를
+강제하는 외부 시스템과 붙일 때만 **양쪽 모두** 그쪽에 맞춘다.
+
+**터미널·스크립트마다 직접 켜야 한다** — 셸을 여는 것만으로는 적용되지 않는다.
+rdfp 개발 머신에서는 `rdfp_env` 함수가 이 값을 적용하고, 그 밖의 환경에서는 위
+두 변수를 직접 export 한다.
 
 둘 중 하나만 달라도 DDS 디스커버리가 실패하고, 증상은 "토픽이 아예 안 보인다"
 이다. `ros2 daemon` 프로세스가 두 개 뜨면 환경이 갈린 것이다.
@@ -128,8 +133,8 @@ restamp 를 켜면 stale 문제는 사라지지만, 하류에서 **stamp 차분�
 
 #### rdfp 내부의 규약
 
-[`ee_twist_publisher`](../../src/rdfp/rdfp/moveit/ee_twist_publisher.py) 와
-[`target_joint_cmds_publisher`](../../src/rdfp/rdfp/moveit/target_joint_cmds_publisher.py)
+[`ee_twist_publisher`](../../src/robot_control/robot_control/moveit/ee_twist_publisher.py) 와
+[`target_joint_cmds_publisher`](../../src/robot_control/robot_control/moveit/target_joint_cmds_publisher.py)
 는 **출력 stamp 에 발행 시각을 싣는다.** 다만 `ee_twist_publisher` 의 차분 간격
 `dt` 는 **입력 stamp** 로 계산하므로, 입력이 원본 stamp 를 유지하는 한 속도 값은
 원본 시간축을 그대로 반영한다. 즉 어댑터가 restamp 하지 않을수록 속도가 정확하고,
@@ -178,7 +183,7 @@ ros2 service call /servo_node/start_servo std_srvs/srv/Trigger
 ```
 
 `replay_panda_mock.launch.py` 의 `ee_twist` 경로는
-[`servo_auto_start_node`](../../src/rdfp/rdfp/moveit/servo_auto_start_node.py)
+[`servo_auto_start_node`](../../src/robot_control/robot_control/moveit/servo_auto_start_node.py)
 를 함께 띄워 이를 처리한다. 다른 경로는 직접 호출해야 한다.
 
 ---
@@ -194,14 +199,14 @@ ros2 service call /servo_node/start_servo std_srvs/srv/Trigger
 
 ### OMY-L100 (`omy_leader_bridge`)
 
-OMY-L100 은 ROS 2 Jazzy + `rmw_zenoh` 를 써야 하는데 rdfp 는 Isaac Sim 연동
-때문에 `rmw_cyclonedds_cpp` 를 써야 한다. zenoh RMW 는 버전 간 wire 비호환이라
-DDS 로도 zenoh 로도 직접 연결되지 않는다.
+OMY-L100 은 ROS 2 Jazzy + `rmw_zenoh` 를 써야 하는데 rdfp 는 `rmw_fastrtps_cpp`
+를 쓴다. zenoh RMW 는 버전 간 wire 비호환이라 DDS 로도 zenoh 로도 직접
+연결되지 않는다.
 
 그래서 컨테이너 안에서 구독한 pose 를 **UDP 로 호스트에 넘겨 재발행**한다.
 
 ```
-[컨테이너: Jazzy / rmw_zenoh / domain 30]      [호스트: Humble / cyclonedds / domain 31]
+[컨테이너: Jazzy / rmw_zenoh / domain 30]      [호스트: Humble / fastdds / domain 31]
   ee_pose_node.py                                 host_republisher.py
     tf2: leader_link0 -> leader_link7               UDP 수신 → 역직렬화
     → PoseStamped 발행                              → /leader/ee_pose 재발행
@@ -214,7 +219,7 @@ DDS 로도 zenoh 로도 직접 연결되지 않는다.
 | 항목 | 값 | 근거 |
 |---|---|---|
 | 호스트 `ROS_DOMAIN_ID` | `31` | §3-1 |
-| 호스트 RMW | `rmw_cyclonedds_cpp` | §3-1 |
+| 호스트 RMW | `rmw_fastrtps_cpp` | §3-1 |
 | 재발행 토픽 | `/leader/ee_pose` | §2 경로 B |
 | 재발행 `header.stamp` | `bridge_topics.json` 의 `"restamp": true` | §3-2 |
 | 실효 주기 | 50 Hz (`RATE` 환경변수) | §3-3 |

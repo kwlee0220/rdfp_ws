@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import rclpy
 from rclpy.node import Node
-from rdfp.moveit import create_move_group_client
+from robot_control.moveit import create_move_group_client
 
 
 def main():

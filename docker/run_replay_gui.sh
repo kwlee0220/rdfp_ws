@@ -49,7 +49,7 @@ exec docker run --rm -it \
   -e DISPLAY="${DISPLAY}" \
   -e QT_X11_NO_MITSHM=1 \
   -e ROS_DOMAIN_ID="${DOMAIN_ID}" \
-  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
   -e RDFP_DB_DSN="${RDFP_DB_DSN:-}" \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
   -v "${HOME}/.Xauthority:/root/.Xauthority:rw" \

@@ -17,7 +17,7 @@ OMY-L100 리더 암을 사람이 움직이면 rdfp 팔로워 로봇(`rdfp_panda_
 [OMY-L100 컨테이너: Jazzy / rmw_zenoh / domain 30]
   ee_pose_node.py  ──▶ relay_node.py ──[UDP:47654]──┐
                                                      │
-[호스트: Humble / cyclonedds / domain 31]            ▼
+[호스트: Humble / fastdds / domain 31]            ▼
   host_republisher.py ──▶ /leader/ee_pose  (restamp)
                               │
   teleop_retarget ────────────┤  클러치 앵커 기반 상대 매핑
@@ -57,15 +57,15 @@ OMY-L100 리더 암을 사람이 움직이면 rdfp 팔로워 로봇(`rdfp_panda_
 "토픽이 아예 없다" 라 원인을 짚기 어렵다.
 
 ```bash
-source ~/.ros2rc                                        # ROS_DOMAIN_ID=31 + cyclonedds
-source ~/development/ros/rdfp_ws/install/setup.bash
+rdfp_env        # ROS_DOMAIN_ID=31 + fastdds + 워크스페이스 overlay + cd
 ```
 
-`~/.ros2rc` 는 `~/.bashrc` 가 자동으로 부르지 않는다. 확인:
+`~/.bashrc` 는 `ros2_env` / `rdfp_env` 를 **정의만** 하는 옵트인 구조라, 셸을 열어도
+환경은 켜지지 않는다. 확인:
 
 ```bash
 echo "domain=${ROS_DOMAIN_ID:-0}  rmw=${RMW_IMPLEMENTATION:-fastrtps}"
-# domain=31  rmw=rmw_cyclonedds_cpp  이어야 한다
+# domain=31  rmw=rmw_fastrtps_cpp  이어야 한다 (.ros2rc 기본값)
 ```
 
 ### 2-2. 기존 스택 정리
@@ -341,7 +341,7 @@ ros2 topic echo /servo_node/status --once      # data: 0 (NO_WARNING) 이면 정
 ```bash
 $ ps -eo args | grep ros2-daemon | grep -v grep
 ... --ros-domain-id  0 --rmw-implementation rmw_fastrtps_cpp      ← 잘못된 쪽
-... --ros-domain-id 31 --rmw-implementation rmw_cyclonedds_cpp    ← 정상
+... --ros-domain-id 31 --rmw-implementation rmw_fastrtps_cpp      ← 정상
 ```
 
 스택 프로세스의 실제 환경도 직접 볼 수 있다.

@@ -57,7 +57,7 @@ OMY-L100 트리거 관절
     │  /leader/joint_states                    (컨테이너 — Jazzy + rmw_zenoh)
     ▼
 omy_leader_bridge  (UDP relay)                 ← bridge_topics.json 에 토픽 1줄 추가
-    │  /leader/joint_states                    (호스트 — Humble + cyclonedds)
+    │  /leader/joint_states                    (호스트 — Humble + fastdds)
     ▼
 [신규] 그리퍼 매핑 노드                          ← 캘리브레이션·deadband·전송률·게이트
     │  open/close 서비스 또는 gripper_cmd goal
@@ -326,5 +326,5 @@ u:  0 ─────── 0.3 ─────── 0.7 ─────── 
 - [omy_leader_teleop_guide.md](omy_leader_teleop_guide.md) — 전체 체인 기동 절차
 - [../moveit/GripperControlNode_Guide.md](../moveit/GripperControlNode_Guide.md) — open/close 서비스
 - [../moveit/gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) — 액션 서버의 feedback/result 성격
-- [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) 6.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
+- [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) 4.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
 - 외부 저장소 `omy_leader_bridge` — `bridge_topics.json` 이 릴레이 토픽의 단일 출처

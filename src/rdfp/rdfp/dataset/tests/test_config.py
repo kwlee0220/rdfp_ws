@@ -165,5 +165,3 @@ def test_topics_file_env_expansion(monkeypatch, tmp_path) -> None:
     )
     cfg = load_dataset_config(cfg_path)
     assert cfg.topics == ['/session']
-
-

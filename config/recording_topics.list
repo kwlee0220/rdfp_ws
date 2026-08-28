@@ -28,6 +28,14 @@
 /gripper_control/gripper_cmds
 /gripper_control/gripper_action_states
 
+# Scene 물체 상태 (ground truth)
+#   백엔드별 scene 상태 노드가 2 Hz 로 발행한다. **학습 입력(observation)이 아니라**
+#   자동 라벨링(place 성공 판정)·오프라인 큐레이션·pose estimator 학습 라벨용이다.
+#   관측에 넣을지는 export 단계의 별도 결정이다
+#   (docs/rosbag2/scene_objects_observation_decision.md).
+#   `/session` 과 같은 TRANSIENT_LOCAL 토픽이므로 rosbag2 가 발행자 QoS 에 맞춰 붙는다.
+/scene/objects
+
 # Camera 관련 토픽
 /camera/image_raw
 /camera/image_compressed

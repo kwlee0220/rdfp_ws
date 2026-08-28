@@ -33,7 +33,7 @@ package), e.g. [docs/recorder/](../../docs/recorder/),
 
 ## Adding a console script
 
-`setup.py` is the single source of truth for `ros2 run rdfp <name>` entries —
+`setup.py` is the single source of truth for `ros2 run rdfp <name>` entries (control-layer scripts moved to `robot_control`, `robot_twin` to `robot_twin`) —
 there is no `entry_points.txt` or plugin registry. After editing the
 `console_scripts` list:
 
@@ -52,7 +52,7 @@ The `data_files` list installs three globs into `share/rdfp/`:
 
 | Source glob | Installed to | Purpose |
 |---|---|---|
-| `launch/*.py` | `share/rdfp/launch/` | launch entry points + helper modules |
+| `launch/*.py` | `share/rdfp/launch/` | launch entry points (helpers live in `robot_control`) |
 | `config/*` | `share/rdfp/config/` | YAML / RViz configs (`image_pipeline.yaml`, `panda_robot.yaml`, `replay_panda_mock.yaml`, `teleop_mirror.yaml`, `panda.rviz`) |
 | `rdfp/dataset/sql/*.sql` | `share/rdfp/dataset/sql/` | DB schema bootstrap scripts used by `init-db` |
 
@@ -145,7 +145,7 @@ needs `servo_auto_start_node` because `moveit_servo` ignores input until
 ## Tests live next to source
 
 Subpackage tests are colocated under `rdfp/<sub>/tests/` — six suites
-(`camera`, `dataset`, `recorder`, `rosbag`, `teleop`, `twin`). The `test/` dir
+(`dataset`, `recorder`, `rosbag`, `teleop`) — `camera`/`scene` 은 `robot_control`, `twin` 은 `robot_twin` 으로 이동했다. The `test/` dir
 that `package.xml` and `setup.py` still reference **does not exist**, so the
 ament linters never run; see the workspace CLAUDE.md "Tests". When adding
 tests:

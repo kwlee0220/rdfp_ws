@@ -59,7 +59,7 @@ OMY-L100 ─(omy_leader_bridge)─▶ /leader/ee_pose
 
 | 증상 | 원인 | 문서 |
 |---|---|---|
-| 토픽이 아예 안 보인다 | `ROS_DOMAIN_ID` / RMW 불일치 (`source ~/.ros2rc`) | [절차서 §5-3](omy_leader_teleop_guide.md) |
+| 토픽이 아예 안 보인다 | `ROS_DOMAIN_ID` / RMW 불일치 — `rdfp_env` 미실행 | [절차서 §5-3](omy_leader_teleop_guide.md) |
 | 토픽은 흐르는데 팔이 안 움직인다 | 클러치 자동 해제 → hold 재발행 중<br>`ros2 topic echo /teleop_retarget/clutch_state --once` 로 사유 확인 | [노드 가이드 §3-2](teleop_retarget_node_guide.md) |
 | twist 는 나가는데 컨트롤러 명령이 없다 | `start_servo` 미호출 | [절차서 §5-2](omy_leader_teleop_guide.md) |
 | 움직임이 끊기거나 계단식이다 | 실효 주기 < 10 Hz / stale stamp | [계약 §3-2, §3-3](external_input_adapters.md) |

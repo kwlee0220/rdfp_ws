@@ -466,7 +466,7 @@ def _build_actions(context: LaunchContext) -> list:
     )
 
     ee_twist_node = Node(
-        package="rdfp",
+        package="robot_control",
         executable="ee_twist_node",
         name="ee_twist_publisher",
         output="screen",

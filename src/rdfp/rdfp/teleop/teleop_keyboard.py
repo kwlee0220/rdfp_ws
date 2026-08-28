@@ -11,18 +11,16 @@ import select
 import termios
 import tty
 from dataclasses import dataclass
-from typing import List  # noqa: UP035
 
-from rdfp.teleop.session_teleop import _DEFAULT_TASKS
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from control_msgs.msg import JointJog
 from rdfp_msgs.msg import GripperCommand
 
-from ..moveit import create_move_group_client
-from ..moveit.servo_client import ServoClient
-from ..ros2_utils import get_parameter, parse_float, parse_str, parse_str_list
+from robot_control.moveit import create_move_group_client
+from robot_control.moveit.servo_client import ServoClient
+from robot_control.ros2_utils import get_parameter, parse_float, parse_str, parse_str_list
 from ..session.session_control_client import SessionControlClient
 
 
@@ -116,7 +114,7 @@ Keyboard Twist Teleop (forgeflow)
   Note: Servo auto-starts on initialization
 ─────────────────────────────────────"""
 
-_DEFAULT_TASK_LIST =  ["touch", "pick_and_place", "push", "stack", "wipe"]
+_DEFAULT_TASK_LIST = ["touch", "pick_and_place", "push", "stack", "wipe"]
 _SERVO_NODE_NAME = "/servo_node"  # Default name for the servo node to control
 _DELTA_TWIST_TOPIC = "/servo_node/delta_twist_cmds"  # Default topic for TwistStamped commands
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
@@ -237,7 +235,6 @@ class TeleopKeyboard(Node):
 
         # Auto-start servo after initialization
         self._setup_servo_auto_start()
-
 
     def destroy_node(self):
         super().destroy_node()
@@ -455,7 +452,6 @@ class TeleopKeyboard(Node):
         }
         return messages.get(label, f"Command '{label}' succeeded")
 
-
     # ── One-shot key handlers ───────────────────────────────────
 
     def _handle_oneshot_key(self, key: str) -> bool:
@@ -642,18 +638,20 @@ class TeleopKeyboard(Node):
         angular = self.twist.twist.angular
 
         # Check for excessive velocities (log warnings)
-        if (abs(linear.x) > self.MAX_LINEAR_VELOCITY or
-            abs(linear.y) > self.MAX_LINEAR_VELOCITY or
-            abs(linear.z) > self.MAX_LINEAR_VELOCITY):
+        if (abs(linear.x) > self.MAX_LINEAR_VELOCITY
+                or abs(linear.y) > self.MAX_LINEAR_VELOCITY
+                or abs(linear.z) > self.MAX_LINEAR_VELOCITY):
             self.get_logger().warning(
-                f"High linear velocity detected: [{linear.x:.3f}, {linear.y:.3f}, {linear.z:.3f}] m/s"
+                "High linear velocity detected: "
+                f"[{linear.x:.3f}, {linear.y:.3f}, {linear.z:.3f}] m/s"
             )
 
-        if (abs(angular.x) > self.MAX_ANGULAR_VELOCITY or
-            abs(angular.y) > self.MAX_ANGULAR_VELOCITY or
-            abs(angular.z) > self.MAX_ANGULAR_VELOCITY):
+        if (abs(angular.x) > self.MAX_ANGULAR_VELOCITY
+                or abs(angular.y) > self.MAX_ANGULAR_VELOCITY
+                or abs(angular.z) > self.MAX_ANGULAR_VELOCITY):
             self.get_logger().warning(
-                f"High angular velocity detected: [{angular.x:.3f}, {angular.y:.3f}, {angular.z:.3f}] rad/s"
+                "High angular velocity detected: "
+                f"[{angular.x:.3f}, {angular.y:.3f}, {angular.z:.3f}] rad/s"
             )
 
         # Apply emergency limits (hard clamp)
@@ -760,8 +758,8 @@ Valid Keys:
                 "Episode: '[' start_episode, ']' stop_episode"
             )
         elif key_lower.isalpha() and key_lower not in ['j', 'l', 'i', 'k', 'q', 'a',
-                                                        'r', 'f', 't', 'g', 'y', 'h',
-                                                        'x']:
+                                                       'r', 'f', 't', 'g', 'y', 'h',
+                                                       'x']:
             suggestions.append(
                 "Motion: j/l (±x), i/k (±y), q/a (±z), ;/' (panda_joint1 ±); "
                 "Angular: r/f (roll), t/g (pitch), y/h (yaw)"
@@ -788,11 +786,13 @@ Valid Keys:
             raise ValueError(f"linear_step must be positive, got {self.linear_step}")
         if self.linear_step > self.MAX_LINEAR_VELOCITY:
             raise ValueError(
-                f"linear_step exceeds safety limit (max {self.MAX_LINEAR_VELOCITY} m/s), got {self.linear_step}"
+                f"linear_step exceeds safety limit "
+                f"(max {self.MAX_LINEAR_VELOCITY} m/s), got {self.linear_step}"
             )
         if self.linear_step > self.EMERGENCY_LINEAR_LIMIT:
             raise ValueError(
-                f"linear_step exceeds emergency limit (max {self.EMERGENCY_LINEAR_LIMIT} m/s), got {self.linear_step}"
+                f"linear_step exceeds emergency limit "
+                f"(max {self.EMERGENCY_LINEAR_LIMIT} m/s), got {self.linear_step}"
             )
 
         # Validate angular_step against safety limits
@@ -800,11 +800,13 @@ Valid Keys:
             raise ValueError(f"angular_step must be positive, got {self.angular_step}")
         if self.angular_step > self.MAX_ANGULAR_VELOCITY:
             raise ValueError(
-                f"angular_step exceeds safety limit (max {self.MAX_ANGULAR_VELOCITY:.2f} rad/s), got {self.angular_step}"
+                f"angular_step exceeds safety limit "
+                f"(max {self.MAX_ANGULAR_VELOCITY:.2f} rad/s), got {self.angular_step}"
             )
         if self.angular_step > self.EMERGENCY_ANGULAR_LIMIT:
             raise ValueError(
-                f"angular_step exceeds emergency limit (max {self.EMERGENCY_ANGULAR_LIMIT:.2f} rad/s), got {self.angular_step}"
+                f"angular_step exceeds emergency limit "
+                f"(max {self.EMERGENCY_ANGULAR_LIMIT:.2f} rad/s), got {self.angular_step}"
             )
 
         # Validate deadman_ttl_sec

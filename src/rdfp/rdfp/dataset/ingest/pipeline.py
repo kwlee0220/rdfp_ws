@@ -186,8 +186,9 @@ def _apply_episode_filters(
     return out
 
 
-def _determine_topic_classification(splits: list,
-                                    cfg: DatasetConfig) -> tuple[set[str], dict[str, tuple[str, str]], dict[str, str]]:
+def _determine_topic_classification(
+    splits: list, cfg: DatasetConfig
+) -> tuple[set[str], dict[str, tuple[str, str]], dict[str, str]]:
     """토픽을 DB / mp4 / 무시 로 분류한다.
 
     Returns:

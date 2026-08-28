@@ -124,8 +124,8 @@ def test_list_topics_sort_by_count(tmp_path, monkeypatch, capsys) -> None:
     splits = [SimpleNamespace(path='/tmp/a.mcap', session_name='s', split_index=0)]
 
     def fake_inspect(path, per_topic):
-        per_topic['/low']  = {'count': 10,  'types': {'a/msg/X'},
-                              'first_ns': 1, 'last_ns': 2}
+        per_topic['/low'] = {'count': 10, 'types': {'a/msg/X'},
+                             'first_ns': 1, 'last_ns': 2}
         per_topic['/high'] = {'count': 999, 'types': {'a/msg/X'},
                               'first_ns': 1, 'last_ns': 2}
 

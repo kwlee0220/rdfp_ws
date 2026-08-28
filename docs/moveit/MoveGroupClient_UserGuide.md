@@ -122,7 +122,7 @@ JGPC 스택에서 `move_to_*` / `follow_trajectory` 는 **open loop** 다 — �
 
 ```bash
 # 터미널 1: MoveIt2 스택 실행
-ros2 launch rdfp panda_mock.launch.py
+ros2 launch robot_control panda_mock.launch.py
 ```
 
 이 launch가 완료되면 `move_group` 노드가 `/compute_cartesian_path` 서비스와 `/execute_trajectory` 액션 서버를 제공한다.
@@ -588,13 +588,32 @@ with create_move_group_client(node, velocity_scaling=0.3) as client:
 
 | 파라미터 | 기본값 | 용도 |
 |---|---|---|
-| `joint_values` | (필수) | `{관절이름: 라디안}`. planning group 에 속한 관절만 |
+| `joint_values` | (필수) | `{관절이름: 라디안}`. planning group 에 속한 관절만. **일부만 줘도 되며, 나머지는 현재값으로 고정된다**(아래) |
 | `velocity_scaling` | 생성자 기본값 | 계획된 trajectory 속도 배율. `None` 이면 생성자 값 |
 | `planning_time` | `5.0` | MoveGroup 계획 허용 시간(초) |
 | `tolerance` | `1e-4` | 각 관절 목표의 허용 오차(라디안) |
 | `timeout` | `120.0` | 계획 + 실행 전체 최대 시간(초) |
 
 JGPC 구현은 여기에 [`time_scaling` / `publish_rate`](#4101-jgpc-가-추가로-받는-파라미터) 를 더 받는다.
+
+**지정하지 않은 관절은 현재값으로 고정된다.** 그래서 축 하나만 움직이려면 그 축만
+주면 된다.
+
+```python
+client.move_to_joints({'panda_joint1': 0.5})   # 1번 축만 움직인다
+```
+
+내부적으로는 SRDF 의 `<group_state>` 에서 그룹 관절 목록을 얻고(`group_joint_names()`),
+`/joint_states` 에서 현재값을 읽어 **전 관절에 제약을 건다.** 그룹 밖 관절
+(`panda_finger_*`)은 채우지 않는다 — 섞이면 계획이 실패한다.
+
+> **왜 채우는가.** 지정한 관절에만 제약을 걸면 목표가 자세 하나가 아니라 "그 조건을
+> 만족하는 자세의 **집합**"이 되고, 플래너가 그중 아무거나 고른다. `panda_joint1` 만
+> 준 호출이 나머지 6축을 최대 3.5 rad 움직여 엔드이펙터가 로봇 뒤쪽 위로 넘어간 것이
+> 실측된다 — **호출 전에 결과를 알 수 없다.**
+>
+> 그룹에 `<group_state>` 가 하나도 없는 SRDF 면 관절 목록을 알 수 없어
+> `RuntimeError` 로 실패한다. 그때는 전 관절을 명시한다.
 
 ### 6.2 주의사항
 
@@ -974,7 +993,7 @@ with create_move_group_client(node, velocity_scaling=0.2) as client:
 
 | 증상 | 원인 | 해결 |
 |---|---|---|
-| `wait_until_ready()` timeout | MoveIt2 스택 미실행 | `ros2 launch rdfp panda_mock.launch.py` 확인 |
+| `wait_until_ready()` timeout | MoveIt2 스택 미실행 | `ros2 launch robot_control panda_mock.launch.py` 확인 |
 | `fraction` 부족으로 `RuntimeError` | Waypoint가 도달 불가능한 위치 | 작업 영역 내로 waypoint 수정 또는 `fraction_threshold` 하향 |
 | `execute_trajectory` timeout | 로봇이 움직이다 멈춤 | timeout 증가 또는 trajectory 길이 확인 |
 | `Goal rejected` | Controller 미준비 | Controller spawner 완료 여부 확인 |

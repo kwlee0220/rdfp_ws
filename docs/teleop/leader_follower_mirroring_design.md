@@ -89,7 +89,7 @@ leader 가 `/tf` 를 이미 발행하므로 FK 를 직접 계산할 필요가 �
 이므로 파라미터만 바꿔 재사용한다.
 
 ```bash
-ros2 run rdfp ee_pose_node --ros-args \
+ros2 run robot_control ee_pose_node --ros-args \
   -p base_frame:=<leader_base_frame> \
   -p ee_frame:=<leader_ee_frame> \
   -p publish_rate:=50.0 \
@@ -143,7 +143,7 @@ pose 를 그대로 넘기면 안 되고, "상대 변위" 매핑** 을 쓴다. �
   `/servo_node/delta_twist_cmds` 경로를 이미 검증했다. **retarget 노드 하나만
   새로 쓰면 되는 구성** 이다.
 - 장시간 정밀 미러링이 필요해지면 (b) 로 승격한다. 폐루프/드리프트 논리는
-  [../replay/cartesian_path_replay_approaches.md](../replay/cartesian_path_replay_approaches.md)
+  [../replay/replay_approaches.md](../replay/replay_approaches.md)
   참고.
 
 ## 4. 50Hz 기준 설계 확정값
@@ -167,7 +167,11 @@ leader `/tf` 가 50Hz(주기 20ms)로 확인되었다. 사람 팔 동작의 유�
    정지 twist 를 발행한다.
 4. **점프 감지** — engage 직후 또는 통신 끊김 후 target 이 현재 pose 에서 멀면
    무시하거나 천천히 수렴시킨다. Servo pose tracking 이면 자동, twist 방식이면
-   직접 구현해야 한다.
+   직접 구현해야 한다. 다만 **Humble 의 `servo_node` 는 pose 를 받지 못하므로**
+   pose tracking 을 쓰려면 C++ 노드를 새로 작성해야 한다 — 사실상 twist 방식에서
+   직접 구현하는 쪽이 가깝다
+   ([replay_approaches.md](../replay/replay_approaches.md)
+   방법 A).
 5. **Servo 내장 보호 활용** — 특이점/관절한계 스케일다운, 충돌 체크.
 
 ## 6. 한계 (미리 인지할 것)
@@ -239,7 +243,7 @@ leader 의 EE 속도(twist)를 구해 그대로 `/delta_twist_cmds` 에 흘리�
 1차 프로토타입 (a) 안의 twist 스트리밍은 실용적으로 허용된다. 이때도 twist 는
 retarget 된 target_pose 를 차분해 만들므로 클러치/스케일은 유지된다.
 자세한 폐루프/개루프 논의는
-[../replay/cartesian_path_replay_approaches.md](../replay/cartesian_path_replay_approaches.md)
+[../replay/replay_approaches.md](../replay/replay_approaches.md)
 를 참고한다.
 
 ### 9.1 그렇다면 `/tf → twist` 로 바로 만들면 안 되나? (자주 되묻게 되는 질문)
@@ -303,12 +307,12 @@ ee_twist_node` 3노드를 하나로 합치는 것은 합리적이다. 단 그 �
 - `src/rdfp/rdfp/teleop/retarget_math.py` — 매핑/쿼터니언 순수 수학부
   (ROS 미소싱 환경에서 단위테스트 가능,
   `rdfp/teleop/tests/test_retarget_math.py`).
-- `src/rdfp/rdfp/moveit/ee_pose_publisher.py` — TF lookup → PoseStamped
+- `src/robot_control/robot_control/moveit/ee_pose_publisher.py` — TF lookup → PoseStamped
   (`ee_pose_node`). leader EE pose 추출에 재사용.
-- `src/rdfp/rdfp/moveit/ee_twist_publisher.py` — pose/joint_states →
+- `src/robot_control/robot_control/moveit/ee_twist_publisher.py` — pose/joint_states →
   TwistStamped (`ee_twist_node`). `source:=ee_pose` 로 재사용.
 - `src/rdfp/rdfp/teleop/teleop_keyboard.py` — `/servo_node/delta_twist_cmds`
   경로의 기존 검증 사례.
 - `docs/moveit/servo_client_programmers_guide.md` — Servo 클라이언트 사용법.
-- `docs/replay/cartesian_path_replay_approaches.md` — 폐루프/개루프,
+- `docs/replay/replay_approaches.md` — 폐루프/개루프,
   드리프트, pose tracking 배경 설명.

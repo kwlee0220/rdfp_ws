@@ -2,7 +2,7 @@
 
 > 대상: ROS 2 Humble + Gazebo Fortress (gz-sim 6) + MoveIt2
 > 관련 설계: [multi_simulator_backend_design.md](multi_simulator_backend_design.md)
-> launch: [panda_gazebo.launch.py](../../src/rdfp/launch/panda_gazebo.launch.py)
+> launch: [panda_gazebo.launch.py](../../src/robot_control/launch/panda_gazebo.launch.py)
 
 기존 `mock_components` 기반 스택을 Gazebo 물리 시뮬레이션으로 교체해 실행하는
 백엔드다. MoveIt / RViz / ee_pose / gripper 등 상위 노드는 mock 과 **동일한
@@ -38,17 +38,17 @@ ign gazebo --version                   # Gazebo Sim, version 6.x (Fortress)
 
 ```bash
 cd ~/development/ros/rdfp_ws
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 
 # 기본 (빈 월드, 카메라 없음)
-ros2 launch rdfp panda_gazebo.launch.py
+ros2 launch robot_control panda_gazebo.launch.py
 
 # 월드 지정
-ros2 launch rdfp panda_gazebo.launch.py world:=empty.sdf
+ros2 launch robot_control panda_gazebo.launch.py world:=empty.sdf
 
 # 손목 카메라 센서까지 시뮬레이션 (/camera/image_raw 로 브리지)
-ros2 launch rdfp panda_gazebo.launch.py simulate_camera:=true
+ros2 launch robot_control panda_gazebo.launch.py simulate_camera:=true
 ```
 
 실행되면 Gazebo 창에 Panda 가 `ready` 자세로 스폰되고, RViz2 의 MoveIt
@@ -91,14 +91,14 @@ robot_state_publisher  +  gz_sim(서버/클라이언트)  +  /clock 브리지
 
 | 경로 | 역할 |
 |---|---|
-| `src/rdfp/description/panda_links.urdf.xacro` | 베이스 panda.urdf 포크 + 12개 링크 inertial 보강 |
-| `src/rdfp/description/panda.ros2_control.xacro` | arm ros2_control + `gazebo` 분기 추가 |
-| `src/rdfp/description/panda_hand.ros2_control.xacro` | hand ros2_control + `gazebo` 분기 (mimic 처리) |
-| `src/rdfp/description/panda.gazebo.xacro` | ign_ros2_control 플러그인 · world 앵커 · 카메라 센서 매크로 |
-| `src/rdfp/description/panda.urdf.xacro` | 최상위 — 위 요소 결합, `ros2_control_hardware_type` 로 분기 |
-| `src/rdfp/description/initial_positions.yaml` | 초기 관절값(ready) |
-| `src/rdfp/launch/gazebo_launch_helper.py` | gazebo moveit config 빌더 · gz_sim include · 스폰 · 브리지 · 기동 핸들러 |
-| `src/rdfp/launch/panda_gazebo.launch.py` | Gazebo 풀 스택 브링업 |
+| `src/robot_control/description/panda_links.urdf.xacro` | 베이스 panda.urdf 포크 + 12개 링크 inertial 보강 |
+| `src/robot_control/description/panda.ros2_control.xacro` | arm ros2_control + `gazebo` 분기 추가 |
+| `src/robot_control/description/panda_hand.ros2_control.xacro` | hand ros2_control + `gazebo` 분기 (mimic 처리) |
+| `src/robot_control/description/panda.gazebo.xacro` | ign_ros2_control 플러그인 · world 앵커 · 카메라 센서 매크로 |
+| `src/robot_control/description/panda.urdf.xacro` | 최상위 — 위 요소 결합, `ros2_control_hardware_type` 로 분기 |
+| `src/robot_control/description/initial_positions.yaml` | 초기 관절값(ready) |
+| `src/robot_control/robot_control/launch_helpers/gazebo.py` | gazebo moveit config 빌더 · gz_sim include · 스폰 · 브리지 · 기동 핸들러 |
+| `src/robot_control/launch/panda_gazebo.launch.py` | Gazebo 풀 스택 브링업 |
 | `setup.py` | `description/*` 를 share 로 설치 |
 | `package.xml` | ros_gz / ign_ros2_control 등 런타임 의존성 |
 
@@ -114,7 +114,7 @@ robot_state_publisher  +  gz_sim(서버/클라이언트)  +  /clock 브리지
   `check_urdf` 통과.
 - ✅ `colcon build` 성공, `description/*` share 설치 확인,
   설치본에서 `$(find rdfp)` 해석 정상.
-- ✅ `ros2 launch rdfp panda_gazebo.launch.py --show-args` 정상
+- ✅ `ros2 launch robot_control panda_gazebo.launch.py --show-args` 정상
   (launch description 빌드 성공). robot_description 은 `simulate_camera` 를
   런타임에 resolve 하는 deferred `Command` 로 구성됨.
 - ⚠️ **런타임(실제 Gazebo 물리/제어) 검증은 미완료** — `ign_ros2_control`
@@ -143,7 +143,7 @@ $(dirname $(ros2 pkg prefix moveit_resources_panda_description)/share/moveit_res
 `panda_finger_joint2` 는 `panda_finger_joint1` 을 mimic 한다. ign_ros2_control
 (Fortress)의 mimic 지원이 제한적이라, description 의 gazebo 분기에서는
 finger_joint2 의 `command_interface` 를 빼고 mimic 파라미터만 둔다
-([panda_hand.ros2_control.xacro](../../src/rdfp/description/panda_hand.ros2_control.xacro)).
+([panda_hand.ros2_control.xacro](../../src/robot_control/description/panda_hand.ros2_control.xacro)).
 그리퍼 거동이 비정상이면 이 부분을 우선 점검한다.
 
 ### 6.3 inertial 근사값
@@ -197,7 +197,7 @@ position 인터페이스 JTC 는 이 끝점 속도를 두 가지로 잘못 처�
 - `false` → "Velocity of last trajectory point is not zero" 로 **거부** → 저깅 불가.
 
 → 해결: Gazebo 백엔드 servo 파라미터에서 **`publish_joint_velocities: false`**
-([build_gazebo_servo_params](../../src/rdfp/launch/gazebo_launch_helper.py)).
+([build_gazebo_servo_params](../../src/robot_control/robot_control/launch_helpers/gazebo.py)).
 위치만 발행하면 끝점 속도 자체가 없어 거부도 드리프트도 사라지고, 입력이 끊기면
 마지막 위치에서 정지한다. `use_gazebo: true`(타이밍용 redundant point)와
 `config/gazebo_ros2_controllers.yaml` 의 `allow_nonzero_velocity_at_trajectory_end:

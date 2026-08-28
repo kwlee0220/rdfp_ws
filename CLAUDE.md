@@ -4,9 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-ROS 2 (Humble) workspace for Franka Emika Panda robot development with MoveIt2. The single package `rdfp` (under `src/rdfp/`) covers: MoveIt2 launch stack, Cartesian planning, camera capture, MP4 image recording, session/episode lifecycle, rosbag → PostgreSQL/MP4 dataset ingestion, and dataset replay (with a Tk control GUI).
+ROS 2 (Humble) workspace for Franka Emika Panda robot development with MoveIt2, and the "real/virtual robot environment" subsystem of an imitation-learning data platform (see [docs/rdfp_framework_design.md](docs/rdfp_framework_design.md)).
 
-External MoveIt resources are pulled from `moveit_resources_panda` / `moveit_resources_panda_moveit_config`. Service/message types live in a sibling package `rdfp_msgs` (separate repo, must be built alongside).
+**Four packages, split along a layer boundary.** The lower layer is usable standalone as a plain ROS 2 robot-control stack; the upper layer adds learning-data collection on top.
+
+| package | layer | contents | depends on |
+|---|---|---|---|
+| `rdfp_msgs` | — | msg/srv IDL (separate repo, build first) | — |
+| `robot_control` | **control (lower)** | `moveit/` `camera/` `scene/`, shared `ros2_utils`/`types`/`logging_bridge`, `launch_helpers/`, non-`rdfp_`-prefixed launches, robot description | `rdfp_msgs` |
+| `robot_twin` | control | REST gateway (`robot_twin`) exposing the control layer as variables/operations | `robot_control` |
+| `rdfp` | **collection (upper)** | `session/` `recorder/` `camera/` `dataset/` `rosbag/` `teleop/`, `rdfp_*` launches, replay | `robot_control`, `rdfp_msgs` |
+
+**The dependency direction is one-way and enforced by tests.** `robot_control` / `robot_twin` must never import `rdfp` — `robot_control/tests/test_layer_boundary.py` and `robot_twin/tests/test_layer_boundary.py` fail the build if they do. When the lower layer needs something from the upper layer, use the entry-point seam (see `robot_twin/backend_registry.py`), not an import.
+
+External MoveIt resources are pulled from `moveit_resources_panda` / `moveit_resources_panda_moveit_config`.
 
 ## Build & Run
 
@@ -14,37 +25,51 @@ External MoveIt resources are pulled from `moveit_resources_panda` / `moveit_res
 cd ~/development/ros/rdfp_ws
 
 # Build (always run from workspace root, not from src/)
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 
 # Launches — Panda + MoveIt2 stacks
-ros2 launch rdfp panda_mock.launch.py            # MoveIt2 only
+ros2 launch robot_control panda_mock.launch.py    # MoveIt2 only (control layer)
 ros2 launch rdfp rdfp_panda_mock.launch.py       # + camera/ee_pose/recorder via YAML
 ros2 launch rdfp replay_panda_mock.launch.py     # replay-mode stack (see replay_arm_path)
 
 # Launches — session/camera apps (no MoveIt)
 ros2 launch rdfp rdfp.launch.py
 ros2 launch rdfp rdfp_advanced.launch.py
+
+# Robot twin (REST gateway; control layer only — session ops need `rdfp` installed)
+ros2 run robot_twin robot_twin --config <path>
 ```
 
-YAML-driven launches take a `config_file:=<path>` argument; the default resolves via `get_package_share_directory("rdfp")`. Source lives at `src/rdfp/config/`; setup.py glob's `config/*` into `share/rdfp/config/` at install time.
+YAML-driven launches take a `config_file:=<path>` argument. **The default resolves against the package that owns the file, which is not always the package that owns the launch** — `rdfp_panda_jgpc_mock` (in `rdfp`) reads its controllers YAML from `robot_control`'s share. Each package's setup.py globs `config/*` into `share/<pkg>/config/`.
 
-| config | read by | argument |
-|---|---|---|
-| `config/image_pipeline.yaml` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock` | `image_pipeline_config_file` |
-| | `rdfp`, `rdfp_advanced` | `config_file` |
-| | `panda_mock`, `panda_jgpc_mock` | (defaults only, not swappable) |
-| `config/panda_robot.yaml` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock` | `config_file` |
-| `config/replay_panda_mock.yaml` | `replay_panda_mock` | `config_file` |
-| `config/teleop_mirror.yaml` | `teleop_mirror` | `config_file` |
+| config | owning package | read by | argument |
+|---|---|---|---|
+| `config/image_pipeline.yaml` | `robot_control` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock` | `image_pipeline_config_file` |
+| | | `rdfp`, `rdfp_advanced` | `config_file` |
+| | | `panda_mock`, `panda_jgpc_mock` | (defaults only, not swappable) |
+| `config/panda_jgpc_ros2_controllers.yaml` | `robot_control` | `panda_jgpc_mock`, `rdfp_panda_jgpc_mock` | (fixed) |
+| `config/panda.rviz`, `description/*` | `robot_control` | all Panda launches | (fixed) |
+| `config/panda_robot.yaml` | `rdfp` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock` | `config_file` |
+| `config/replay_panda_mock.yaml` | `rdfp` | `replay_panda_mock` | `config_file` |
+| `config/teleop_mirror.yaml` | `rdfp` | `teleop_mirror` | `config_file` |
+| `config/robot_twin_panda01.yaml` | `robot_twin` | `robot_twin` | `--config` |
 
-`image_pipeline.yaml` is the **single source for camera/viewer/recorder settings** — it exists because the app launches used to hardcode `640x480`/`id: 4` in `camera_launch_helper` while the panda launches read `1280x720`/an mp4 path from YAML. `image_pipeline_launch_helper.py` owns the loading; `camera_launch_helper.declare_camera_arguments()` is a thin wrapper over it.
+`image_pipeline.yaml` is the **single source for camera/viewer/recorder settings** — it exists because the app launches used to hardcode `640x480`/`id: 4` in `camera_launch_helper` while the panda launches read `1280x720`/an mp4 path from YAML. `robot_control.launch_helpers.image_pipeline` owns the loading; `launch_helpers.camera.declare_camera_arguments()` is a thin wrapper over it.
 
-Each YAML holds **only keys with a live consumer** — a missing block means that launch doesn't start the corresponding node. Passing the wrong YAML fails fast (`KeyError`) rather than silently defaulting. Key ↔ argument mapping tables: [src/rdfp/launch/README.md](src/rdfp/launch/README.md) §4 "Launch 인자".
+Each YAML holds **only keys with a live consumer** — a missing block means that launch doesn't start the corresponding node. Passing the wrong YAML fails fast (`KeyError`) rather than silently defaulting. Key ↔ argument mapping tables: [src/rdfp/launch/README.md](src/rdfp/launch/README.md) §3 (수집 계열) / [src/robot_control/launch/README.md](src/robot_control/launch/README.md) §2 (제어 계열).
 
 ## Console Scripts
 
-`setup.py` registers many entry points. The dataset CLI was historically a single `dataset` script with subcommands but has been split into independent top-level commands; **don't add new `dataset <sub>` subcommands** — add a sibling `*_cmd.py` module instead.
+Entry points are split across the three Python packages — **`ros2 run <pkg> <script>` needs the right package**:
+
+| package | scripts |
+|---|---|
+| `robot_control` | `camera_node`, `image_capture_node`, `image_viewer_node`, `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `gripper_control_node`, `mock_scene_state_node`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `target_joint_states_publisher`, `target_joint_states_executor` |
+| `robot_twin` | `robot_twin` |
+| `rdfp` | `rdfp_camera_node`, `rdfp_image_viewer_node`, `session_control_node`, `image_recorder_node`, `rdfp_image_recorder`, `teleop_keyboard`, `session_teleop`, `teleop_retarget`, `clutch_pedal` (USB 풋페달 → 클러치; `python3-evdev` 필요), `import`, `replay`, `stats`, `list`, `init-db`, `rosbag`, `replay_gui` |
+
+The dataset CLI was historically a single `dataset` script with subcommands but has been split into independent top-level commands; **don't add new `dataset <sub>` subcommands** — add a sibling `*_cmd.py` module instead.
 
 Dataset / rosbag CLIs (run from workspace root after sourcing):
 
@@ -57,19 +82,21 @@ ros2 run rdfp replay   42 --config dataset_config.yaml   # ROS-dep
 ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
 ```
 
-Other notable scripts: `image_recorder_node`, `rdfp_image_recorder`, `camera_node`, `session_control_node`, `replay_gui` (Tk replay control GUI), `teleop_keyboard`, `session_teleop`, `target_joint_states_publisher`, `target_joint_states_executor`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `gripper_control_node`, `mock_scene_state_node` (MoveIt planning scene → `/scene/objects`), `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `teleop_retarget`, `clutch_pedal` (USB 풋페달 → 클러치; `python3-evdev` 필요).
-
 ## Tests
 
 ```bash
 # Full package
-colcon test --packages-select rdfp
+colcon test --packages-select robot_control robot_twin rdfp
 colcon test-result --verbose
 
 # Single test directory / file (faster than colcon test)
 cd src/rdfp
 PYTHONPATH=.:$PYTHONPATH python3 -m pytest rdfp/dataset/tests/test_dataset_import_cmd.py -v
 PYTHONPATH=.:$PYTHONPATH python3 -m pytest rdfp/dataset/tests/ -v
+
+# Control-layer / twin suites live in their own packages
+cd src/robot_control && PYTHONPATH=.:$PYTHONPATH python3 -m pytest robot_control/scene/tests/ -v
+cd src/robot_twin   && PYTHONPATH=.:$PYTHONPATH python3 -m pytest robot_twin/tests/ -v
 ```
 
 **Append `:$PYTHONPATH` — do not write `PYTHONPATH=.` alone.** A bare `PYTHONPATH=.`
@@ -77,8 +104,15 @@ PYTHONPATH=.:$PYTHONPATH python3 -m pytest rdfp/dataset/tests/ -v
 shell where `install/setup.bash` was sourced, and ROS-dependent modules fail at collection
 with `ModuleNotFoundError`. Appending keeps both.
 
-Test layout — seven colocated suites, 567 tests total:
-`rdfp/camera/tests/`, `rdfp/dataset/tests/`, `rdfp/recorder/tests/`, `rdfp/rosbag/tests/`, `rdfp/scene/tests/`, `rdfp/teleop/tests/`, `rdfp/twin/tests/`.
+Test layout — colocated suites across three packages, **746 tests total** (`robot_control` 138 / `robot_twin` 215 / `rdfp` 393):
+
+| package | suites |
+|---|---|
+| `robot_control` | `robot_control/moveit/tests/`, `robot_control/scene/tests/`, `robot_control/functionbay/tests/`, `robot_control/tests/` (layer boundary) |
+| `robot_twin` | `robot_twin/tests/` (incl. layer boundary) |
+| `rdfp` | `rdfp/camera/tests/`, `rdfp/dataset/tests/`, `rdfp/recorder/tests/`, `rdfp/rosbag/tests/`, `rdfp/teleop/tests/` |
+
+**`test_layer_boundary.py` in `robot_control` and `robot_twin` is what keeps the split real.** It AST-parses every source file in the package and fails if any imports an upper-layer package, **or imports `SessionCommand` from `rdfp_msgs`** — `rdfp_msgs` is an IDL package so the import-root check alone can't see a session-aware node sitting in the control layer (that is exactly how `rdfp_camera_node` / `rdfp_image_viewer_node` ended up there before moving to `rdfp/camera/`). `package.xml` dependencies only order the build; they do not stop an import in the wrong direction. If you need something from the upper layer, add an entry point to the `robot_twin.backends` group (see `robot_twin/backend_registry.py` and `rdfp/session/twin_backend.py`) — do not import.
 
 **There is no `test/` directory and the ament linters never run.** `package.xml` still declares `ament_copyright` / `ament_flake8` / `ament_pep257` as `test_depend` and `setup.py` still does `find_packages(exclude=['test'])`, but the three linter test files are absent — so `colcon test` exercises only the suites above. Consequence: style violations accumulate unchecked (there are pre-existing `F401` / `E702` / `E125` hits under `dataset/tests/`). Run flake8 by hand on files you touch until the linters are restored.
 
@@ -109,29 +143,54 @@ The dependency is often *transitive* — e.g. `ingest/test_filters.py` tests pur
 
 ### Package layout — what each subpackage does
 
-Top-level `rdfp/` (Python source root):
+Grouped by owning package. The `robot_control` block is the standalone robot-control stack; the `rdfp` block is what makes it a learning-data platform.
+
+**`robot_control`** (`src/robot_control/robot_control/`) — plus shared `ros2_utils.py` / `types.py` / `logging_bridge.py` used by both layers, and `launch_helpers/` (installed module, imported by launches in *both* packages).
 
 | Subpackage | Role |
 |---|---|
 | `moveit/` | `MoveGroupClient` — **abstract** base (cartesian/named-target *planning* + SRDF queries) with two execution implementations: `MoveGroupJtcClient` (MoveGroup/ExecuteTrajectory actions) and `MoveGroupJgpcClient` (Float64MultiArray command streaming). Build one via `create_move_group_client(node)`. Also `TrajectoryStreamer`, `ServoClient`, `ee_pose_publisher`, `gripper_*`, `target_joint_cmds_*` (arm 명령 ↔ `sensor_msgs/JointState` 어댑터; 구형 `target_joint_states_*` 는 구현만 남고 launch 에서는 제외됨) — direct MoveIt2 service/action wrappers. |
-| `camera/` | `camera_node` / `rdfp_camera_node` (OpenCV → ROS), `image_viewer_node` / `rdfp_image_viewer_node`, capture/reconnect helpers. |
+| `camera/` | `camera_node` (OpenCV → ROS), `image_capture_node` (JPEG `CompressedImage` 전용, `ReconnectingCamera` 로 재연결), `image_viewer_node`, `OpenCvCamera` / capture helpers. **세션을 아는 노드는 여기 없다** — `rdfp_camera_node` / `rdfp_image_viewer_node` 는 `rdfp/camera/` 소속이다. |
+| `scene/` | scene 물체 상태를 `/scene/objects` (`rdfp_msgs/SceneObjects`) 로 발행한다. 백엔드마다 노드가 하나씩이며 현재는 `mock_scene_state_node` (MoveIt planning scene 폴링)뿐이다. 좌표계·단위·쿼터니언 순서를 맞추는 책임이 전부 여기 있다 — `pose_math.py` 는 그 합성을 ROS 없이 테스트할 수 있게 분리한 순수 함수다. |
+
+**`robot_twin`** (`src/robot_twin/robot_twin/`) — REST gateway. `config.py` (declarative variables/operations YAML), `runtime.py` (ROS wiring), `backends.py` (operation handlers), `api.py` (FastAPI), `backend_registry.py` (entry-point seam for upper-layer backends).
+
+**`rdfp`** (`src/rdfp/rdfp/`) — collection layer.
+
+| Subpackage | Role |
+|---|---|
+| `camera/` | 세션 인지 카메라 어댑터. `rdfp_camera_node` (`/session` 이 `IN_EPISODE` 일 때만 이미지 발행, 끊기면 `reconnect_interval_sec` 주기로 재연결) 와 `rdfp_image_viewer_node` (프레임에 세션 상태 오버레이). 하드웨어 추상화는 `robot_control.camera.opencv_camera` 를 그대로 쓴다. |
+| `session/` | `session_control_node` — state machine (IDLE → IN_SESSION → IN_EPISODE) on a transient-local topic so late subscribers see current state. Also `twin_backend.py`, registered into `robot_twin.backends` so the twin can offer session/episode operations without depending on this package. |
 | `recorder/` | `FFMpegMp4Recorder` (ffmpeg subprocess MP4 sink, ROS-agnostic core). Two ROS adapters: `image_recorder_node` (service-driven start/stop) and `rdfp_image_recorder` (auto-recording driven by `/session` state, timestamp-based segmentation with a `pending_image_queue`; also writes `.jsonl` sidecar + `metadata.json`). |
-| `scene/` | 씬 물체 상태를 `/scene/objects` (`rdfp_msgs/SceneObjects`) 로 발행한다. 백엔드마다 노드가 하나씩이며 현재는 `mock_scene_state_node` (MoveIt planning scene 폴링)뿐이다. 좌표계·단위·쿼터니언 순서를 맞추는 책임이 전부 여기 있다 — `pose_math.py` 는 그 합성을 ROS 없이 테스트할 수 있게 분리한 순수 함수다. |
-| `session/` | `session_control_node` — state machine (IDLE → IN_SESSION → IN_EPISODE) on a transient-local topic so late subscribers see current state. |
 | `teleop/` | `teleop_keyboard`, `session_teleop`, `teleop_retarget` (클러치 앵커 기반 leader→follower 상대 매핑), `clutch_pedal` (USB HID 풋페달 → 클러치, evdev), `ClutchClient` (클러치 서비스·상태 래퍼). |
 | `rosbag/` | rosbag2 MCAP catalog/discovery (`catalog.discover_splits`, `merged_stream`, `mcap_reader`) + `rosbag` CLI for inspecting splits/episodes without DB. |
 | `dataset/` | DB schema + ingestion pipeline + replay. See "Dataset pipeline" below. Includes `replay_gui_cmd.py` — Tk GUI (`replay_gui` console_script) that orchestrates `Mp4ImageReplayer` + `TopicMessageReplayer` against a running MoveIt stack. |
 | `samples/` | Manual sample/demo scripts (not entry_points). |
 
-### Launch architecture (`launch/`)
+### Launch architecture
 
-Two families:
-- **Panda + MoveIt2**: `panda_mock.launch.py` (controller-spawn chain), `rdfp_panda_mock.launch.py` (full app YAML-driven), `replay_panda_mock.launch.py` (replay variant — keeps `joint_state_broadcaster`, drops the dataset-supplied sources; arm adapter chosen by `replay_arm_path`).
-- **Session/camera app**: `rdfp.launch.py`, `rdfp_advanced.launch.py`.
+Launch files are split by layer, helpers are not:
 
-`*_launch_helper.py` modules carry shared argument declarations + `Node` factories so launch files compose them rather than duplicating. The Panda startup chain is intentionally sequential via `RegisterEventHandler(OnProcessExit)`: `ros2_control_node` → `joint_state_broadcaster` → `panda_arm_controller` → `panda_hand_controller` → (`move_group` + `servo` + `rviz` + camera + ee_pose + scene). Three planning pipelines are loaded: OMPL, PILZ, CHOMP. See [src/rdfp/launch/README.md](src/rdfp/launch/README.md) for the full helper inventory.
+| package | launches |
+|---|---|
+| `robot_control/launch/` | `panda_mock`, `panda_jgpc_mock`, `panda_gazebo` — robot control only, no session/recording |
+| `rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp`, `rdfp_advanced`, `rdfp_collect`, `replay_panda_mock`, `teleop_mirror` |
 
-The **backend scene node starts by default** in all four mock launches (`panda_mock`, `panda_jgpc_mock`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`) via `scene_launch_helper`; `enable_scene_node:=false` turns it off. Default-on is deliberate: the node costs a 2 Hz timer and mutates nothing until a `/scene/commands` message arrives, whereas leaving it off makes the twin's `reset_scene` die on a result-topic timeout with nothing in the log pointing at the missing subscriber. `replay_panda_mock` deliberately does **not** get one — replayed object state must come from the dataset, and a live scene node would publish a second, conflicting source.
+**Helpers live in `robot_control/robot_control/launch_helpers/` as an installed Python module** and are imported normally by launches in both packages:
+
+```python
+from robot_control.launch_helpers.camera import create_camera_node
+```
+
+They used to be sibling files in `launch/` pulled in via `sys.path.insert(0, os.path.dirname(__file__))`. That trick only works inside one directory, so it could not survive the package split — the `rdfp_*` launches must import helpers that live in another package. **Do not reintroduce the `sys.path` pattern.**
+
+**`rdfp_collect.launch.py` starts the four collection nodes alone**, to be layered on an already-running control stack. `panda_mock` + `rdfp_collect` produces a node graph identical to `rdfp_panda_mock` (verified by diffing node lists, all collection-node parameters, and topic endpoints on an isolated domain); `panda_jgpc_mock` + `rdfp_collect arm_cmd_source:=float64_multi_array` likewise. The **Gazebo pair is not equivalent by default** — `rdfp_panda_gazebo` hardcodes backend-tied values (`camera_resolution: 640x480` from the gz sensor in `panda.gazebo.xacro`, viewer/recorder off because `simulate_camera` defaults false) instead of reading `image_pipeline.yaml`, so four arguments must be passed explicitly. Recipes: [src/rdfp/launch/README.md](src/rdfp/launch/README.md) §6.1.
+
+Splitting is possible because **none of the four collection nodes has a hard startup dependency** — all are subscribers / state machines / service servers. The one client (`target_joint_cmds_publisher` querying the arm controller's `joints` param) runs on a timer with `joint_names_timeout` (10 s) and degrades to an empty `JointState.name`, and the split ordering (control stack first) is if anything safer than the bundled one. **The bundled launches are still the default**: they declare shared arguments (`camera_image_topic`, `camera_resolution`, `camera_fps`) in one place, so the two halves cannot silently disagree — with the split that coherence becomes the user's responsibility.
+
+`rdfp_panda_*` launches remain supersets of their `panda_*` counterparts: same helpers, same startup chain, plus the collection nodes (`session_control`, `image_recorder`, `rdfp_image_viewer`, `target_joint_cmds_publisher`) and YAML-driven argument defaults. The Panda startup chain is intentionally sequential via `RegisterEventHandler(OnProcessExit)`: `ros2_control_node` → `joint_state_broadcaster` → `panda_arm_controller` → `panda_hand_controller` → (`move_group` + `servo` + `rviz` + camera + ee_pose + scene). Three planning pipelines are loaded: OMPL, PILZ, CHOMP. Full helper inventory: [src/robot_control/launch/README.md](src/robot_control/launch/README.md) §5. Collection-layer launches: [src/rdfp/launch/README.md](src/rdfp/launch/README.md).
+
+The **backend scene node starts by default** in all four mock launches (`panda_mock`, `panda_jgpc_mock`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`) via `launch_helpers.scene`; `enable_scene_node:=false` turns it off. Default-on is deliberate: the node costs a 2 Hz timer and mutates nothing until a `/scene/commands` message arrives, whereas leaving it off makes the twin's `reset_scene` die on a result-topic timeout with nothing in the log pointing at the missing subscriber. `replay_panda_mock` deliberately does **not** get one — replayed object state must come from the dataset, and a live scene node would publish a second, conflicting source.
 
 ### Dataset pipeline (`rdfp/dataset/`)
 
@@ -163,11 +222,15 @@ Tk-based control surface. Uses `Mp4ImageReplayer` for image topics and a single 
 
 - **`MoveGroupClient` is abstract — `MoveGroupClient(node)` raises `TypeError`.** Build clients with `create_move_group_client(node, mode='auto'|'jtc'|'jgpc')`, which picks `MoveGroupJtcClient` or `MoveGroupJgpcClient` by probing `/panda_arm_controller/commands`. Consequence of `mode='auto'`: detection is a topic-graph lookup, so calling it before DDS discovery settles can mis-detect a JGPC stack as JTC — pass an explicit `mode` when you already know. `execute_trajectory()` exists only on the JTC client; `stream_trajectory()` / `*_streamed()` / `stop_streaming()` only on the JGPC one.
 - **Cartesian trajectories from MoveIt are always resampled to ~10 Hz** (TOTG `resample_dt = 0.1`), and `GetCartesianPath` exposes no field to change it — shrinking `max_step` does not increase point density. JTC hides this because the controller interpolates between points; the streaming path does not, so JGPC command output is stepped at 10 Hz unless you pass `publish_rate=` (e.g. `200.0`) to `stream_trajectory()` / `follow_trajectory()` / `TrajectoryStreamer.stream()`, which linearly interpolates positions onto a uniform grid. Default `publish_rate=None` preserves the original point-time behavior.
-- **stale build artifacts inside `src/rdfp/`** (e.g., `src/rdfp/install/` or `src/rdfp/build/`) silently shadow the real workspace install via PYTHONPATH. If GUI/code changes don't take effect after rebuild, check `find src/rdfp -maxdepth 2 -name install -o -name build` and remove. Always run `colcon build` from the workspace root.
+- **stale build artifacts inside `src/<pkg>/`** (e.g., `src/rdfp/install/` or `src/rdfp/build/`) silently shadow the real workspace install via PYTHONPATH. If GUI/code changes don't take effect after rebuild, check `find src -maxdepth 2 \( -name install -o -name build \)` and remove. Always run `colcon build` from the workspace root.
+- **`ros2 run rdfp <script>` fails for control-layer scripts** — they moved to `robot_control` (see the Console Scripts table). Same for `ros2 launch rdfp panda_mock.launch.py` → `ros2 launch robot_control panda_mock.launch.py`.
+- **`ros2 run robot_control rdfp_camera_node` / `rdfp_image_viewer_node` also fails** — these two went the *other* way, from `robot_control/camera/` to `rdfp/camera/`, because they are driven by `/session`. Use `ros2 run rdfp <script>`; launches must spawn them with `package="rdfp"`.
+- **A new `robot_control` module that imports `rdfp` breaks the build**, not at runtime but in `colcon test` via `test_layer_boundary.py`. That is intentional — the split exists to keep the control stack usable without the collection layer. Use the `robot_twin.backends` entry-point group instead.
 - **package share installs `config/*` only**, not the workspace-root YAML. If a launch can't find `panda_robot.yaml`, copy/place it under `src/rdfp/config/` (so setup.py glob picks it up) or pass `config_file:=<absolute-path>`.
 - `import_cmd.cmd_import` does the full ingestion inline — there is no `run_import` function. Tests mock `import_cmd.discover_splits` (top-level, light) rather than the heavier pipeline helpers (lazy-imported inside `cmd_import`).
 - `replay_cmd.py` top-level imports `rclpy.node.Publisher` etc. → cannot import without ROS sourced. Tests use `pytest.importorskip` to self-skip in ROS-free envs.
 - **Replayer lifecycle is one-shot**: calling `start()` twice on the same `TopicMessageReplayer` or `Mp4ImageReplayer` raises `RuntimeError('… already started')` even after the worker has exited cleanly (iterators are exhausted and message stamps mutated in-place; reuse would silently produce 0 publishes).
+- **`move_to_joints` fills unspecified joints with their current value.** Only the joints you pass get a `JointConstraint`, so a partial goal would otherwise define a *set* of poses and the planner picks one arbitrarily — measured: passing `panda_joint1` alone swung the other six joints by up to 3.5 rad and put the EE behind/above the robot. `MoveGroupClient._complete_joint_values()` now reads the group's joints from the SRDF `<group_state>` (already cached for `move_to_named_target`) and the current values from `/joint_states`, then constrains every group joint. Joints outside the group (`panda_finger_*`) are deliberately not filled — mixing them in makes planning fail. A group with no `<group_state>` raises rather than silently falling back to the old behavior.
 - **`moveit_servo` silently ignores all input until `start_servo` is called** — no error, no warning, just no motion. `replay_panda_mock.launch.py replay_arm_path:=ee_twist` spawns `servo_auto_start_node` to cover this; any other path that feeds `/servo_node/delta_twist_cmds` must call the `std_srvs/Trigger` service itself. `ServoClient.auto_start()`'s built-in service wait is only 3 s, which is why `servo_auto_start_node` prepends its own (`service_timeout`, default 30 s) — spawning it alongside `servo_node` in a launch would otherwise race.
 - **`replay_arm_path` picks exactly one arm adapter** in `replay_panda_mock.launch.py`: `ee_twist` (**default**, `ee_twist_publisher` + `servo_auto_start`, velocity **open loop** — integration drift, start-pose dependent, 6-DOF only), `target_joint_cmds` (`target_joint_cmds_executor`, position closed-loop, redundancy preserved — highest fidelity), or `none`. They are mutually exclusive because both would write `/panda_arm_controller/joint_trajectory`. The `replay` CLI's `--topic` default is `/servo_node/delta_twist_cmds`, which matches *neither* path — pass `/ee_pose` (default path) or `/target_joint_cmds` explicitly. Rationale: [docs/replay/replay_mock_stack_guide.md](docs/replay/replay_mock_stack_guide.md).
 - **The `joint_states` table does not store joint names** (columns are `position`/`velocity`/`effort` only), so `sensor_msgs/JointState` replayed from the DB arrives with an empty `name`. `target_joint_cmds_executor` falls back to its `joint_names` parameter in that case (message `name` wins when present); the replay launch passes panda_joint1~7. Related trap: declaring a STRING_ARRAY parameter with `[]` as the default makes rclpy infer `BYTE_ARRAY` (`all(isinstance(v, bytes) for v in [])` is vacuously true) and a later `STRING_ARRAY` set silently fails — declare with `Parameter.Type.STRING_ARRAY` (type only) and read via `get_parameter_or`.
@@ -182,7 +245,8 @@ Tk-based control surface. Uses `Mp4ImageReplayer` for image topics and a single 
 - **`docs/INDEX.md` — index of every markdown doc in the repo** (topic-grouped table with content summary, path, and a 현행/설계안/이력/구식 status column). Start here when looking for which document covers something; it also lists known stale docs and broken cross-references.
 - `src/rdfp/README.md` — package usage walkthrough: MoveGroup client API, both recorder nodes, `session_control_node` state machine + QoS, dataset CLI reference.
 - `src/rdfp/CLAUDE.md` — package-level hints (two recorder nodes, rosbag2 metadata.yaml caveat, replay subsystem coupling).
-- `src/rdfp/launch/README.md` — launch-file/helper inventory.
+- `src/robot_control/launch/README.md` — control-layer launches + **full helper inventory** (self-contained).
+- `src/rdfp/launch/README.md` — collection-layer (`rdfp_*`) launches + YAML↔argument tables.
 - `src/rdfp/rdfp/recorder/README.md` — `FFMpegMp4Recorder` core only (the two ROS adapter nodes are covered in the package README).
 - `docs/recorder/` (workspace root) — user guides: `image_recorder_node_guide.md`, `rdfp_image_recorder_node_guide.md`, `ffmpeg_mp4_recorder_guide.md`.
 - `docs/session/` — `session_control_guide.md`, `session_control_client_guide.md`.

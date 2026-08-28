@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_twin</name>
+  <version>0.0.1</version>
+  <description>Robot twin — REST gateway exposing the robot control layer as variables and operations.</description>
+  <maintainer email="kwlee@todo.todo">kwlee</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>robot_control</exec_depend>
+  <exec_depend>rdfp_msgs</exec_depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+
+  <!--
+    pip-only 의존성 (apt 버전 부재 또는 구버전): fastapi, uvicorn, pydantic>=2
+    세션/에피소드 연산은 선택적이다 — `rdfp` 패키지가 설치되어 있으면
+    entry_points 로 자동 등록되고, 없으면 해당 연산만 비활성화된다.
+  -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

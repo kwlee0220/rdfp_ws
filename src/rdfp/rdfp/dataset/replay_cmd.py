@@ -26,7 +26,7 @@ from pathlib import Path
 
 from rclpy.node import Publisher
 
-from rdfp.moveit.servo_client import ServoClient
+from robot_control.moveit.servo_client import ServoClient
 
 from .cli_common import (
     DEFAULT_CONFIG_FILE_PATH, add_common_args, add_config_arg,

@@ -34,7 +34,8 @@ class DispatchEvent(NamedTuple):
     episode_index: int
 
 
-def assign_and_dispatch(episodes: list[Episode], messages: Iterable[Any],) -> Iterator[tuple[str, Any]]:
+def assign_and_dispatch(episodes: list[Episode],
+                        messages: Iterable[Any]) -> Iterator[tuple[str, Any]]:
     """에피소드 진입/이탈 이벤트와 배정 메시지를 교대로 yield 한다.
 
     출력 스트림 스키마:

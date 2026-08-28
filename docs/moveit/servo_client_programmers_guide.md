@@ -1,14 +1,14 @@
 # ServoClient Programmer's Guide
 
 MoveIt2의 **Servo 노드**(`/servo_node`)를 Python 쪽에서 쉽게 시작/정지/상태 확인할 수
-있도록 해주는 **유틸리티 클래스**다. 본 가이드는 [servo_client.py](../../src/rdfp/rdfp/moveit/servo_client.py)의
+있도록 해주는 **유틸리티 클래스**다. 본 가이드는 [servo_client.py](../../src/robot_control/robot_control/moveit/servo_client.py)의
 `ServoClient` 클래스를 **언제, 어떻게 사용하고, 어떤 한계가 있는지**를 다룬다.
 
 > **주의**: `ServoClient`는 이름과 달리 `rclpy.node.Node`가 **아니다**. 별도의 ROS2
 > 노드가 아니라, 호출자가 소유한 `Node` 인스턴스를 받아서 그 위에 서비스 클라이언트와
 > 구독자를 생성하는 **래퍼(wrapper)** 이다. 실제 Servo 프로세스는 launch 파일에서
 > `moveit_servo`의 `servo_node_main` 실행 파일로 기동되며
-> ([src/rdfp/launch/panda_mock.launch.py:68-70](../../src/rdfp/launch/panda_mock.launch.py#L68-L70)),
+> ([src/robot_control/launch/panda_mock.launch.py:68-70](../../src/robot_control/launch/panda_mock.launch.py#L68-L70)),
 > 본 클래스는 그 프로세스와 ROS2로 통신할 뿐이다.
 
 ## 개요
@@ -43,10 +43,10 @@ MoveIt2의 **Servo 노드**(`/servo_node`)를 Python 쪽에서 쉽게 시작/정
   호출자의 `Node`에 대해 `rclpy.spin_once(...)`로 동기 폴링
 - **서비스 타입은 전부 `std_srvs/Trigger`** — 요청 본문 없음
 - **상태 토픽 QoS는 BEST_EFFORT**
-  ([servo_client.py:316-322](../../src/rdfp/rdfp/moveit/servo_client.py#L316-L322)) — MoveIt Servo의 status
+  ([servo_client.py:316-322](../../src/robot_control/robot_control/moveit/servo_client.py#L316-L322)) — MoveIt Servo의 status
   publisher와 호환성을 맞추기 위한 선택
 - **`auto_start()`는 fire-and-forget** — `start_servo` 응답을 기다리지 않고 즉시 반환
-  ([servo_client.py:293-296](../../src/rdfp/rdfp/moveit/servo_client.py#L293-L296))
+  ([servo_client.py:293-296](../../src/robot_control/robot_control/moveit/servo_client.py#L293-L296))
 - **ROS2 노드 자체는 생성하지 않음** — 생명주기는 호출자가 관리
 
 ## 빠른 시작
@@ -98,12 +98,12 @@ class TeleopNode(Node):
 
 replay 처럼 **사람이 개입하지 않는 스택**에서는 `start_servo` 를 호출할 주체가 없다.
 이때는 직접 `ServoClient` 를 들지 말고
-[servo_auto_start_node](../../src/rdfp/rdfp/moveit/servo_auto_start_node.py) 를 launch 에
+[servo_auto_start_node](../../src/robot_control/robot_control/moveit/servo_auto_start_node.py) 를 launch 에
 함께 띄운다. 서비스 준비를 기다린 뒤 `auto_start()` 를 한 번 호출하고 종료하는
 일회성 노드다.
 
 ```bash
-ros2 run rdfp servo_auto_start_node --ros-args -p service_timeout:=30.0
+ros2 run robot_control servo_auto_start_node --ros-args -p service_timeout:=30.0
 ```
 
 | 파라미터 | 기본값 | 설명 |
@@ -148,7 +148,7 @@ ServoClient.create(node, servo_node_name="/servo_node") -> ServoClient
 | `unpause(timeout_sec=5.0)` | `unpause_servo` | pause 해제 |
 | `reset_status(timeout_sec=5.0)` | `reset_servo_status` | 경고 상태(singularity/limit/collision) 클리어 |
 
-내부적으로 공통 로직은 [`call_servo_service()`](../../src/rdfp/rdfp/moveit/servo_client.py#L122-L161)에 있다.
+내부적으로 공통 로직은 [`call_servo_service()`](../../src/robot_control/robot_control/moveit/servo_client.py#L122-L161)에 있다.
 
 ```python
 def call_servo_service(client, service_name, timeout_sec=5.0) -> tuple[bool, str]:
@@ -367,8 +367,8 @@ def destroy_node(self) -> None:
 ### 1. 호출자 스레드에서 `spin_once`를 직접 호출함
 
 모든 서비스/상태 폴링은 호출자의 `Node`에 대해 `rclpy.spin_once(node, 0.1)`을
-직접 돌린다([servo_client.py:116](../../src/rdfp/rdfp/moveit/servo_client.py#L116),
-[145](../../src/rdfp/rdfp/moveit/servo_client.py#L145), [239](../../src/rdfp/rdfp/moveit/servo_client.py#L239)). 이로 인해:
+직접 돌린다([servo_client.py:116](../../src/robot_control/robot_control/moveit/servo_client.py#L116),
+[145](../../src/robot_control/robot_control/moveit/servo_client.py#L145), [239](../../src/robot_control/robot_control/moveit/servo_client.py#L239)). 이로 인해:
 
 - **호출자가 이미 다른 스레드에서 spin 중이면** 동일 `Node`에 대한 `spin_once`가
   예외를 던질 수 있다.
@@ -420,7 +420,7 @@ assert servo.start_client.service_is_ready()
 ### 6. 타입 힌트는 구형 스타일
 
 프로젝트 컨벤션(`tuple[int, str]`, `list[str]` 권장)과 달리 `Tuple[...]`, `Optional[...]`
-스타일을 사용한다([servo_client.py:9](../../src/rdfp/rdfp/moveit/servo_client.py#L9)). 수정 시에는 프로젝트
+스타일을 사용한다([servo_client.py:9](../../src/robot_control/robot_control/moveit/servo_client.py#L9)). 수정 시에는 프로젝트
 컨벤션에 맞춰 점진적으로 바꾸는 것을 권장한다.
 
 ## 확장 지점
@@ -515,10 +515,10 @@ ros2 topic hz /servo_node/delta_twist_cmds
 
 ## 관련 파일/문서
 
-- [servo_client.py](../../src/rdfp/rdfp/moveit/servo_client.py) — 본 문서가 설명하는 소스
-- [servo_auto_start_node.py](../../src/rdfp/rdfp/moveit/servo_auto_start_node.py) —
+- [servo_client.py](../../src/robot_control/robot_control/moveit/servo_client.py) — 본 문서가 설명하는 소스
+- [servo_auto_start_node.py](../../src/robot_control/robot_control/moveit/servo_auto_start_node.py) —
   무인 스택용 일회성 기동 노드 (`ServoClient` 를 감싼다)
-- [src/rdfp/launch/panda_mock.launch.py](../../src/rdfp/launch/panda_mock.launch.py) —
+- [src/robot_control/launch/panda_mock.launch.py](../../src/robot_control/launch/panda_mock.launch.py) —
   실제 `servo_node` 프로세스를 기동하는 launch 파일
 - [MoveIt Servo 공식 문서](https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html) —
   Servo 노드의 파라미터/인터페이스 전반
@@ -528,6 +528,6 @@ ros2 topic hz /servo_node/delta_twist_cmds
 | 파일 | 용도 |
 |---|---|
 | [teleop/teleop_keyboard.py](../../src/rdfp/rdfp/teleop/teleop_keyboard.py) | 기동 시 헬스체크 — `auto_start()` 실패면 노드 기동 중단 |
-| [moveit/servo_auto_start_node.py](../../src/rdfp/rdfp/moveit/servo_auto_start_node.py) | launch 에서 무인 기동 |
+| [moveit/servo_auto_start_node.py](../../src/robot_control/robot_control/moveit/servo_auto_start_node.py) | launch 에서 무인 기동 |
 | [dataset/replay_cmd.py](../../src/rdfp/rdfp/dataset/replay_cmd.py) | replay 시작 전 servo 기동 |
 | [dataset/replay_gui_cmd.py](../../src/rdfp/rdfp/dataset/replay_gui_cmd.py) | Tk GUI — 외부 executor 가 spin 중이라 서비스 클라이언트를 재사용 |

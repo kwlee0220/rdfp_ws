@@ -33,7 +33,7 @@ from rdfp.recorder.image_recorder_node import (
     _STOP_TIMEOUT_SEC,
     ImageRecorderNode,
 )
-from rdfp.types import InvalidFrameError
+from robot_control.types import InvalidFrameError
 
 try:
     from rdfp_msgs.srv import StartSession, StopSession

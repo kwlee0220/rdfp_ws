@@ -3,14 +3,20 @@
 Franka Emika Panda 로봇용 ROS 2 (Humble) 통합 워크스페이스. MoveIt2 기반
 카테시안 경로 계획·실행, 카메라 캡처, MP4 녹화, 세션·에피소드 생명주기
 제어, rosbag2 → PostgreSQL/MP4 데이터셋 적재, 적재된 에피소드 재생
-(Tk GUI 포함) 까지를 두 패키지로 묶었다.
+(Tk GUI 포함) 까지를 네 패키지로 묶었다.
 
 ## 패키지
 
 | 패키지 | 위치 | 역할 |
 |---|---|---|
-| `rdfp` | [src/rdfp/](src/rdfp/) | 애플리케이션 — MoveIt2 launch 스택, 카메라/녹화 노드, 데이터셋 ingestion / replay CLI · GUI |
 | `rdfp_msgs` | [src/rdfp_msgs/](src/rdfp_msgs/) | 서비스 / 메시지 인터페이스 정의 |
+| `robot_control` | [src/robot_control/](src/robot_control/) | **로봇 제어 계층** — MoveIt2 클라이언트, 카메라, scene 상태, launch helper, `panda_*` launch. 학습 데이터 수집 없이 단독 사용 가능 |
+| `robot_twin` | [src/robot_twin/](src/robot_twin/) | 로봇 트윈 — 제어 계층을 변수/연산 REST API 로 노출 |
+| `rdfp` | [src/rdfp/](src/rdfp/) | **학습 데이터 수집 계층** — 세션/에피소드 생명주기, 녹화, 데이터셋 ingestion / replay CLI · GUI, teleop, `rdfp_*` launch |
+
+의존 방향은 위에서 아래로 **단방향**이다. `robot_control` / `robot_twin` 은 `rdfp` 를
+import 하지 않으며, 이는 각 패키지의 `test_layer_boundary.py` 가 강제한다. 근거와
+경위는 [docs/rdfp_framework_design.md](docs/rdfp_framework_design.md) §7.6 참고.
 
 자세한 사용법과 API 는 [src/rdfp/README.md](src/rdfp/README.md) 참고.
 
@@ -34,14 +40,14 @@ pip install --user 'mcap' 'mcap-ros2-support' 'pydantic>=2' 'psycopg[binary]>=3'
 
 ```bash
 cd ~/development/ros/rdfp_ws
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
 대표 launch:
 
 ```bash
-ros2 launch rdfp panda_mock.launch.py            # MoveIt2 mock 단독
+ros2 launch robot_control panda_mock.launch.py            # MoveIt2 mock 단독
 ros2 launch rdfp rdfp_panda_mock.launch.py       # + camera / recorder / ee_pose
 ros2 launch rdfp replay_panda_mock.launch.py     # replay 모드 스택
 ```
@@ -80,7 +86,10 @@ ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
   setup.py 의 `data_files` 글로브는 `src/rdfp/config/*` 만 share 로
   설치한다. 워크스페이스 root 의 YAML 은 `config_file:=<absolute-path>` 로
   넘기거나 `src/rdfp/config/` 로 옮길 것.
-- **rebuild 했는데 코드 변경이 반영 안 됨** — `src/rdfp/` 내부의 stale
+- **`ros2 run rdfp <script>` / `ros2 launch rdfp panda_*` 가 안 됨** — 제어 계층
+  스크립트와 `panda_*` launch 는 `robot_control` 로 옮겨졌다.
+  `ros2 launch robot_control panda_mock.launch.py` 처럼 패키지를 바꿔 부른다.
+- **rebuild 했는데 코드 변경이 반영 안 됨** — `src/<pkg>/` 내부의 stale
   `build/` · `install/` 가 PYTHONPATH 를 섀도잉할 수 있음.
   `find src/rdfp -maxdepth 2 -name install -o -name build` 로 확인 후 제거.
   `colcon build` 는 **항상 워크스페이스 root** 에서 실행.
@@ -100,8 +109,10 @@ vi dataset_config.yaml   # rosbag_dir / output_mp4_dir / db.dsn_env 등 편집
 ```
 rdfp_ws/
 ├── src/
-│   ├── rdfp/                  # 애플리케이션 패키지 (자세한 README 별도)
-│   └── rdfp_msgs/             # 메시지 / 서비스 정의
+│   ├── rdfp_msgs/            # 메시지 / 서비스 정의
+│   ├── robot_control/         # 제어 계층 (moveit / camera / scene / launch_helpers)
+│   ├── robot_twin/            # 로봇 트윈 REST 게이트웨이
+│   └── rdfp/                 # 수집 계층 (session / recorder / dataset / teleop)
 ├── docs/                      # 설계서 / 사용 설명서 / 검증 절차 (한국어)
 │   ├── rdfp_framework_design.md   # 최상위 아키텍처 + 설계서
 │   ├── INDEX.md                   # 전체 문서 인덱스
@@ -128,7 +139,10 @@ rdfp_ws/
 - [src/rdfp/README.md](src/rdfp/README.md) — 애플리케이션 패키지 사용
   walkthrough (`MoveGroupClient`, `camera_node`, `image_recorder_node`,
   `rdfp_image_recorder`, `session_control_node`, dataset CLI, replay GUI).
-- [src/rdfp/launch/README.md](src/rdfp/launch/README.md) — launch 파일 / helper 인벤토리.
+- [src/robot_control/launch/README.md](src/robot_control/launch/README.md) — 제어 계열 launch
+  + helper 인벤토리 (자체 완결).
+- [src/rdfp/launch/README.md](src/rdfp/launch/README.md) — 수집 계열(`rdfp_*`) launch
+  + YAML ↔ 인자 대응표.
 - [src/rdfp/rdfp/recorder/README.md](src/rdfp/rdfp/recorder/README.md) — ROS 비의존
   `FFMpegMp4Recorder` 코어 (두 ROS 어댑터 노드는 패키지 README 에서 다룸).
 - [CLAUDE.md](CLAUDE.md) — Claude Code 가 읽는 빌드/아키텍처/주의사항 요약.

@@ -43,14 +43,7 @@ ImageRecorderNode
 """
 
 import os
-import sys
 
-# ROS2 launch 러너는 본 파일을 단일 스크립트로 로드하므로 같은 디렉터리의
-# sibling 모듈(`camera_launch_helper`) 을 패키지 import 로 가져올 수 없다. launch 디렉터리를
-# sys.path 의 맨 앞에 추가하여 top-level 모듈처럼 import 한다 (sibling 우선 보장; append 로 바꾸지 말 것). setup.py 가 launch
-# 디렉터리를 install/share/rdfp/launch 로 복사하므로 src / install 양쪽에서
-# 동일하게 동작한다.
-sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription                                     # noqa: E402
 from launch.actions import DeclareLaunchArgument, OpaqueFunction         # noqa: E402
@@ -59,7 +52,7 @@ from launch.launch_context import LaunchContext                          # noqa:
 from launch.substitutions import LaunchConfiguration, TextSubstitution   # noqa: E402
 from launch_ros.actions import Node                                      # noqa: E402
 
-from image_pipeline_launch_helper import (                               # noqa: E402
+from robot_control.launch_helpers.image_pipeline import (                               # noqa: E402
     declare_config_file_argument,
     declare_image_pipeline_arguments,
     load_config as load_image_pipeline_config,
@@ -102,7 +95,7 @@ def _build_actions(context: LaunchContext) -> list:
     # 구독하도록 `image` -> camera_image_topic 으로 remap. 헤드리스 환경에서는
     # `enable_image_viewer_node:=false` 로 끄고 사용한다.
     image_viewer_node = Node(
-        package="rdfp",
+        package="robot_control",
         executable="image_viewer_node",
         name="image_viewer_node",
         output="screen",
@@ -137,7 +130,7 @@ def _build_actions(context: LaunchContext) -> list:
     # 토픽에 재발행한다 — 학습 데이터의 action(명령값) 채널이다. 입력 토픽은 remap
     # 으로 /servo_node/joint_trajectory 에 연결한다.
     target_joint_cmds_publisher = Node(
-        package="rdfp",
+        package="robot_control",
         executable="target_joint_cmds_publisher",
         name="target_joint_cmds_publisher",
         output="screen",

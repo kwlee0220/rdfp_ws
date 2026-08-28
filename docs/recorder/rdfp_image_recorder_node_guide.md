@@ -11,21 +11,22 @@
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [녹화 제어 흐름](#녹화-제어-흐름)
-6. [타임스탬프 기반 녹화 경계](#타임스탬프-기반-녹화-경계)
-7. [출력 파일](#출력-파일)
-8. [토픽 연결](#토픽-연결)
-9. [에러 처리](#에러-처리)
-10. [실전 예제](#실전-예제)
-11. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [녹화 제어 흐름](#5-녹화-제어-흐름)
+6. [타임스탬프 기반 녹화 경계](#6-타임스탬프-기반-녹화-경계)
+7. [출력 파일](#7-출력-파일)
+8. [토픽 연결](#8-토픽-연결)
+9. [에러 처리](#9-에러-처리)
+10. [실전 예제](#10-실전-예제)
+11. [트러블슈팅](#11-트러블슈팅)
+12. [관련 문서](#12-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `RdfpImageRecorderNode`는 `SessionControlNode` 가 발행하는 세션 토픽
 (`rdfp_msgs/msg/SessionCommand`, 기본 `/session`) 의 상태 변경
@@ -47,36 +48,36 @@
 - 세션 퍼블리셔와 호환되는 `TRANSIENT_LOCAL` QoS 로 late-join 시 직전 상태 즉시 수신
 - 녹화 1회마다 **MP4 + sidecar(jsonl) + metadata(json)** 3개 파일 생성 — mp4
   프레임과 sidecar 라인은 1:1 매치되어 프레임별 `header.stamp` 복원이 가능
-  (자세한 스키마는 [출력 파일](#출력-파일) 참조)
+  (자세한 스키마는 [출력 파일](#7-출력-파일) 참조)
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ```bash
 # ffmpeg 설치
 sudo apt install ffmpeg
 
 # rdfp_msgs + rdfp 빌드
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
 `SessionControlNode` 가 실행 중이어야 세션 토픽(`/session`) 이 발행된다.
 [`ros2 launch rdfp rdfp.launch.py`](../../src/rdfp/launch/rdfp.launch.py) 로
 session_control + camera + viewer + recorder 를 한 번에 띄울 수도 있다
-(아래 [실전 예제](#실전-예제) 참조).
+(아래 [실전 예제](#10-실전-예제) 참조).
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # 터미널 1: 세션 제어 노드
 ros2 run rdfp session_control_node
 
 # 터미널 2: 카메라 노드
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 -p fps:=30 -p resolution:=640x480
 
 # 터미널 3: 레코더 노드
@@ -103,7 +104,7 @@ ls /tmp/recordings/*.mp4
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 ### 필수 파라미터
 
@@ -133,31 +134,38 @@ ls /tmp/recordings/*.mp4
 > `-p fps:=30` 으로 맞춰야 한다. CFR 기반이므로 불일치 시 저장된 영상 재생
 > 속도가 실시간과 어긋난다.
 
-> 출력 파일명 규칙과 sidecar·metadata 스키마는 아래 [출력 파일](#출력-파일)
+> 출력 파일명 규칙과 sidecar·metadata 스키마는 아래 [출력 파일](#7-출력-파일)
 > 섹션에서 종합적으로 설명한다.
 
 ---
 
-## 녹화 제어 흐름
+## 5. 녹화 제어 흐름
 
-```
-SessionControlNode                    RdfpImageRecorder
-      │                                      │
-      │  start_session (Trigger)             │
-      ├─────────────────────────────────────►│ (무시 — 세션 시작만으로는 녹화 안 함)
-      │                                      │
-      │  start_episode (Trigger)             │
-      ├─ topic: state="IN_EPISODE" ─────────►│ recorder.start() → 녹화 시작
-      │                                      │ ← 이미지 프레임 recorder.write()
-      │  stop_episode (Trigger)              │
-      ├─ topic: state="IN_SESSION" ─────────►│ 큐 flush → recorder.stop() → MP4 저장
-      │                                      │
-      │  start_episode → stop_episode        │
-      ├─ (반복 가능) ──────────────────────►│ 새 MP4 파일로 녹화
-      │                                      │
-      │  stop_session (Trigger)              │
-      ├─ topic: state="IN_SESSION" ─────────►│ 녹화 중이면 stop 처리
-      │  topic: state="IDLE"                 │ (IDLE은 무시)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SC as SessionControlNode
+    participant Rec as RdfpImageRecorder
+
+    SC->>Rec: state = "IN_SESSION"<br/>(start_session)
+    Note right of Rec: 무시 — 세션 시작만으로는 녹화하지 않는다
+
+    SC->>Rec: state = "IN_EPISODE"<br/>(start_episode)
+    Rec->>Rec: recorder.start() → 녹화 시작
+    Note right of Rec: 이미지 프레임을 recorder.write()
+
+    SC->>Rec: state = "IN_SESSION"<br/>(stop_episode)
+    Rec->>Rec: 큐 flush → recorder.stop() → MP4 저장
+
+    loop start_episode ↔ stop_episode 반복 가능
+        SC->>Rec: IN_EPISODE ↔ IN_SESSION
+        Rec->>Rec: 에피소드마다 새 MP4 파일 생성
+    end
+
+    SC->>Rec: state = "IN_SESSION"<br/>(stop_session)
+    Rec->>Rec: 녹화 중이면 stop 처리
+    SC->>Rec: state = "IDLE"
+    Note right of Rec: IDLE 은 무시
 ```
 
 - `IN_EPISODE` → 녹화 시작
@@ -167,7 +175,7 @@ SessionControlNode                    RdfpImageRecorder
 
 ---
 
-## 타임스탬프 기반 녹화 경계
+## 6. 타임스탬프 기반 녹화 경계
 
 ### 문제
 
@@ -197,7 +205,7 @@ SessionControlNode                    RdfpImageRecorder
 
 ---
 
-## 출력 파일
+## 7. 출력 파일
 
 녹화 1 회(`IN_EPISODE` → `IN_SESSION`)마다 다음 **3 개 파일**이 생성된다.
 `start_ts` 는 `_build_output_path()` 가 녹화 시작 시점에 생성한
@@ -280,7 +288,7 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
 
 ---
 
-## 토픽 연결
+## 8. 토픽 연결
 
 ### 구독 토픽
 
@@ -298,7 +306,7 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
 
 ---
 
-## 에러 처리
+## 9. 에러 처리
 
 | 상황 | 동작 |
 |------|------|
@@ -316,7 +324,7 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
 
 ---
 
-## 실전 예제
+## 10. 실전 예제
 
 ### 기본 사용
 
@@ -415,7 +423,7 @@ def generate_launch_description():
 
 ---
 
-## 트러블슈팅
+## 11. 트러블슈팅
 
 ### 1. 녹화가 시작되지 않음
 
@@ -474,7 +482,7 @@ ros2 topic echo /camera_node/image_raw --field height --once
 
 ---
 
-## 관련 문서
+## 12. 관련 문서
 
 - [ImageRecorderNode Guide](./image_recorder_node_guide.md) — 서비스 기반 레코더 (세션 비의존)
 - [FFMpegMp4Recorder Guide](./ffmpeg_mp4_recorder_guide.md) — 녹화 엔진 상세

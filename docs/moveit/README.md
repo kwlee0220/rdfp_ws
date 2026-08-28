@@ -47,7 +47,7 @@ MoveIt2 스택(계획·실행·서보·그리퍼) 관련 문서 5개의 진입�
 
 ## 여기 없는 것
 
-`rdfp/moveit/` 의 모듈이지만 **쓰이는 문맥이 다른 서브시스템**이라 다른 폴더에 문서가 있다.
+`robot_control/moveit/` 의 모듈이지만 **쓰이는 문맥이 다른 서브시스템**이라 다른 폴더에 문서가 있다.
 
 | 모듈 | 문서 |
 |---|---|
@@ -55,6 +55,6 @@ MoveIt2 스택(계획·실행·서보·그리퍼) 관련 문서 5개의 진입�
 | `target_joint_cmds_publisher` / `_executor` | [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) |
 | `servo_auto_start_node` | [servo_client_programmers_guide.md](servo_client_programmers_guide.md) (개요) + [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) (launch 연동) |
 | `TrajectoryStreamer` | [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) |
-| launch 파일 / 헬퍼 인벤토리 | [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) |
+| launch 파일 / 헬퍼 인벤토리 | [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) (제어 계열 + helper 전체) |
 
 전체 문서 색인은 [../INDEX.md](../INDEX.md) 에 있다.

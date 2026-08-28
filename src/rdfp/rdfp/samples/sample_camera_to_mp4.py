@@ -30,13 +30,13 @@ if __package__ in (None, ""):
     package_root = pathlib.Path(__file__).resolve().parents[2]
     if str(package_root) not in sys.path:
         sys.path.insert(0, str(package_root))
-    from rdfp.camera.camera_utils import parse_camera_id
-    from rdfp.camera.opencv_camera import OpenCvCamera
     from rdfp.recorder import FFMpegMp4Recorder
 else:
-    from ..camera.camera_utils import parse_camera_id
-    from ..camera.opencv_camera import OpenCvCamera
     from ..recorder import FFMpegMp4Recorder
+
+# 제어 계층은 별도 패키지이므로 항상 절대 import 다.
+from robot_control.camera.camera_utils import parse_camera_id
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -156,7 +156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         actual_resolution, actual_fps = opened
         logger.info(
-            "Camera opened: requested_resolution=%s requested_fps=%d actual_resolution=%s actual_fps=%.2f camera_id=%s",
+            "Camera opened: requested_resolution=%s requested_fps=%d "
+            "actual_resolution=%s actual_fps=%.2f camera_id=%s",
             args.resolution,
             args.fps,
             actual_resolution,

@@ -74,7 +74,7 @@ JTC 는 궤적을 통째로 받아 **컨트롤러 내부에서 시간 보간**�
 ### 스택 실행
 
 ```bash
-ros2 launch rdfp panda_jgpc_mock.launch.py
+ros2 launch robot_control panda_jgpc_mock.launch.py
 ```
 
 ### 가장 간단한 사용법 (동기)
@@ -416,5 +416,5 @@ except RuntimeError as exc:
 ## 관련 문서
 
 - [MoveGroupClient_UserGuide.md](MoveGroupClient_UserGuide.md) — MoveGroup 클라이언트 전체 API (base + JTC/JGPC + 팩토리)
-- [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — `panda_jgpc_mock.launch.py` 포함 launch 인벤토리
+- [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — `panda_jgpc_mock.launch.py` 포함 제어 계열 launch 인벤토리
 - [../replay/](../replay/) — replay 서브시스템 문서

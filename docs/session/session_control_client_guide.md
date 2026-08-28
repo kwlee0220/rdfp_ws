@@ -33,7 +33,7 @@
 - **일관된 오류 표현**: 서버가 `success=false` 로 거부한 경우, 서비스가
   아직 준비되지 않은 경우, 호출이 타임아웃된 경우, 예외가 발생한 경우 모두
   `(success: bool, message: str)` 형태로 통일되어 호출 측 분기가 단순해집니다.
-- **Node 주입**: [ServoClient](../../src/rdfp/rdfp/moveit/servo_client.py)
+- **Node 주입**: [ServoClient](../../src/robot_control/robot_control/moveit/servo_client.py)
   와 동일한 패턴이라 이미 존재하는 노드에 한 줄로 붙일 수 있습니다.
 
 > **주의**: `SessionControlClient` 는 이름과 달리 자체 `rclpy.Node` 가 **아닙니다**.

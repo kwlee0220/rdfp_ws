@@ -456,7 +456,15 @@ sequenceDiagram
 
 ## 7. 패키징 — ROS 워크스페이스에 전부 두는 것이 맞는가
 
-제기된 이슈다. **결론부터: 지금은 옮기지 말고, 경계를 테스트로 고정한다.**
+**절단선이 둘이라는 점을 먼저 구분한다.** 서로 직교하며 판단도 다르다.
+
+| 축 | 무엇을 떼는가 | 상태 |
+|---|---|---|
+| **가로 — 계층** | 로봇 제어 계층(`robot_control`/`robot_twin`)을 학습 데이터 수집(`rdfp`) 아래로 | **완료** → 7.6 |
+| **세로 — ROS 탈피** | 저장/관리기(`dataset`/`rosbag`)를 ROS 밖으로 | 보류 → 7.1~7.4 |
+
+아래 7.1~7.5 는 **세로 축**에 대한 것이다. **결론부터: 지금은 옮기지 말고, 경계를
+테스트로 고정한다.**
 
 ### 7.1 현재 결합도 — 실측 `현행`
 
@@ -523,6 +531,62 @@ sequenceDiagram
   경계가 명확하다** — 11개 파일 중 ROS 가 필요한 것은 2개(`runtime`, `variables`)뿐이고
   API·설정·세션·직렬화 계층은 ROS 없이 테스트된다. 저장/관리기가 지향할 형태다.
 
+### 7.6 가로 축 — 제어 계층 분리 `현행`
+
+단일 `rdfp` 패키지를 **네 패키지**로 나누었다. 목표는 "학습 데이터 생성과 무관한
+ROS 2 로봇 제어 스택"을 단독으로 쓸 수 있게 만드는 것이다 (1.2 의 서브시스템 1).
+
+```
+rdfp_msgs      인터페이스 IDL
+   ↑
+robot_control   moveit / camera / scene + launch_helpers + 비-rdfp_ launch   ← 제어 계층
+   ↑                                                    ↑
+robot_twin      REST 게이트웨이                            │
+   ↑                                                     │
+rdfp           session / recorder / dataset / rosbag / teleop + rdfp_ launch
+```
+
+#### 왜 워크스페이스가 아니라 패키지인가
+
+처음 제기된 안은 **워크스페이스** 분리였다. 그러나 ROS 2 에서 재사용·릴리스·의존의
+단위는 **패키지**이고 워크스페이스는 빌드 디렉터리 + 오버레이일 뿐이다. 패키지가
+하나인 채로 워크스페이스만 나누면 경계는 그대로 흐릿한데 이중 빌드·이중 source·
+`install/` shadowing 위험만 는다. 반대로 패키지 경계가 깨끗하면 워크스페이스/저장소
+분리는 나중에 디렉터리 이동 수준으로 싸진다. **순서가 있다.**
+
+#### 절단선의 근거 — 이미 존재하던 구조
+
+서브패키지 간 import 를 전수 조사한 결과, 계층을 **역행하는** 의존은 단 하나였다.
+
+| 방향 | 개수 |
+|---|---|
+| 계층 내부 또는 위→아래 (`dataset → moveit` 등) | 전부 |
+| 아래→위 (`twin → session`) | **1개** — `runtime.py` 의 지연 import 한 줄 |
+
+즉 새 선을 그은 것이 아니라 있던 선을 드러낸 것이다.
+
+#### 세 가지 실무 걸림돌과 해법
+
+| 걸림돌 | 해법 |
+|---|---|
+| launch helper 가 `sys.path.insert(0, dirname(__file__))` sibling 트릭에 묶여 있었다. 한 디렉터리 안에서만 동작하므로 패키지가 갈라지면 상위 launch 가 하위 helper 를 못 가져온다 | `robot_control.launch_helpers` 설치 모듈로 승격. 13개 launch 전부 정규 import 로 전환 |
+| `twin → session` 역방향 의존 | `robot_twin.backends` **entry point 그룹**. 수집 계층이 팩토리를 등록하고 트윈은 조회만 한다. 미설치면 세션 연산만 비활성화되고 트윈은 정상 기동한다 |
+| 경계 침식 | `test_layer_boundary.py` — 패키지 내 모든 소스를 AST 파싱해 상위 계층 import 를 실패시킨다. `package.xml` 의존은 빌드 순서만 강제할 뿐 import 방향을 막지 못한다 |
+
+세 번째가 7.3 에서 말한 "경계는 문서가 아니라 테스트로 지켜야 한다"의 실행이다.
+
+#### 남은 것
+
+- **제어 계층은 아직 Panda 전용이다.** `moveit/` 자체는 사실상 로봇 무관하지만
+  (하드코딩 10곳은 대부분 기본 인자값) launch 와 설정이 Panda 에 묶여 있다. 다른
+  로봇에 붙일 수 있어야 재사용 가치가 생기므로, **범용 vs 로봇 전용**이 다음 절단선
+  후보다 (`<robot>_bringup` + `<robot>_moveit_config` + 범용 라이브러리).
+- **`rdfp_msgs` 는 나누지 않았다.** 인터페이스도 같은 선으로 갈리지만
+  (scene/gripper vs session/target) 메시지 패키지는 가볍고, 나누면 버전을 맞출
+  인터페이스 저장소가 둘이 된다. 실익이 생길 때 한다.
+- **워크스페이스/저장소 분리는 여전히 보류다.** 트리거는 7.3 과 같다 — 실제 소비자가
+  생기거나 릴리스 주기가 갈릴 때.
+
 ---
 
 ## 8. 현재 상태 요약
@@ -567,7 +631,7 @@ sequenceDiagram
 
 | 서브시스템 | 문서 |
 |---|---|
-| 로봇 환경 | [../src/rdfp/launch/README.md](../src/rdfp/launch/README.md), [moveit/README.md](moveit/README.md) |
+| 로봇 환경 | [../src/robot_control/launch/README.md](../src/robot_control/launch/README.md) (제어 계열), [../src/rdfp/launch/README.md](../src/rdfp/launch/README.md) (수집 계열), [moveit/README.md](moveit/README.md) |
 | 에피소드 생성기 | [teleop/README.md](teleop/README.md), [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md), [session/session_control_guide.md](session/session_control_guide.md) |
 | 저장/관리기 | [rosbag2/데이터셋 후처리기 설계서.md](rosbag2/데이터셋%20후처리기%20설계서.md), [replay/](replay/) |
 | 설계 근거 | [robot_twin/robot_twin_design.md](robot_twin/robot_twin_design.md), [teleop/leader_follower_mirroring_design.md](teleop/leader_follower_mirroring_design.md) |

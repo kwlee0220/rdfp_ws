@@ -2,7 +2,7 @@
 
 OpenCV VideoCapture를 사용한 카메라 제어를 위한 안전하고 사용하기 쉬운 Python 클래스입니다.
 
-## 개요
+## 1. 개요
 
 `OpenCvCamera` 클래스는 다양한 카메라 소스(웹캠, 비디오 파일, 네트워크 스트림)를 통합된 인터페이스로 제어할 수 있게 해주는 래퍼 클래스입니다.
 
@@ -14,7 +14,7 @@ OpenCV VideoCapture를 사용한 카메라 제어를 위한 안전하고 사용�
 - **유연한 설정**: 해상도, FPS 자동 조정 지원
 - **풍부한 로깅**: 프레임 읽기 실패 시 주기적 warning, 설정 불일치 감지
 
-## 설치 및 의존성
+## 2. 설치 및 의존성
 
 ### 필수 의존성
 
@@ -66,7 +66,7 @@ OpenCvCamera(0)  # 카메라 기본값 사용
 
 > 숫자 문자열로 `camera_id`를 전달하면 내부적으로 정수로 정규화됩니다 (`"0"` → `0`).
 
-## 지원되는 카메라 소스
+## 3. 지원되는 카메라 소스
 
 ### 디바이스 ID (정수)
 
@@ -143,7 +143,7 @@ pipeline = 'v4l2src device=/dev/video0 ! video/x-raw,width=1920,height=1080 ! vi
 camera = OpenCvCamera(pipeline, resolution=(1920, 1080), fps=30.0)
 ```
 
-## 기본 사용법
+## 4. 기본 사용법
 
 ### 0. 기본값 사용 (resolution/fps 생략)
 
@@ -234,7 +234,7 @@ if camera.fps != actual_fps:
 > `camera.resolution.height`로 개별 필드에 접근하거나 `(w, h) = camera.resolution` 형태로
 > 언패킹할 수 있습니다.
 
-## 고급 사용법
+## 5. 고급 사용법
 
 ### 1. 여러 카메라 동시 사용
 
@@ -338,7 +338,7 @@ with OpenCvCamera('rtsp://camera.ip/stream', resolution=(1920, 1080), fps=30.0) 
     print(f"완료: {frames}프레임 수신, {errors}오류 발생")
 ```
 
-## 에러 처리
+## 6. 에러 처리
 
 ### 1. 생성자 예외
 
@@ -425,7 +425,7 @@ if frame is None:
 카메라가 열려있지 않은 상태에서 `read()`를 호출하면 매 호출마다 warning이 출력됩니다:
 `"read() called but camera is not opened"`
 
-## 로깅
+## 7. 로깅
 
 OpenCvCamera는 Python의 표준 logging 모듈을 사용합니다.
 
@@ -471,7 +471,7 @@ grep "Frame read failed" camera.log
 grep "Requested resolution.*differs" camera.log
 ```
 
-## Best Practices
+## 8. Best Practices
 
 ### 1. 리소스 관리
 
@@ -532,7 +532,7 @@ while True:
         break
 ```
 
-## 예제 코드
+## 9. 예제 코드
 
 ### 1. 웹캠으로 실시간 처리
 
@@ -692,7 +692,7 @@ if __name__ == "__main__":
     multi_camera_view([0, 1, 2])
 ```
 
-## 트러블슈팅
+## 10. 트러블슈팅
 
 ### 자주 발생하는 문제들
 
@@ -776,7 +776,7 @@ print("OpenCV build info:")
 print(cv2.getBuildInformation())
 ```
 
-## 결론
+## 11. 결론
 
 `OpenCvCamera` 클래스는 다양한 카메라 소스를 안전하고 편리하게 사용할 수 있게 해주는 도구입니다. Context Manager 패턴을 활용하고, 적절한 에러 처리와 로깅을 통해 안정적인 비디오 처리 애플리케이션을 개발할 수 있습니다.
 

@@ -66,8 +66,8 @@ from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 
 from rdfp_msgs.msg import SessionCommand  # type: ignore[import-not-found]
 
-from ..ros2_utils import SYSTEM_QOS, log_periodic
-from .image_viewer_node import ImageViewerNode
+from robot_control.camera.image_viewer_node import ImageViewerNode
+from robot_control.ros2_utils import SYSTEM_QOS, log_periodic
 
 
 _DEFAULT_SESSION_TOPIC = 'session'
@@ -234,7 +234,7 @@ def main(args: Optional[list[str]] = None) -> None:
     """
     rclpy.init(args=args)
 
-    from ..logging_bridge import configure_logging_bridge
+    from robot_control.logging_bridge import configure_logging_bridge
     configure_logging_bridge(package_logger_name='rdfp')
 
     node: Optional[RdfpImageViewerNode] = None

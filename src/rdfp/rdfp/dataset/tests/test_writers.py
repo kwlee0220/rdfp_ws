@@ -417,3 +417,85 @@ def test_schema_check_requires_the_new_session_columns() -> None:
     from rdfp.dataset.db.schema_check import REQUIRED_COLUMNS
 
     assert {'success', 'metadata'} <= set(REQUIRED_COLUMNS['sessions'])
+
+
+# --------------------------------------------------------------------------
+# scene_objects — /scene/objects (ground truth, 라벨·큐레이션용)
+# --------------------------------------------------------------------------
+
+def _scene_object(name: str, type_: str, dimensions: list, pos: tuple,
+                  ori: tuple) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name, type=type_, dimensions=dimensions,
+        pose=SimpleNamespace(
+            position=SimpleNamespace(x=pos[0], y=pos[1], z=pos[2]),
+            orientation=SimpleNamespace(x=ori[0], y=ori[1], z=ori[2], w=ori[3]),
+        ),
+    )
+
+
+def _scene_header(sec: int = 100, nanosec: int = 42,
+                  frame_id: str = 'panda_link0') -> SimpleNamespace:
+    return SimpleNamespace(stamp=SimpleNamespace(sec=sec, nanosec=nanosec),
+                           frame_id=frame_id)
+
+
+def test_scene_objects_row_values() -> None:
+    from rdfp.dataset.db.writers.scene_objects import SceneObjectsWriter
+
+    w = SceneObjectsWriter(conn=_FakeConn(), topic_id=11)
+    msg = SimpleNamespace(
+        header=_scene_header(30, 7),
+        objects=[
+            _scene_object('cube_0', 'box', [0.05, 0.05, 0.05],
+                          (0.4, 0.1, 0.025), (0.0, 0.0, 0.0, 1.0)),
+            _scene_object('can_0', 'cylinder', [0.12, 0.03],
+                          (0.5, -0.2, 0.06), (0.0, 0.0, 0.7071, 0.7071)),
+        ],
+    )
+    episode_id, topic_id, sec, nsec, frame_id, objects = w.row_values(5, msg)
+    assert (episode_id, topic_id, sec, nsec, frame_id) == (5, 11, 30, 7, 'panda_link0')
+    # jsonb 어댑터로 감싸 넘긴다 — 내용은 .obj 로 확인한다.
+    assert objects.obj == [
+        {'name': 'cube_0', 'type': 'box', 'dimensions': [0.05, 0.05, 0.05],
+         'position': [0.4, 0.1, 0.025], 'orientation': [0.0, 0.0, 0.0, 1.0]},
+        {'name': 'can_0', 'type': 'cylinder', 'dimensions': [0.12, 0.03],
+         'position': [0.5, -0.2, 0.06], 'orientation': [0.0, 0.0, 0.7071, 0.7071]},
+    ]
+
+
+def test_scene_objects_row_values_keeps_empty_scene() -> None:
+    """물체가 없는 것도 '씬이 비었다'는 유효한 상태이므로 빈 배열로 적재된다."""
+    from rdfp.dataset.db.writers.scene_objects import SceneObjectsWriter
+
+    w = SceneObjectsWriter(conn=_FakeConn(), topic_id=11)
+    msg = SimpleNamespace(header=_scene_header(), objects=[])
+    assert w.row_values(1, msg)[-1].obj == []
+
+
+def test_scene_objects_orientation_stays_xyzw() -> None:
+    """orientation 순서가 xyzw 로 유지된다.
+
+    wxyz 로 뒤집혀도 4개 float 에 unit norm 이라 타입 검사도 정규화 검사도
+    통과하고 '그럴듯하게 틀린 자세'가 되므로, 비대칭 값으로 고정한다.
+    """
+    from rdfp.dataset.db.writers.scene_objects import SceneObjectsWriter
+
+    w = SceneObjectsWriter(conn=_FakeConn(), topic_id=1)
+    msg = SimpleNamespace(
+        header=_scene_header(),
+        objects=[_scene_object('o', 'box', [], (0.0, 0.0, 0.0), (0.1, 0.2, 0.3, 0.4))],
+    )
+    assert w.row_values(1, msg)[-1].obj[0]['orientation'] == [0.1, 0.2, 0.3, 0.4]
+
+
+def test_registry_contains_scene_objects_type() -> None:
+    from rdfp.dataset.db.registry import MESSAGE_TYPE_REGISTRY
+
+    assert MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/SceneObjects'].table == 'scene_objects'
+
+
+def test_schema_check_requires_scene_objects_columns() -> None:
+    from rdfp.dataset.db.schema_check import REQUIRED_COLUMNS
+
+    assert {'frame_id', 'objects'} <= set(REQUIRED_COLUMNS['scene_objects'])

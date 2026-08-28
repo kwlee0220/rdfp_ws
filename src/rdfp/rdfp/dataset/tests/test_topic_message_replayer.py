@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-import threading
 import time
 
 import pytest
@@ -180,7 +179,8 @@ def test_init_raises_when_all_topics_empty(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_init_succeeds_when_any_topic_has_messages(
-    monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch: pytest.MonkeyPatch
+) -> None:
     """일부 토픽만 메시지가 있어도 replayer 생성은 성공한다 (skip + warn)."""
     from rdfp.dataset.db import topic_message_replayer as m
 
@@ -217,7 +217,8 @@ def test_init_rejects_image_topic(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_init_rejects_image_topic_does_not_create_publisher(
-    monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch: pytest.MonkeyPatch
+) -> None:
     """이미지 거부 시 어떤 publisher 도 생성되지 않아야 한다 (early raise)."""
     from rdfp.dataset.db import topic_message_replayer as m
 
@@ -329,7 +330,8 @@ def test_error_property_visible_before_join(monkeypatch: pytest.MonkeyPatch) -> 
 # --------------------------------------------------------------------------
 
 def test_close_stops_running_worker_and_destroys_publishers(
-    monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch: pytest.MonkeyPatch
+) -> None:
     """워커가 wait 중일 때 close() 가 stop + join + destroy 까지 처리."""
     from rdfp.dataset.db import topic_message_replayer as m
 

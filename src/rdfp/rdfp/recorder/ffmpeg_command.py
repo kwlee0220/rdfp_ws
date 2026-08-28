@@ -47,6 +47,7 @@ def channels_for(pixel_format: str) -> int:
             f"expected one of {sorted(SUPPORTED_ENCODINGS)}"
         ) from exc
 
+
 # 지원 코덱 상수 (probe / 커맨드 빌더 공용)
 CODEC_LIBX264: Final[str] = "libx264"
 CODEC_H264_NVENC: Final[str] = "h264_nvenc"

@@ -29,12 +29,7 @@
 from __future__ import annotations
 
 import os
-import sys
 
-# ROS2 launch 러너는 본 파일을 단일 스크립트로 로드하므로, 같은 디렉터리의
-# sibling 모듈을 패키지 import 로 가져올 수 없다. 이 파일의 디렉터리를
-# sys.path 의 맨 앞에 추가하여 top-level 모듈처럼 import 한다 (sibling 우선 보장; append 로 바꾸지 말 것).
-sys.path.insert(0, os.path.dirname(__file__))
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -49,7 +44,7 @@ from launch_ros.actions import Node, SetParameter
 def _included_backend() -> IncludeLaunchDescription:
     """panda_gazebo.launch (Gazebo + MoveIt 백엔드)를 include 한다."""
     panda_gazebo_launch = os.path.join(
-        get_package_share_directory("rdfp"), "launch", "panda_gazebo.launch.py"
+        get_package_share_directory("robot_control"), "launch", "panda_gazebo.launch.py"
     )
     # 백엔드와 공유하는 argument 만 전달한다. 나머지는 백엔드 기본값을 사용한다.
     forwarded = {
@@ -142,7 +137,7 @@ def generate_launch_description() -> LaunchDescription:
 
     # --- rdfp 애플리케이션: arm 명령 → JointState 재발행 (학습 데이터 action) ---
     target_joint_cmds_publisher = Node(
-        package="rdfp",
+        package="robot_control",
         executable="target_joint_cmds_publisher",
         name="target_joint_cmds_publisher",
         output="screen",

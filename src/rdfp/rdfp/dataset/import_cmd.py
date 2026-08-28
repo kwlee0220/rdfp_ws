@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     config_path = resolve_config_path(args)
     if config_path is None:
         logging.error('no --config given and default config not found: %s',
-                        DEFAULT_CONFIG_FILE_PATH)
+                      DEFAULT_CONFIG_FILE_PATH)
         return 2
     return cmd_import(args, config_path)
 

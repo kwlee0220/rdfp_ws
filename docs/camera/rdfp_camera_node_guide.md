@@ -6,24 +6,30 @@
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [세션 상태별 동작](#세션-상태별-동작)
-6. [토픽 연결](#토픽-연결)
-7. [에러 처리](#에러-처리)
-8. [실전 예제](#실전-예제)
-9. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [세션 상태별 동작](#5-세션-상태별-동작)
+6. [토픽 연결](#6-토픽-연결)
+7. [에러 처리](#7-에러-처리)
+8. [실전 예제](#8-실전-예제)
+9. [트러블슈팅](#9-트러블슈팅)
+10. [관련 문서](#10-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `RdfpCameraNode`는 `SessionControlNode`가 발행하는 세션 토픽의 상태 변경에
 따라 `OpenCvCamera`를 제어하고, `IN_EPISODE` 구간에서만 `sensor_msgs/Image`를
 `~/image_raw` private 토픽(기본 resolve 결과 `/rdfp_camera_node/image_raw`)으로
 발행한다.
+
+> 소속 패키지는 **`rdfp`** 다 (`src/rdfp/rdfp/camera/rdfp_camera_node.py`).
+> `/session` 상태에 종속되는 수집 계층 노드이므로 제어 계층(`robot_control`)이
+> 아니라 여기에 둔다. 카메라 하드웨어 추상화(`OpenCvCamera`)만 `robot_control`
+> 것을 그대로 쓴다.
 
 **기존 `CameraNode`과의 차이:**
 
@@ -38,14 +44,18 @@
 - `IN_SESSION` 구간에서는 캡처만 수행하고 프레임을 버림 (카메라 warm-up)
 - `IN_EPISODE` 전이 시 즉시 이미지 발행 시작
 - 카메라 open 실패 시 IDLE 전이까지 모든 명령을 무시하여 안전하게 동작
+- 캡처 중 연결이 끊기면 캡처 타이머를 멈추고 `reconnect_interval_sec` 주기로
+  재연결을 시도한다. 성공하면 세션 상태를 유지한 채 발행이 재개된다
+- `camera_status` 는 **상태가 바뀔 때만** 발행한다 (끊긴 카메라에서 초당 fps 회
+  쏟아지지 않는다). 노드 시작 시 `DISCONNECTED` 를 한 번 latch 해 둔다
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ```bash
 # rdfp_msgs + rdfp 빌드
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -53,7 +63,7 @@ source install/setup.bash
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # 터미널 1: 세션 제어 노드
@@ -80,7 +90,7 @@ ros2 topic hz /rdfp_camera_node/image_raw
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 | 파라미터 | 타입 | 기본값 | 설명 |
 |----------|------|--------|------|
@@ -89,32 +99,41 @@ ros2 topic hz /rdfp_camera_node/image_raw
 | `resolution` | str | None | `"WIDTHxHEIGHT"` 형식. None이면 카메라 기본값 사용 |
 | `encoding` | str | `"bgr8"` | `cv_bridge` 이미지 변환 시 encoding (`bgr8`/`rgb8`/`mono8`) |
 | `frame_id` | str | `"camera_link"` | Image 메시지의 `header.frame_id` |
+| `reconnect_interval_sec` | float | `3.0` | 연결이 끊기거나 open 에 실패했을 때 재시도 주기(초). `0` 이하이면 재연결하지 않음 |
 
 `fps`와 `resolution`을 생략하면 카메라 기본 설정을 사용한다.
 실제 적용된 값은 `IN_SESSION` 전이 시 로그에 출력된다.
 
 ---
 
-## 세션 상태별 동작
+## 5. 세션 상태별 동작
 
-```
-SessionControlNode                     RdfpCameraNode
-      │                                       │
-      │  start_session (Trigger)              │
-      ├─ topic: state="IN_SESSION" ──────────►│ camera.open() + 캡처 타이머 시작
-      │                                       │ ← 프레임 캡처 (버림)
-      │  start_episode (Trigger)              │
-      ├─ topic: state="IN_EPISODE" ──────────►│ _publishing=True → image 발행 시작
-      │                                       │ ← 프레임 캡처 + image 토픽 발행
-      │  stop_episode (Trigger)               │
-      ├─ topic: state="IN_SESSION" ──────────►│ _publishing=False → 발행 중단
-      │                                       │ ← 프레임 캡처 (버림)
-      │  start_episode → stop_episode         │
-      ├─ (반복 가능) ───────────────────────►│ 발행 on/off 반복
-      │                                       │
-      │  stop_session (Trigger)               │
-      ├─ topic: state="IN_SESSION" ──────────►│ 발행 중단 (녹화 중이었다면)
-      │  topic: state="IDLE" ────────────────►│ 타이머 취소 → camera.release()
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SC as SessionControlNode
+    participant Node as RdfpCameraNode
+    participant Cam as OpenCvCamera
+
+    SC->>Node: state = "IN_SESSION"<br/>(start_session)
+    Node->>Cam: camera.open() + 캡처 타이머 시작
+    Note right of Node: 프레임 캡처 (버림)
+
+    SC->>Node: state = "IN_EPISODE"<br/>(start_episode)
+    Node->>Node: _publishing = true → image 발행 시작
+    Note right of Node: 프레임 캡처 + image 토픽 발행
+
+    SC->>Node: state = "IN_SESSION"<br/>(stop_episode)
+    Node->>Node: _publishing = false → 발행 중단
+    Note right of Node: 프레임 캡처 (버림)
+
+    loop start_episode ↔ stop_episode 반복 가능
+        SC->>Node: IN_EPISODE ↔ IN_SESSION
+        Node->>Node: 발행 on / off
+    end
+
+    SC->>Node: state = "IDLE"<br/>(stop_session — 녹화 중이었다면 발행 먼저 중단)
+    Node->>Cam: 타이머 취소 → camera.release()
 ```
 
 ### 상태 전이 요약
@@ -129,7 +148,7 @@ SessionControlNode                     RdfpCameraNode
 
 ---
 
-## 토픽 연결
+## 6. 토픽 연결
 
 ### 구독 토픽
 
@@ -159,18 +178,19 @@ remap 한다 (예: `-r ~/image_raw:=/rdfp/image_raw`).
 
 ---
 
-## 에러 처리
+## 7. 에러 처리
 
 | 상황 | 동작 |
 |------|------|
-| `camera.open()` 실패 (`RuntimeError`) | ERROR 로그 + `_open_failed=True`. 이후 `IN_EPISODE` 무시. `IDLE` 전이 시 리셋 |
-| `camera.read()` 실패 (None 반환) | WARNING (5초 throttle). 다음 타이머 콜백까지 대기 |
+| `camera.open()` 실패 (`RuntimeError`) | ERROR 로그 + `ERROR` status + `_open_failed=True`. 이후 `IN_EPISODE` 무시. 재연결 타이머가 걸리고, `IDLE` 전이 시 리셋 |
+| `camera.read()` 실패 (None 반환, 연결은 유지) | WARNING (5초 throttle). 다음 타이머 콜백까지 대기 |
+| `camera.read()` 실패 + `is_opened == False` (연결 끊김) | 캡처 타이머 정지 + `release()` + `DISCONNECTED` status. `reconnect_interval_sec` 주기로 재연결 시도 (`_publishing` 은 유지) |
 | 알 수 없는 session state | WARNING 로그. `_prev_state` 변경하지 않음 |
 | SIGINT / SIGTERM | `destroy_node()` → 타이머 취소 → `camera.release()` |
 
 ---
 
-## 실전 예제
+## 8. 실전 예제
 
 ### 기본 사용
 
@@ -248,7 +268,7 @@ def generate_launch_description():
 
 ---
 
-## 트러블슈팅
+## 9. 트러블슈팅
 
 ### 1. 카메라가 열리지 않음
 
@@ -300,7 +320,7 @@ ros2 topic hz /rdfp/image_raw
 
 ---
 
-## 관련 문서
+## 10. 관련 문서
 
 - [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 이미지 녹화 노드
 - [SessionControlNode Guide](../../docs/session/session_control_guide.md) — 세션 제어 노드

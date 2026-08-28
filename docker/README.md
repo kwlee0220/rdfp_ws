@@ -10,7 +10,7 @@ moveit(ws_moveit2)과 apt base 라이브러리 간 ABI 충돌이 발생하지 �
 |---|---|---|
 | `rdfp-base` | ROS+moveit+rdfp 빌드 (공유 베이스) | — |
 | `rdfp-panda-mock` | 풀 앱 mock 스택 (+camera/recorder) | `ros2 launch rdfp rdfp_panda_mock.launch.py` |
-| `rdfp-panda-jgpc-mock` | JGPC(forward command) mock 스택 (+camera) | `ros2 launch rdfp panda_jgpc_mock.launch.py` |
+| `rdfp-panda-jgpc-mock` | JGPC(forward command) mock 스택 (+camera) | `ros2 launch robot_control panda_jgpc_mock.launch.py` |
 | `rdfp-gazebo` | Gazebo(Fortress) 백엔드 풀 앱 스택 | `ros2 launch rdfp rdfp_panda_gazebo.launch.py` |
 | `rdfp-replay-mock` | replay 스택 | `ros2 launch rdfp replay_panda_mock.launch.py` |
 | `rdfp-replay-gui` | Tk 재생 GUI (+DB/MP4 재생) | `ros2 run rdfp replay_gui` |
@@ -29,7 +29,7 @@ moveit(ws_moveit2)과 apt base 라이브러리 간 ABI 충돌이 발생하지 �
 ```
 rdfp-base                  ← ROS/moveit/colcon build/entrypoint (무거운 것 전부)
 ├── rdfp-panda-mock        → CMD: ros2 launch rdfp rdfp_panda_mock.launch.py
-├── rdfp-panda-jgpc-mock   → CMD: ros2 launch rdfp panda_jgpc_mock.launch.py
+├── rdfp-panda-jgpc-mock   → CMD: ros2 launch robot_control panda_jgpc_mock.launch.py
 ├── rdfp-gazebo            → +ros_gz/ign_ros2_control, CMD: ros2 launch rdfp rdfp_panda_gazebo.launch.py
 ├── rdfp-replay-mock       → CMD: ros2 launch rdfp replay_panda_mock.launch.py
 └── rdfp-replay-gui        → CMD: ros2 run rdfp replay_gui   (+Tk/pip 만 추가)
@@ -108,7 +108,7 @@ camera 노드(웹캠)와 image_recorder 를 포함한다. 스크립트가 호스
 ```bash
 ./docker/run_gazebo.sh
 # launch 인자 추가:  ./docker/run_gazebo.sh enable_rviz:=true simulate_camera:=true
-# 백엔드만(앱 노드 없이): ./docker/run_gazebo.sh ros2 launch rdfp panda_gazebo.launch.py
+# 백엔드만(앱 노드 없이): ./docker/run_gazebo.sh ros2 launch robot_control panda_gazebo.launch.py
 ```
 
 Gazebo(gz-sim) 창이 뜬다. GL 렌더는 Intel/AMD 면 `/dev/dri` 자동 패스스루로
@@ -138,7 +138,8 @@ export RDFP_DATA_DIR=/data/rdfp     # DB 에 저장된 MP4 경로와 동일하�
 - `--network host` (스크립트 기본).
 - **`ROS_DOMAIN_ID` 일치** — 두 run 스크립트 기본값은 `31`. 호스트에서 GUI 를
   직접 띄우는 경우 호스트 셸의 `ROS_DOMAIN_ID` 도 `31` 이어야 한다.
-- 동일 RMW — 컨테이너/스크립트 모두 `rmw_cyclonedds_cpp`.
+- **동일 RMW** — run 스크립트는 컨테이너에 `rmw_fastrtps_cpp` 를 주입하고,
+  호스트 셸의 `.ros2rc` 기본값도 같다. 별도 조치 없이 맞는다.
 
 ### 도메인 ID 바꾸기
 

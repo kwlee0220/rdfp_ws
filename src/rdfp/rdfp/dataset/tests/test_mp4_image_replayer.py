@@ -25,7 +25,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import sys
-import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -408,7 +407,9 @@ def test_publishes_image_msg_with_shifted_stamp(
     r = m.Mp4ImageReplayer(node, conn, episode_id=1, topic_name='/cam',
                            mp4_root=tmp_path)
     # start_time = 5s, first_history_time = 100s (= 첫 frame stamp)
-    start_time = Time(); start_time.sec = 5; start_time.nanosec = 0
+    start_time = Time()
+    start_time.sec = 5
+    start_time.nanosec = 0
     first_history = r.get_first_stamp()
     assert first_history.sec == 100 and first_history.nanosec == 0
     r.start(start_time, first_history)

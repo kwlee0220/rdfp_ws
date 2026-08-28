@@ -8,21 +8,22 @@ OpenCV `VideoCapture` 로 카메라·비디오 스트림·파일을 열어 `sens
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [`camera_id` 입력 형태](#camera_id-입력-형태)
-6. [토픽 연결](#토픽-연결)
-7. [이미지 발행 모드](#이미지-발행-모드)
-8. [동작 흐름](#동작-흐름)
-9. [에러 처리](#에러-처리)
-10. [실전 예제](#실전-예제)
-11. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [`camera_id` 입력 형태](#5-camera_id-입력-형태)
+6. [토픽 연결](#6-토픽-연결)
+7. [이미지 발행 모드](#7-이미지-발행-모드)
+8. [동작 흐름](#8-동작-흐름)
+9. [에러 처리](#9-에러-처리)
+10. [실전 예제](#10-실전-예제)
+11. [트러블슈팅](#11-트러블슈팅)
+12. [관련 문서](#12-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `CameraNode` 는 OpenCV `VideoCapture` 로 영상 소스를 열어, 지정한 FPS 에 맞춰
 프레임을 읽고 ROS2 토픽으로 발행한다. USB / 내장 카메라, RTSP·HTTP 스트림,
@@ -48,7 +49,7 @@ OpenCV `VideoCapture` 로 카메라·비디오 스트림·파일을 열어 `sens
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ```bash
 # cv_bridge + OpenCV
@@ -68,11 +69,11 @@ source install/setup.bash
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # USB 웹캠(/dev/video0) 을 30fps 640x480 로 기본 토픽(/camera_node/image_raw) 에 발행
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 \
   -p fps:=30 \
   -p resolution:=640x480
@@ -83,14 +84,14 @@ ros2 topic echo /camera_node/camera_status        # CONNECTED / DISCONNECTED 상
 ros2 run rqt_image_view rqt_image_view /camera_node/image_raw
 
 # 외부 토픽명으로 remap 하려면 (예: /camera/image_raw)
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 \
   -r ~/image_raw:=/camera/image_raw
 ```
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 ### 필수 파라미터
 
@@ -115,7 +116,7 @@ ros2 run rdfp camera_node --ros-args \
 
 ---
 
-## `camera_id` 입력 형태
+## 5. `camera_id` 입력 형태
 
 정수 인덱스 또는 문자열을 받으며, 형태에 따라 OpenCV 백엔드가 자동 결정된다.
 
@@ -127,7 +128,7 @@ ros2 run rdfp camera_node --ros-args \
 
 ---
 
-## 토픽 연결
+## 6. 토픽 연결
 
 ### 발행 토픽
 
@@ -173,12 +174,12 @@ ros2 topic echo /camera_node/camera_status
 
 ---
 
-## 이미지 발행 모드
+## 7. 이미지 발행 모드
 
 ### Raw (기본)
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p encoding:=bgr8
 # → /camera_node/image_raw 에 발행 (remap 필요 시 -r ~/image_raw:=<new>)
 ```
@@ -190,7 +191,7 @@ ros2 run rdfp camera_node --ros-args \
 ### JPEG 압축
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p compress_image:=true
 # → /camera_node/image_compressed 에 발행 (remap 필요 시 -r ~/image_compressed:=<new>)
 ```
@@ -202,35 +203,40 @@ ros2 run rdfp camera_node --ros-args \
 
 ---
 
-## 동작 흐름
+## 8. 동작 흐름
 
-```
-OpenCvCamera                    CameraNode                   ROS2 Topics
-    │                               │                             │
-    │  open()                       │                             │
-    ├──────────────────────────────►│ 파라미터 검증                  │
-    │                               │ (frame_id/encoding 필수)     │
-    │  실제 fps / 해상도 조회          │                             │
-    ◄───────────────────────────────┤                             │
-    │                               │                             │
-    │                               ├── status="CONNECTED" ──────►│ /camera_node/camera_status
-    │                               │                             │
-    │                               │ 타이머 시작 (1/fps 주기)       │
-    │                               │                             │
-    │  read() (매 tick)             │                             │
-    │◄──────────────────────────────┤                             │
-    │──► Image ────────────────────►│ cv_bridge → imgmsg ────────►│ /camera_node/image_raw
-    │                               │ CameraInfo 생성 ───────────►│ /camera_node/camera_info
-    │                               │                             │
-    │  read() 실패                   │                             │
-    │──► False ────────────────────►│ WARNING (is_opened=True 시) │
-    │                               │  또는                        │
-    │                               │ status="DISCONNECTED" ─────►│ /camera_node/camera_status
-    │                               │ status="ERROR" ────────────►│ /camera_node/camera_status
-    │                               │ sys.exit(1) ───────────────►│ (supervisor 재시작)
-    │                               │                             │
-    │     (사용자 Ctrl-C)           │                              │
-    │◄── release() ─────────────────┤ _cleanup()                  │
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cam as OpenCvCamera
+    participant Node as CameraNode
+    participant Topic as ROS2 Topics
+
+    Note over Node: 파라미터 검증<br/>(frame_id / encoding 필수)
+    Node->>Cam: open()
+    Cam-->>Node: 실제 fps / 해상도
+    Node->>Topic: status = "CONNECTED"<br/>/camera_node/camera_status
+    Note over Node: 타이머 시작 (1/fps 주기)
+
+    loop 매 tick
+        Node->>Cam: read()
+        alt 프레임 획득
+            Cam-->>Node: frame
+            Node->>Topic: Image — cv_bridge → imgmsg<br/>/camera_node/image_raw
+            Node->>Topic: CameraInfo<br/>/camera_node/camera_info
+        else read() 실패 · is_opened = true
+            Cam-->>Node: None
+            Node->>Node: WARNING 만 남기고 다음 tick
+        else read() 실패 · is_opened = false
+            Cam-->>Node: None
+            Node->>Topic: status = "DISCONNECTED"
+            Node->>Topic: status = "ERROR"
+            Node->>Node: sys.exit(1) — supervisor 재시작에 위임
+        end
+    end
+
+    Note over Node: 사용자 Ctrl-C
+    Node->>Cam: release() — _cleanup()
 ```
 
 - **기동 순서**: 파라미터 검증 → 카메라 open → 실제 fps 조회 → 퍼블리셔
@@ -242,7 +248,7 @@ OpenCvCamera                    CameraNode                   ROS2 Topics
 
 ---
 
-## 에러 처리
+## 9. 에러 처리
 
 | 상황 | 동작 |
 |---|---|
@@ -257,12 +263,12 @@ OpenCvCamera                    CameraNode                   ROS2 Topics
 
 ---
 
-## 실전 예제
+## 10. 실전 예제
 
 ### 기본 USB 카메라
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 \
   -p fps:=30 \
   -p resolution:=640x480 \
@@ -273,7 +279,7 @@ ros2 run rdfp camera_node --ros-args \
 ### RTSP 스트림 + JPEG 압축
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:='rtsp://user:pass@192.168.1.10:554/stream' \
   -p compress_image:=true \
   -p frame_id:=ipcam_link \
@@ -283,7 +289,7 @@ ros2 run rdfp camera_node --ros-args \
 ### 비디오 파일 재생 (일회성)
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=/home/$USER/samples/sample.mp4 \
   -p fps:=30 \
   -p frame_id:=video_link \
@@ -296,7 +302,7 @@ loop 이나 별도 파이프라인을 고려한다.
 ### 명시적 `camera_info` 토픽 지정
 
 ```bash
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -r ~/camera_info:=/calibration/camera_info
 ```
 
@@ -304,7 +310,7 @@ ros2 run rdfp camera_node --ros-args \
 
 ```bash
 # 터미널 1: 카메라 발행 (기본: /camera_node/image_raw)
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 -p fps:=30 -p resolution:=640x480
 
 # 터미널 2: 세션 기반 녹화
@@ -367,7 +373,7 @@ def generate_launch_description() -> LaunchDescription:
 
 ---
 
-## 트러블슈팅
+## 11. 트러블슈팅
 
 ### 1. `Failed to open camera`
 
@@ -437,10 +443,10 @@ Launch 의 `respawn=True` 또는 systemd `Restart=on-failure` 유닛으로 복�
 
 ---
 
-## 관련 문서
+## 12. 관련 문서
 
 - [ImageViewerNode Guide](./image_viewer_node_guide.md) — 발행된 이미지 토픽 미리보기
 - [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드
 - [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 세션 기반 이미지 녹화 노드
 - [OpenCvCamera Guide](./opencv_camera_guide.md) — 내부 카메라 래퍼
-- [launch/camera_launch_helper.py](../../src/rdfp/launch/camera_launch_helper.py) — 재사용 가능한 launch 헬퍼
+- [launch/camera_launch_helper.py](../../src/robot_control/robot_control/launch_helpers/camera.py) — 재사용 가능한 launch 헬퍼

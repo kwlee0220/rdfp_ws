@@ -148,17 +148,17 @@ python3 -m pip list --user   # 무엇이 들어와 있는지 먼저 확인
 
 ```
 ~/.bashrc                   함수 "정의"만 — 셸 환경을 건드리지 않는다
-  ├ rosenv  [distro]  →  ~/development/ros/.ros2rc        배포판 공통
-  └ rdfpenv [distro]  →  rdfp_ws/.rdfprc                  워크스페이스 overlay
-                            └ source ~/.ros2rc
+  ├ ros2_env [distro]  →  ~/development/ros/.ros2rc        배포판 공통
+  └ rdfp_env [distro]  →  rdfp_ws/.rdfprc                  워크스페이스 overlay
+                             └ source ~/development/ros/.ros2rc
 ```
 
 | 명령 | 하는 일 |
 |---|---|
 | (없음) | 깨끗한 셸. `PYTHONPATH` · `AMENT_PREFIX_PATH` 비어 있음 — uv 프로젝트용 |
-| `rosenv` | ROS 배포판 환경만. 배포판은 OS 버전에서 자동 판별 |
-| `rosenv jazzy` | 배포판 명시 |
-| `rdfpenv` | 위 + `RDFP_*` 변수 + `install/setup.bash` + 워크스페이스로 `cd` |
+| `ros2_env` | ROS 배포판 환경만. 배포판은 OS 버전에서 자동 판별 |
+| `ros2_env jazzy` | 배포판 명시 |
+| `rdfp_env` | 위 + `RDFP_*` 변수 + `install/setup.bash` + 워크스페이스로 `cd` |
 
 ROS 환경이 켜지면 프롬프트 앞에 `[ros:humble]` 이 붙어 어느 배포판 셸인지 눈으로
 구분된다. 두 배포판이 공존하는 마이그레이션 기간에 특히 중요하다.
@@ -174,7 +174,7 @@ Humble 컨테이너를 띄워도 그 안에서는 `humble` 로 판별된다).
 
 | 순위 | 출처 | 없을 때 |
 |---|---|---|
-| 1 | 함수 인자 — `rosenv jazzy` | — |
+| 1 | 함수 인자 — `ros2_env jazzy` | — |
 | 2 | `ROS2_DEFAULT_DISTRO` 환경변수 | — |
 | 3 | OS 버전 매핑 — 22.04 → `humble`, 24.04 → `jazzy` | 4 로 |
 | 4 | `/opt/ros/*` 스캔 — 설치본이 하나뿐이면 그것 | 에러 |
@@ -185,9 +185,9 @@ Humble 컨테이너를 띄워도 그 안에서는 `humble` 로 판별된다).
 에러를 내고 명시 지정을 요구한다.
 
 ```console
-$ rosenv                    # 22.04 → humble 자동
-$ rosenv jazzy              # 미설치 시
-rosenv: ROS 2 'jazzy' not found at /opt/ros/jazzy
+$ ros2_env                    # 22.04 → humble 자동
+$ ros2_env jazzy              # 미설치 시
+ros2_env: ROS 2 'jazzy' not found at /opt/ros/jazzy
 ```
 
 `/etc/os-release` 는 서브셸에서 읽으므로 `NAME` / `VERSION_ID` 가 셸에 남지 않는다.
@@ -199,7 +199,7 @@ rosenv: ROS 2 'jazzy' not found at /opt/ros/jazzy
 | 중복 호출 시 조기 return | 재호출로 `PATH`/`PYTHONPATH` 가 계속 길어지는 것을 막는다 |
 | 다른 배포판이 이미 켜져 있으면 거부 | Humble/Jazzy 경로가 한 셸에 뒤섞이면 진단이 불가능해진다 |
 | 배포판별 `ROS_DOMAIN_ID` (humble 31 / jazzy 32) | 두 배포판을 동시에 띄웠을 때 서로를 discovery 하지 않게 한다. 배포판 간에는 메시지 정의가 달라 정상 통신이 안 되면서 `ros2 topic list` 에 남의 토픽이 섞여 보이는, 진단하기 까다로운 증상이 생긴다 |
-| `librmw_cyclonedds_cpp.so` 존재 확인 후 `RMW_IMPLEMENTATION` 설정 | 해당 배포판에 미설치면 노드가 RMW 로드 실패로 아예 뜨지 않는다 |
+| `librmw_fastrtps_cpp.so` 존재 확인 후 `RMW_IMPLEMENTATION` 설정 | 해당 배포판에 미설치면 노드가 RMW 로드 실패로 아예 뜨지 않는다 |
 | `colcon_argcomplete` hook `-f` 가드 | 없는 환경에서 에러를 내지 않는다 |
 
 **`LD_LIBRARY_PATH` 수동 설정은 제거했다.** `setup.bash` 가 이미 올바르게 설정하므로
@@ -248,7 +248,7 @@ echo 'source ./.rdfprc' > .envrc && direnv allow
 mkdir -p ~/development/ros/<ws>/src && cd ~/development/ros/<ws>
 
 # 2) ROS 환경 진입 (자동 source 를 껐다면)
-rosenv
+ros2_env
 
 # 3) 패키지 생성
 cd src
@@ -333,7 +333,7 @@ export PYTHONPATH="$PYTHONPATH:$PWD/.venv/lib/python3.10/site-packages"
 | venv 에서 `ModuleNotFoundError: rclpy` | venv 의 Python minor 버전이 ROS 와 다름 (1-a) | venv 를 쓰지 않거나, `--python /usr/bin/python3` 로 재생성 |
 | `python` 으로는 되는데 `ros2 run` 에서 `ModuleNotFoundError` | console script shebang 이 시스템 Python (1-c) | 4-B 의 `PYTHONPATH` 방식으로 전환 |
 | 비-ROS 프로젝트에서 엉뚱한 패키지 버전이 잡힘 | 셸에 ROS 환경이 켜져 있음 (2.1) | `echo $ROS_DISTRO` 로 확인. 켜져 있으면 새 셸에서 작업 (2.3) |
-| `ros2` 명령을 못 찾음 | 옵트인이라 기본 셸에는 ROS 가 없다 | `rosenv` 또는 `rdfpenv` (2.3) |
+| `ros2` 명령을 못 찾음 | 옵트인이라 기본 셸에는 ROS 가 없다 | `ros2_env` 또는 `rdfp_env` (2.3) |
 | `A module that was compiled using NumPy 1.x…` | pip numpy 2.x 가 apt numpy 를 가림 (2.2) | `pip uninstall --user numpy` 후 apt 버전 사용 |
 | 코드를 고쳤는데 반영이 안 됨 | `src/` 하위의 stale `install`/`build` 가 shadowing | `find src -maxdepth 2 \( -name install -o -name build \)` 후 제거 |
 | `ros2 launch` 가 설정 YAML 을 못 찾음 | 패키지 share 에는 `config/*` 만 설치됨 | `src/<pkg>/config/` 에 두거나 절대경로 인자 전달 |
@@ -377,7 +377,8 @@ numpy 를 덮어쓰는 것)가 기본적으로 차단된다. 다만 **`--break-s
 - **`moveit_resources_panda` / `moveit_resources_panda_moveit_config` 의 Jazzy
   바이너리 존재 여부** — 이 워크스페이스의 launch 전체가 여기에 의존한다. 없으면
   소스 빌드가 필요하며, 이것이 마이그레이션 최대 리스크다.
-- `rmw_cyclonedds_cpp` (`~/.ros2rc` 에서 지정 중) 의 Jazzy 패키지명과 기본 설정 변화.
+- RMW 는 `rmw_fastrtps_cpp` (`~/development/ros/.ros2rc` 에서 지정) 로, ROS 2 기본값과
+  같고 docker 이미지까지 통일돼 있어 배포판 간 이식 위험이 낮다.
 - `moveit_servo` 파라미터 스키마 변경 — Humble ↔ Jazzy 사이에 파라미터가 꽤
   움직인 편이라 별도 검증이 필요하다.
 - `sensor_msgs` / `control_msgs` 등 메시지 정의 변경 여부.

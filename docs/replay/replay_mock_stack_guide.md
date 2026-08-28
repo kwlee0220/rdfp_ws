@@ -5,11 +5,12 @@
 
 관련 문서:
 
-- [cartesian_path_replay_approaches.md](cartesian_path_replay_approaches.md) —
+- [replay_approaches.md](replay_approaches.md) —
   왜 어떤 명령 타입을 골라야 하는지에 대한 원리 (본 문서의 이론적 배경)
 - [../rosbag2/데이터셋 후처리기 CLI 사용 설명서.md](../rosbag2/데이터셋%20후처리기%20CLI%20사용%20설명서.md) —
   에피소드 적재(`import`) 및 조회(`list` / `stats`)
-- [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — 런치 헬퍼 인벤토리
+- [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 런치 헬퍼 인벤토리 (제어 계열)
+- [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — `replay_panda_mock` 인자 표
 
 ---
 
@@ -29,7 +30,7 @@
 | `session_control_node` | O | **X** | 재생 중에는 세션 상태머신이 불필요 |
 | `image_recorder_node` | O | **X** | 재생을 다시 녹화하지 않음 |
 | `target_joint_cmds_publisher` | O | **X** | 재생 쪽이 발행자 |
-| `mock_scene_state_node` | O | **X** | 물체 상태도 데이터셋에서 나와야 한다. 라이브 씬 노드를 띄우면 `/scene/objects` 에 **두 번째 출처**가 생긴다 |
+| `mock_scene_state_node` | O | **X** | 물체 상태도 데이터셋에서 나와야 한다. 라이브 scene 노드를 띄우면 `/scene/objects` 에 **두 번째 출처**가 생긴다 |
 | `joint_state_broadcaster` | O | **O** | 실시간 관측값이므로 **유지** |
 
 `joint_state_broadcaster` 를 남기는 것이 핵심이다. `/joint_states` 는 재생 대상이
@@ -44,15 +45,22 @@ ros2_control    /controller_manager  /joint_state_broadcaster
                 /static_transform_publisher  /robot_state_publisher
 moveit          /move_group  /servo_node
 rviz            /rviz2
-rdfp            /rdfp_image_viewer_node       (enable_image_viewer_node)
+robot_control   /rdfp_image_viewer_node       (enable_image_viewer_node)
                 /gripper_control
                 + replay_arm_path 에 따른 arm 구동 노드 (1-4 참고)
 ```
 
+**이 스택은 `rdfp` 패키지의 노드를 하나도 띄우지 않는다.** launch 파일만 `rdfp` 에
+있고(`ros2 launch rdfp replay_panda_mock.launch.py`), 기동되는 노드는 전부
+`robot_control` 소유다 — 수집 계층이 재생에 필요 없기 때문이다(1-1).
+
 기동은 **순차적**이다. `panda_hand_controller` spawner 가 정상 종료되어야 상위
 노드가 일괄 spawn 된다 (`RegisterEventHandler(OnProcessExit)` 체인).
 
-### 1-3. rdfp 패키지 구현 노드
+### 1-3. 워크스페이스 구현 노드
+
+다섯 모두 **`robot_control` 패키지**다 — `ros2 run` 으로 개별 기동할 때 패키지
+이름을 틀리지 않도록 주의한다.
 
 | 노드 | 입력 | 출력 | 역할 |
 |---|---|---|---|
@@ -170,7 +178,7 @@ ros2 launch rdfp replay_panda_mock.launch.py replay_arm_path:=none
 ./docker/run_replay_mock.sh replay_arm_path:=target_joint_cmds   # launch 인자 전달
 ```
 
-컨테이너는 `ROS_DOMAIN_ID=31` / `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` 로 뜬다.
+컨테이너는 `ROS_DOMAIN_ID=31` / `RMW_IMPLEMENTATION=rmw_fastrtps_cpp` 로 뜬다.
 호스트에서 `replay` CLI 나 `ros2 topic` 을 쓰려면 **동일하게 맞춰야 한다** (3-1 참고).
 
 ### 2-7. 주요 launch 인자
@@ -197,7 +205,7 @@ CLI `arg:=value` 가 YAML 보다 우선하고, `config_file:=<path>` 로 YAML �
 
 > ⚠️ **`--show-args` 는 `config_file` 하나만 보여준다.** 나머지는 `config_file` 이
 > resolve 된 뒤에 선언되기 때문이다. 위 표가 전체 목록이고, 정본은
-> [launch/README.md](../../src/rdfp/launch/README.md) 의 "Launch 인자" 절이다.
+> [launch/README.md](../../src/rdfp/launch/README.md) 의 §3 "YAML ↔ 인자 대응표" 다.
 
 > 📌 **설정 파일이 `panda_robot.yaml` 에서 분리되었다.** 이 런치는 camera /
 > ee_pose_publisher / image_recorder / session_control 을 띄우지 않아, 공유 YAML
@@ -219,21 +227,25 @@ CLI `arg:=value` 가 YAML 보다 우선하고, `config_file:=<path>` 로 YAML �
 가장 자주 겪는 문제다. **`ROS_DOMAIN_ID` 와 `RMW_IMPLEMENTATION` 중 하나만
 달라도 DDS 디스커버리가 실패한다.**
 
-본 워크스페이스의 표준 환경은 `~/.ros2rc` 에 있다.
+본 워크스페이스의 표준 환경은 `~/development/ros/.ros2rc` 에 있고, 터미널마다
+`rdfp_env` 로 켠다.
 
 ```bash
 export ROS_DOMAIN_ID=31
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp    # .ros2rc 기본값
 ```
 
-**이 파일은 `~/.bashrc` 가 자동으로 부르지 않는다.** 터미널마다 직접
-`source ~/.ros2rc` 해야 한다. `docker/run_*.sh` 도 컨테이너에 같은 값을 주므로,
-스택을 호스트에서 띄우든 컨테이너에서 띄우든 **양쪽 모두 31 / cyclonedds 면
-자연히 통한다.**
+**셸을 여는 것만으로는 켜지지 않는다.** `~/.bashrc` 는 `~/.devrc` 를 읽어
+`ros2_env` / `rdfp_env` 를 **정의만** 하는 옵트인 구조다 — 자동 source 는 모든 셸의
+`PYTHONPATH` 를 오염시키기 때문이다([환경 가이드 §2.1](../environment/python_env_guide.md)).
+`docker/run_*.sh` 도 컨테이너에 같은 값(`31` / `rmw_fastrtps_cpp`)을 주므로,
+스택을 호스트에서 띄우든 컨테이너에서 띄우든 **양쪽이 자연히 통한다.**
 
-문제는 **한쪽만 `~/.ros2rc` 를 거치지 않았을 때** 생긴다. 예를 들어 스크립트,
-IDE 터미널, cron, 에이전트 셸 등에서 `ros2 launch` 를 띄우면 기본값(domain 0 /
-`rmw_fastrtps_cpp`)으로 뜨고, 정상 터미널에서는 그 스택이 전혀 보이지 않는다.
+문제는 **한쪽만 환경을 켜지 않았을 때** 생긴다. 특히 스크립트·IDE 터미널·cron·
+에이전트 셸에서 `source install/setup.bash` 만 하고 `ros2 launch` 를 띄우는 경우다 —
+이 파일이 `/opt/ros/humble` 을 chain 하므로 `ros2` 명령은 멀쩡히 돌지만
+기본값(domain 0 / `rmw_fastrtps_cpp`)으로 떠서, 정상 터미널에서는 그 스택이 전혀
+보이지 않는다.
 
 증상은 이렇다. **daemon 캐시 문제처럼 보이지만 아니다.**
 
@@ -248,7 +260,7 @@ Could not determine the type for the passed topic
 ```bash
 $ ps -eo args | grep ros2-daemon | grep -v grep
 ... --ros-domain-id  0 --rmw-implementation rmw_fastrtps_cpp      ← 잘못 띄운 스택
-... --ros-domain-id 31 --rmw-implementation rmw_cyclonedds_cpp    ← 정상 터미널
+... --ros-domain-id 31 --rmw-implementation rmw_fastrtps_cpp      ← 정상 터미널
 ```
 
 스택 쪽 프로세스의 실제 환경도 직접 확인할 수 있다.
@@ -260,7 +272,7 @@ tr '\0' '\n' < /proc/<launch_pid>/environ | grep -E "ROS_DOMAIN_ID|RMW_IMPL"
 **해결은 터미널의 변수를 지우는 것이 아니라 스택을 31 로 다시 띄우는 것이다.**
 
 ```bash
-source ~/.ros2rc && source install/setup.bash
+rdfp_env
 ros2 launch rdfp replay_panda_mock.launch.py
 ```
 
@@ -273,6 +285,14 @@ ros2 launch rdfp replay_panda_mock.launch.py
 
 ```bash
 colcon build --packages-select rdfp && source install/setup.bash
+```
+
+**launch helper 는 다른 패키지에 있다.** 이 런치는
+`robot_control.launch_helpers.*` 를 **설치된 파이썬 모듈**로 import 하므로,
+helper 나 노드 구현을 고쳤다면 위 명령으로는 반영되지 않는다.
+
+```bash
+colcon build --packages-select robot_control rdfp && source install/setup.bash
 ```
 
 재빌드 없이 확인하려면 소스 경로를 직접 지정한다.
@@ -474,7 +494,7 @@ CREATE TABLE IF NOT EXISTS joint_states (
 둘 다 비면 빈 `joint_names` 로 발행되고 컨트롤러가 거부할 수 있다 (경고 로그 출력).
 
 ```bash
-ros2 run rdfp target_joint_cmds_executor --ros-args \
+ros2 run robot_control target_joint_cmds_executor --ros-args \
     -p joint_names:="[panda_joint1,panda_joint2,panda_joint3,panda_joint4,panda_joint5,panda_joint6,panda_joint7]"
 ```
 

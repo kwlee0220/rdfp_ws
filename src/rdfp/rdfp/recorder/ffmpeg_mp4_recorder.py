@@ -14,9 +14,9 @@ from array import array
 
 import numpy as np
 
-from ..types import Resolution
+from robot_control.types import Resolution
 from .encoder_probe import select_encoder
-from ..types import InvalidFrameError
+from robot_control.types import InvalidFrameError
 from .ffmpeg_command import SUPPORTED_ENCODINGS, build_ffmpeg_command, channels_for
 from .state import RecorderState, RecorderStateMachine
 
@@ -62,7 +62,7 @@ class FFMpegMp4Recorder:
 
             import numpy as np
             from rdfp.recorder import FFMpegMp4Recorder
-            from rdfp.types import Resolution
+            from robot_control.types import Resolution
 
             rec = FFMpegMp4Recorder(
                 fps=30, resolution=Resolution(640, 480),
@@ -91,7 +91,8 @@ class FFMpegMp4Recorder:
         - `shutdown()` 이후에는 `RecorderStateError` (종착 상태)
     """
 
-    def __init__(self, *,
+    def __init__(
+        self, *,
         fps: int,
         resolution: str | tuple[int, int] | Resolution,
         pixel_format: str = "bgr8",
@@ -208,7 +209,7 @@ class FFMpegMp4Recorder:
     def state(self) -> str:
         """현재 상태의 문자열 표현 (스냅샷)."""
         return str(self._state_machine.state)
-    
+
     @property
     def pixel_format(self) -> str:
         """생성자에서 설정된 pixel_format."""
@@ -366,7 +367,8 @@ class FFMpegMp4Recorder:
         if isinstance(data, memoryview):
             if not data.contiguous:
                 if not self._non_contiguous_warned:
-                    self._logger.warning("received non-contiguous memoryview; copying to contiguous bytes")
+                    self._logger.warning(
+                        "received non-contiguous memoryview; copying to contiguous bytes")
                     self._non_contiguous_warned = True
                 data = bytes(data)
         if len(data) != expected:
@@ -386,7 +388,7 @@ class FFMpegMp4Recorder:
         """프레임을 검증하고 raw bytes 로 직렬화한다."""
         if not isinstance(image, np.ndarray):
             raise InvalidFrameError(f"image must be np.ndarray, got {type(image).__name__}")
-        
+
         if image.dtype != np.uint8:
             raise InvalidFrameError(f"image dtype must be uint8, got {image.dtype}")
 

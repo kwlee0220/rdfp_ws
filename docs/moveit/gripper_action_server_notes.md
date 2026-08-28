@@ -64,7 +64,7 @@ panda_hand_controller:
 
 액션 이름은 컨트롤러가 `~/gripper_cmd` 로 만들기 때문에 컨트롤러 이름이 붙어 `/panda_hand_controller/gripper_cmd` 가 된다. arm 쪽 `panda_arm_controller` 가 `follow_joint_trajectory` 를 내는 것과 같은 구조다.
 
-기동은 [controller_startup_launch_helper.py](../../src/rdfp/launch/controller_startup_launch_helper.py) 의 순차 체인 마지막 단계(`panda_hand_controller` spawner)에서 이뤄진다.
+기동은 [controller_startup_launch_helper.py](../../src/robot_control/robot_control/launch_helpers/controller_startup.py) 의 순차 체인 마지막 단계(`panda_hand_controller` spawner)에서 이뤄진다.
 
 > **JGPC 스택에서도 그대로 동작한다.** `panda_jgpc_mock.launch.py` 는 arm
 > 컨트롤러 타입만 바꾸고 `panda_hand_controller` 는 건드리지 않으므로, arm 과
@@ -302,7 +302,7 @@ MoveIt 과 `GripperControlNode` 가 동시에 goal 을 보내는 경우도 마�
 
 ### 4. Trigger 응답은 Result 를 기다리지 않는다
 
-[gripper_control_node.py](../../src/rdfp/rdfp/moveit/gripper_control_node.py) 의 `_dispatch` 는 goal 전송 직후 응답을 반환하고, Result 는 별도 콜백 체인에서 받는다.
+[gripper_control_node.py](../../src/robot_control/robot_control/moveit/gripper_control_node.py) 의 `_dispatch` 는 goal 전송 직후 응답을 반환하고, Result 는 별도 콜백 체인에서 받는다.
 
 ```python
 send_future = self._action.send_goal_async(goal, feedback_callback=self._on_feedback)
@@ -361,4 +361,4 @@ ros2 topic echo /panda_hand_controller/gripper_cmd/_action/feedback
 
 - [GripperControlNode_Guide.md](GripperControlNode_Guide.md) — 이 액션을 감싼 `GripperControlNode` 사용법
 - [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) — JGPC 스택에서 arm 은 왜 다른가 (그리퍼는 영향 없음)
-- [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — 컨트롤러 순차 기동 순서
+- [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 컨트롤러 순차 기동 순서

@@ -17,11 +17,10 @@ import json
 import sys
 from enum import Enum
 
-from rdfp.ros2_utils import SYSTEM_QOS
+from robot_control.ros2_utils import SYSTEM_QOS
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from std_srvs.srv import Trigger
 
 from rdfp_msgs.msg import SessionCommand
@@ -33,7 +32,6 @@ class SessionState(Enum):
     IDLE = 'IDLE'
     IN_SESSION = 'IN_SESSION'
     IN_EPISODE = 'IN_EPISODE'
-
 
 
 _DEFAULT_SESSION_TOPIC = "session"

@@ -19,7 +19,7 @@ import pytest
 
 from rdfp.recorder.ffmpeg_command import CODEC_LIBX264
 from rdfp.recorder.ffmpeg_mp4_recorder import FFMpegMp4Recorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 
 # ffmpeg / ffprobe 미설치 시 전체 모듈 skip

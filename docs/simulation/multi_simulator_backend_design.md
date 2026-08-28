@@ -36,12 +36,12 @@
 백엔드"** 이다.
 
 `ros2_control_hardware_type` 은 이미 launch argument 로 노출되어 있고
-([launch/launch_helper.py](../../src/rdfp/launch/launch_helper.py) 의
+([launch/launch_helper.py](../../src/robot_control/robot_control/launch_helpers/common.py) 의
 `build_moveit_config()`), URDF xacro 의 `<ros2_control><hardware>` 플러그인을
 주입한다. **올바른 추상화 경계가 이미 코드에 존재**한다는 뜻이다.
 
 ### 2.2 현재 launch 파일의 책임 혼재
-[panda_mock.launch.py](../../src/rdfp/launch/panda_mock.launch.py),
+[panda_mock.launch.py](../../src/robot_control/launch/panda_mock.launch.py),
 [rdfp_panda_mock.launch.py](../../src/rdfp/launch/rdfp_panda_mock.launch.py),
 [replay_panda_mock.launch.py](../../src/rdfp/launch/replay_panda_mock.launch.py)
 는 각각 다음을 **한 파일에서** 수행한다.
@@ -220,6 +220,10 @@ recorder / dataset / image_viewer 는 `camera_image_topic` 등으로 remap 되�
 - 클럭: Gazebo `/clock` → `use_sim_time:=true` 를 **앱 포함 전체 노드에
   전파**해야 한다 (§8.3).
 
+> **(B) 토픽 브리지의 실사례**: 펑션베이 백엔드가 이 방식으로 구현되어 있다 —
+> [functionbay_backend_design.md](functionbay_backend_design.md). 아래에서 필요하다고
+> 짚은 trajectory adapter 와 readiness gate 가 실제로 어떻게 만들어졌는지 볼 수 있다.
+
 ### 6.3 backend_isaac (신규, 연결형)
 - Isaac Sim 은 보통 **별도 GPU 호스트/컨테이너에서 이미 실행** 중이고, ROS2
   bridge(`isaacsim.ros2.bridge`)로 연결된다. 따라서 backend_isaac 는 Gazebo
@@ -235,7 +239,7 @@ recorder / dataset / image_viewer 는 `camera_image_topic` 등으로 remap 되�
     `target_joint_states_executor` 와 유사한 역할의 일반화 버전).
 - 기동 신호(§5.2): spawner 가 없으므로, "controller/토픽이 활성화되었는지"를
   확인하고 Layer A 기동을 트리거하는 **readiness gate 노드**가 필요하다.
-- URDF↔USD 정합성: 진실원본이 USD 씬이므로, 관절 이름/순서/프레임이 URDF 와
+- URDF↔USD 정합성: 진실원본이 USD scene 이므로, 관절 이름/순서/프레임이 URDF 와
   일치해야 한다. 이것이 Isaac 백엔드의 핵심 계약 항목이다.
 - 카메라: Isaac 의 강점인 고품질 RGB/Depth 센서 → `/camera/image_raw` 로 발행,
   웹캠 노드 끔.
@@ -259,7 +263,7 @@ recorder / dataset / image_viewer 는 `camera_image_topic` 등으로 remap 되�
 재현성이 깨진다. 권장:
 
 - **rdfp 패키지 안에 description 을 포크**한다. 예:
-  `src/rdfp/description/panda/panda.urdf.xacro` (+ ros2_control 매크로).
+  `src/robot_control/description/panda/panda.urdf.xacro` (+ ros2_control 매크로).
   `build_moveit_config()` 의 `.robot_description(file_path=...)` 가 이 포크를
   가리키도록 변경(§7.3).
 - 포크된 xacro 에서 `ros2_control_hardware_type` 값에 따라 include 할 하드웨어
@@ -273,7 +277,7 @@ mock 은 `<inertial>`/`<collision>`/마찰이 없어도 동작하지만, Gazebo�
 - joint `<dynamics>` (damping/friction), Gazebo `<gazebo>` 마찰 계수
 
 ### 7.3 build_moveit_config 일반화
-[launch_helper.py](../../src/rdfp/launch/launch_helper.py) 의
+[launch_helper.py](../../src/robot_control/robot_control/launch_helpers/common.py) 의
 `build_moveit_config()` 는 현재 `MOVEIT_CONFIGS_PACKAGE_NAME` 과 mock 전용
 파일 경로에 하드코딩되어 있다. 다음을 인자화한다.
 - description xacro 경로(포크 위치).
@@ -345,7 +349,7 @@ bringup 의 backend 선택에 따라 자동 결정하여 app launch 로 내려�
   → 산출물: 시뮬레이터는 아직 mock 뿐이지만, 구조가 백엔드 교체 가능 형태로 전환.
 
 - **Phase 2 — description 포크 + 물리 속성 (mock 회귀 유지)**
-  `src/rdfp/description/` 에 panda xacro 포크, inertial/collision 보강,
+  `src/robot_control/description/` 에 panda xacro 포크, inertial/collision 보강,
   `build_moveit_config()` 일반화. mock 으로 회귀 검증(물리 속성은 mock 에
   무해).
 

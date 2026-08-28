@@ -6,26 +6,32 @@
 
 ## 목차
 
-1. [개요](#개요)
-2. [사전 요구사항](#사전-요구사항)
-3. [Quick Start](#quick-start)
-4. [파라미터](#파라미터)
-5. [오버레이 표시 규칙](#오버레이-표시-규칙)
-6. [토픽 연결](#토픽-연결)
-7. [동작 흐름](#동작-흐름)
-8. [에러 처리](#에러-처리)
-9. [실전 예제](#실전-예제)
-10. [개발자 확장](#개발자-확장)
-11. [트러블슈팅](#트러블슈팅)
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [Quick Start](#3-quick-start)
+4. [파라미터](#4-파라미터)
+5. [오버레이 표시 규칙](#5-오버레이-표시-규칙)
+6. [토픽 연결](#6-토픽-연결)
+7. [동작 흐름](#7-동작-흐름)
+8. [에러 처리](#8-에러-처리)
+9. [실전 예제](#9-실전-예제)
+10. [개발자 확장](#10-개발자-확장)
+11. [트러블슈팅](#11-트러블슈팅)
+12. [관련 문서](#12-관련-문서)
 
 ---
 
-## 개요
+## 1. 개요
 
 `RdfpImageViewerNode` 는 ROS2 이미지 토픽을 OpenCV 윈도우에 표시하면서, 세션
 토픽(`rdfp_msgs/msg/SessionCommand`) 의 현재 상태를 프레임 좌상단에 텍스트
 오버레이로 보여주는 뷰어 노드다. `SessionControlNode` 와 함께 사용할 때 녹화
 세션의 현재 상태(대기/준비/녹화)를 시각적으로 확인하는 용도에 적합하다.
+
+> 소속 패키지는 **`rdfp`** 다 (`src/rdfp/rdfp/camera/rdfp_image_viewer_node.py`).
+> `/session` 상태에 종속되는 수집 계층 노드이므로 제어 계층(`robot_control`)이
+> 아니라 여기에 둔다. 베이스 클래스 `ImageViewerNode` 만 `robot_control.camera`
+> 것을 상속한다.
 
 **기존 `ImageViewerNode` 와의 차이:**
 
@@ -45,14 +51,14 @@
 
 ---
 
-## 사전 요구사항
+## 2. 사전 요구사항
 
 ```bash
 # cv_bridge + OpenCV
 sudo apt install ros-humble-cv-bridge python3-opencv
 
 # rdfp_msgs + rdfp 빌드
-colcon build --packages-select rdfp_msgs rdfp
+colcon build --packages-select rdfp_msgs robot_control robot_twin rdfp
 source install/setup.bash
 ```
 
@@ -62,14 +68,14 @@ X/Wayland 세션이 있어야 한다. SSH 접속 시 `DISPLAY` 환경 변수 설
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 ```bash
 # 터미널 1: 세션 제어 노드 (없어도 뷰어 기동은 가능)
 ros2 run rdfp session_control_node
 
 # 터미널 2: 카메라 노드
-ros2 run rdfp camera_node --ros-args \
+ros2 run robot_control camera_node --ros-args \
   -p camera_id:=0 -p fps:=30 -p resolution:=640x480
 
 # 터미널 3: 뷰어 노드
@@ -91,7 +97,7 @@ ros2 service call /session_control/start_episode std_srvs/srv/Trigger
 
 ---
 
-## 파라미터
+## 4. 파라미터
 
 ### 선택 파라미터
 
@@ -101,7 +107,7 @@ ros2 service call /session_control/start_episode std_srvs/srv/Trigger
 
 ROS2 파라미터는 `resolution` 하나뿐이다. 오버레이 스타일·토픽 이름·윈도우
 이름 등은 **모듈 상수** 로 고정되어 있으며, 커스터마이즈하려면 서브클래싱이
-필요하다 ([개발자 확장](#개발자-확장) 참조).
+필요하다 ([개발자 확장](#10-개발자-확장) 참조).
 
 ### 내부 고정 상수
 
@@ -121,7 +127,7 @@ ROS2 파라미터는 `resolution` 하나뿐이다. 오버레이 스타일·토�
 
 ---
 
-## 오버레이 표시 규칙
+## 5. 오버레이 표시 규칙
 
 세션 메시지의 `state` / `task_label` 값에 따라 다음 규칙으로 텍스트가
 구성된다.
@@ -163,7 +169,7 @@ ROS2 파라미터는 `resolution` 하나뿐이다. 오버레이 스타일·토�
 
 ---
 
-## 토픽 연결
+## 6. 토픽 연결
 
 ### 구독 토픽
 
@@ -183,31 +189,35 @@ ROS2 파라미터는 `resolution` 하나뿐이다. 오버레이 스타일·토�
 
 ---
 
-## 동작 흐름
+## 7. 동작 흐름
 
-```
-Image topic                  RdfpImageViewerNode
-     │                                │
-     ├── Image msg ──────────────────►│ _on_image()  (부모)
-     │                                │ ├─ cv_bridge → bgr8
-     │                                │ ├─ 첫 프레임: display_resolution 고정
-     │                                │ ├─ resize (크기 불일치 시)
-     │                                │ ├─ _decorate_frame(frame)  ─── 오버라이드
-     │                                │ │   ├─ _format_overlay_text(state, task_label)
-     │                                │ │   ├─ 반투명 배경 박스 그리기
-     │                                │ │   └─ 텍스트 putText
-     │                                │ ├─ cv2.imshow
-     │                                │ └─ cv2.waitKey(1)
-     │                                │
-Session topic                         │
-     │                                │
-     ├── SessionCommand msg ─────────►│ _on_session()
-     │                                │ ├─ self._session_state = msg.state
-     │                                │ └─ self._task_label = msg.task_label
-     │                                │ (렌더는 다음 프레임에서 반영)
-     │                                │
-     │         (User Ctrl-C)          │
-     │                                ├── destroy_node()  (부모)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Img as Image topic
+    participant Ses as Session topic
+    participant Node as RdfpImageViewerNode
+    participant GUI as OpenCV HighGUI
+
+    Ses->>Node: SessionCommand
+    activate Node
+    Node->>Node: _session_state = msg.state<br/>_task_label = msg.task_label
+    deactivate Node
+    Note right of Node: 세션 콜백은 상태 저장만 —<br/>렌더는 다음 이미지 프레임에서 반영
+
+    Img->>Node: Image msg
+    activate Node
+    Node->>Node: cv_bridge → bgr8 (부모 로직)
+    Node->>Node: 첫 프레임이면 display_resolution 고정
+    Node->>Node: resize (크기 불일치 시)
+    Node->>Node: _decorate_frame — 오버라이드 지점
+    Node->>Node: _format_overlay_text(state, task_label)
+    Node->>Node: 반투명 배경 박스 + putText
+    Node->>GUI: cv2.imshow
+    Node->>GUI: cv2.waitKey(1)
+    deactivate Node
+
+    Note over Node: 사용자 Ctrl-C → destroy_node() (부모)
 ```
 
 - **세션 콜백은 상태 저장만** 수행한다. 오버레이는 다음 이미지 프레임
@@ -219,7 +229,7 @@ Session topic                         │
 
 ---
 
-## 에러 처리
+## 8. 에러 처리
 
 | 상황 | 동작 |
 |---|---|
@@ -233,7 +243,7 @@ Session topic                         │
 
 ---
 
-## 실전 예제
+## 9. 실전 예제
 
 ### 기본 사용 (세션 노드와 함께)
 
@@ -319,7 +329,7 @@ ros2 run rdfp rdfp_image_viewer_node --ros-args \
 
 ---
 
-## 개발자 확장
+## 10. 개발자 확장
 
 이 노드는 `ImageViewerNode` 를 상속한 예시 구현이며, 내부 구조가 단순해
 서브클래싱으로 쉽게 확장할 수 있다.
@@ -383,7 +393,7 @@ class FpsOverlayViewer(RdfpImageViewerNode):
 
 ---
 
-## 트러블슈팅
+## 11. 트러블슈팅
 
 ### 1. 윈도우가 뜨지 않음
 
@@ -457,7 +467,7 @@ ros2 topic echo /<session_topic> --field state --once
 
 ---
 
-## 관련 문서
+## 12. 관련 문서
 
 - [ImageViewerNode Guide](./image_viewer_node_guide.md) — 부모 클래스 사용 가이드
 - [CameraNode Guide](./camera_node_guide.md) — 이미지 토픽 발행자
