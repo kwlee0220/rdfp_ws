@@ -1,0 +1,26 @@
+# 대상 로봇의 IK 설정.
+#
+# 그룹 이름은 SRDF 와 같아야 한다 — `panda_arm` 하나뿐이다. `hand` 는 1축이라
+# IK 가 필요 없고, 그룹에 solver 를 달면 로드 시 경고만 늘어난다.
+#
+# **체인의 tip 이 `robotiq_85_base_link` 다** (SRDF 참고). 따라서 여기서 푸는 IK 의
+# 목표 프레임도 그리퍼 베이스이며, 시뮬레이터가 EE 로 보고하는 지점(body 9)과 같다.
+# 손끝(TCP)을 목표로 삼으려면 호출부에서 오프셋을 얹어야 한다.
+#
+# KDL 을 쓰는 이유는 의존성이 없기 때문이다 — `trac_ik` 은 이 환경에 설치되어 있지
+# 않다. **7축 여유자유도에서 KDL 은 초기값에 민감해 실패가 잦다.** 파지처럼 자세가
+# 빡빡한 목표에서 `No IK solution` 이 반복되면 `trac_ik_kinematics_plugin` 설치를
+# 먼저 검토한다 (solver 이름만 바꾸면 된다).
+# 로드 시 다음 경고가 뜬다 — **무해하며 고칠 필요가 없다.**
+#
+#   [WARN] [kdl_parser]: The root link panda_link0 has an inertia specified in the
+#          URDF, but KDL does not support a root link with an inertia.
+#
+# 참조 `moveit_resources_panda_description` 의 URDF 는 `panda_link0` 에 inertial 을
+# 두지 않아 이 경고가 없는데, 벤더 URDF 는 17개 링크 전부에 넣어 두었다. KDL 은
+# 루트의 관성만 무시하며, 여기서 쓰는 것은 **위치 기구학**이라 관성이 결과에 관여하지
+# 않는다. 역동역학에 KDL 을 쓸 일이 생기면 그때 dummy 링크를 앞에 붙인다.
+panda_arm:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.05

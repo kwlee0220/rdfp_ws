@@ -63,11 +63,21 @@
     <joint name="panda_joint7" value="0.785"/>
   </group_state>
 
+  <!--
+    참조 SRDF 의 `extended` 는 `panda_joint4 = 0` 인데, **실제 Panda 는 그 자세에
+    갈 수 없다** — 팔꿈치 상한이 -0.0698 rad 다. 참조 URDF 가 한계를 헐겁게 적어
+    둔 탓에 성립하던 자세이며, `config/joint_limits.yaml` 로 스펙을 강제하면 범위
+    밖이 된다. 그래서 상한값으로 바꿔 정의한다.
+
+    이 차이는 Isaac 백엔드에서 이미 한 번 대가를 치렀다 — MoveIt 이 계획한 j4=0 을
+    시뮬레이터가 한계에서 막았는데, 그 정지값이 정착 오차처럼 보여 **중력 처짐으로
+    오독**했다 (open_work §4.1).
+  -->
   <group_state group="panda_arm" name="extended">
     <joint name="panda_joint1" value="0"/>
     <joint name="panda_joint2" value="0"/>
     <joint name="panda_joint3" value="0"/>
-    <joint name="panda_joint4" value="0"/>
+    <joint name="panda_joint4" value="-0.0698"/>
     <joint name="panda_joint5" value="0"/>
     <joint name="panda_joint6" value="1.571"/>
     <joint name="panda_joint7" value="0.785"/>

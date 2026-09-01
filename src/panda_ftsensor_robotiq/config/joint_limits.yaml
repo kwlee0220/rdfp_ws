@@ -1,0 +1,101 @@
+# 대상 로봇의 MoveIt 관절 한계.
+#
+# 속도는 URDF 와 같고(대조 확인), 가속도는 URDF 에 없어
+# `moveit_resources_panda_moveit_config` 의 값을 그대로 쓴다 — 같은 Franka Panda 다.
+# MoveIt 은 jerk 한계를 지원하지 않으므로, 여기 가속도는 1 ms 안에 최소↔최대로
+# 뒤집어도 jerk 한계를 넘지 않는 최대값이다.
+#
+# ── position 을 덮어쓰는 이유 ────────────────────────────────────────────────
+#
+# **벤더 URDF 의 관절 한계 두 개가 실제 Franka 스펙과 다르다.**
+#
+#   관절          URDF 한계            실제 스펙            차
+#   panda_joint4  -3.0718 ~ +0.0698   -3.0718 ~ -0.0698   상한 0.1396 (8°, 부호가 반대다)
+#   panda_joint7  -3.1500 ~ +3.1500   -2.8973 ~ +2.8973   양쪽 0.2527 (14.5°)
+#
+# 나머지 다섯 관절은 스펙과 정확히 일치하므로, 이 둘만 어긋난 것은 오기로 보인다.
+# 특히 joint4 는 실제 Panda 의 팔꿈치가 0 에 닿지 못하는데 URDF 는 양수까지 허용한다.
+#
+# **좁은 쪽(실제 스펙)을 택한다.** 수집한 데이터가 실물로 가야 하기 때문이다 —
+# 헐거운 쪽에 맞추면 실제 로봇이 갈 수 없는 자세가 데이터셋에 섞인다. 같은 판단을
+# Isaac 백엔드에서 이미 한 번 했고(`robot_control/config/panda_real_joint_limits.yaml`),
+# 그때는 이 차이를 **중력 처짐으로 오독**하는 대가를 치렀다 — MoveIt 이 계획한
+# `extended`(j4=0) 자세를 시뮬레이터가 한계에서 막았는데, 그 정지값이 정착 오차처럼
+# 보였다.
+#
+# ⚠️ **시뮬레이터의 실효 한계는 또 다르다.** joint7 은 실측 상한이 **1.6387 rad** 로
+# URDF(3.15)보다도 스펙(2.8973)보다도 훨씬 좁다 (open_work §4.1). 여기 값을 스펙에
+# 맞춰도 그 구간은 여전히 "계획은 되는데 실행이 못 미치는" 영역으로 남는다. 정확한
+# 사양을 벤더에 요청해 두었다.
+joint_limits:
+  panda_joint1:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.1750
+    has_acceleration_limits: true
+    max_acceleration: 3.75
+  panda_joint2:
+    has_position_limits: true
+    min_position: -1.7628
+    max_position: 1.7628
+    has_velocity_limits: true
+    max_velocity: 2.1750
+    has_acceleration_limits: true
+    max_acceleration: 1.875
+  panda_joint3:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.1750
+    has_acceleration_limits: true
+    max_acceleration: 2.5
+  # 상한이 **음수**다. URDF 의 +0.0698 은 부호 오기로 보인다.
+  panda_joint4:
+    has_position_limits: true
+    min_position: -3.0718
+    max_position: -0.0698
+    has_velocity_limits: true
+    max_velocity: 2.1750
+    has_acceleration_limits: true
+    max_acceleration: 3.125
+  panda_joint5:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.6100
+    has_acceleration_limits: true
+    max_acceleration: 3.75
+  panda_joint6:
+    has_position_limits: true
+    min_position: -0.0175
+    max_position: 3.7525
+    has_velocity_limits: true
+    max_velocity: 2.6100
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  panda_joint7:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.6100
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  # 그리퍼 구동축. mimic 5축은 종속 변수라 여기 적지 않는다 — 적어도 MoveIt 이
+  # 쓰지 않고, 값이 어긋나면 오해만 남는다.
+  #
+  # 가속도는 미지라 껐다. 참조 설정도 Panda Hand 손가락에 대해 같은 선택을 한다.
+  # 계단 응답 실측(dead time 88 ms, τ 283 ms)에서 역산할 수도 있으나, 그 값은
+  # 시뮬레이터 제어기 특성이지 하드웨어 사양이 아니다.
+  finger_joint:
+    has_position_limits: true
+    min_position: 0.0
+    max_position: 0.725
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: false
+    max_acceleration: 0.0
