@@ -42,6 +42,9 @@ setup(
             'gripper_control_node = robot_control.moveit.gripper_control_node:main',
             'isaac_gripper_bridge = robot_control.isaac.gripper_action_bridge_node:main',
             'isaac_scene_state_node = robot_control.isaac.scene_state_node:main',
+            # 백엔드 중립 이름. 노드가 Isaac 전용이 아니라 토픽 remap 으로
+            # 어느 스택에나 붙는다 — 펑션베이도 같은 노드를 쓴다.
+            'servo_command_bridge = robot_control.isaac.servo_command_bridge_node:main',
             'isaac_servo_bridge = robot_control.isaac.servo_command_bridge_node:main',
             'target_joint_cmds_publisher = robot_control.moveit.target_joint_cmds_publisher:main',
             'target_joint_cmds_executor = robot_control.moveit.target_joint_cmds_executor:main',

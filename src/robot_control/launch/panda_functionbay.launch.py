@@ -77,6 +77,11 @@ FB_JOINT_REPORT_TOPIC = '/output/panda_joint'
 FB_JOINT_COMMAND_TOPIC = '/input/panda_joint'
 
 ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
+
+# servo 출력을 받는 중간 토픽. 브리지가 이것을 JointState 로 바꿔 시뮬레이터로 넘긴다.
+SERVO_COMMAND_TOPIC = '/servo_node/commands'
+# 시뮬레이터가 관절 명령을 받는 토픽.
+ARM_COMMAND_TOPIC = '/input/panda_joint'
 # 그리퍼 미연동 구간 동안 TF 를 성립시키기 위한 고정값 (열림, m).
 FINGER_JOINT_NAME = 'panda_finger_joint1'
 FINGER_FIXED_POSITION = 0.04
@@ -101,6 +106,50 @@ def declare_functionbay_arguments() -> list[DeclareLaunchArgument]:
             description="시뮬레이터 첫 보고 대기 한도(초). 초과하면 launch 가 실패한다",
         ),
     ]
+
+
+def override_servo_params_for_functionbay(servo_params: dict) -> dict:
+    """servo 출력을 Float64MultiArray 로 돌린다 — 브리지가 받을 수 있는 형식이다.
+
+    기본값(``trajectory_msgs/JointTrajectory`` → ``/panda_arm_controller/joint_trajectory``)
+    을 그대로 두면 **아무도 받지 않는다.** 이 스택에는 ros2_control 컨트롤러가 없어서
+    그 토픽의 구독자가 0 이고, 그 결과 텔레오퍼레이션 모션 키 전체가 조용히 무동작이
+    된다 (2026-09-01 실측: j/q/' 세 방향 모두 관절 이동 0.00000 rad).
+
+    ``publish_joint_velocities`` 를 끄는 것은 **선택이 아니라 필수**다. servo 의 파라미터
+    검증은 ``command_out_type`` 이 Float64MultiArray 인데 positions 와 velocities 를 모두
+    발행하도록 설정되어 있으면 실패를 반환하고, 그러면 servo 노드가 아예 기동하지
+    못한다 (JGPC mock · Isaac 과 같은 제약이다).
+
+    ``JointTrajectory`` 를 쓰지 않는 이유는 컨트롤러가 없는 스택에서
+    ``/panda_arm_controller/joint_trajectory`` 라는 이름을 쓰게 되어 **없는 것을 있는
+    것처럼** 보이게 만들기 때문이다.
+    """
+    params = servo_params["moveit_servo"]
+    params["command_out_type"] = "std_msgs/Float64MultiArray"
+    params["command_out_topic"] = SERVO_COMMAND_TOPIC
+    params["publish_joint_positions"] = True
+    params["publish_joint_velocities"] = False
+    params["publish_joint_accelerations"] = False
+    return servo_params
+
+
+def create_servo_bridge_node() -> Node:
+    """servo 출력(Float64MultiArray) → 시뮬레이터 관절 명령(JointState).
+
+    노드 자체는 백엔드 중립이다 — 토픽이 상대 경로라 remap 으로 결정된다. Isaac 이
+    쓰는 것과 **같은 노드**이며 출력만 `/input/panda_joint` 로 돌린다.
+
+    `joint_names` 는 **필수**다. Float64MultiArray 에는 이름이 없고 배열 순서가 곧
+    관절 순서인데, 이 스택에는 조회할 컨트롤러가 없다.
+    """
+    return Node(
+        package="robot_control", executable="servo_command_bridge",
+        name="servo_command_bridge", output="screen", emulate_tty=True,
+        parameters=[{"joint_names": ARM_JOINT_NAMES}],
+        remappings=[("commands", SERVO_COMMAND_TOPIC),
+                    ("arm_command", ARM_COMMAND_TOPIC)],
+    )
 
 
 def create_joint_state_fusion_node() -> Node:
@@ -142,7 +191,7 @@ def create_readiness_gate_node() -> Node:
 
 def generate_launch_description() -> LaunchDescription:
     moveit_config = build_moveit_config()
-    servo_params = build_servo_params()
+    servo_params = override_servo_params_for_functionbay(build_servo_params())
 
     # --- 즉시 기동: TF 소스와 브리지 ---
     static_tf = create_static_tf_node()
@@ -154,6 +203,7 @@ def generate_launch_description() -> LaunchDescription:
     post_ready_nodes: list[Any] = [
         create_move_group_node(moveit_config),
         create_servo_node(moveit_config, servo_params),
+        create_servo_bridge_node(),
         create_rviz_node(moveit_config),
         create_camera_node(load_config()),
         create_ee_pose_node(),

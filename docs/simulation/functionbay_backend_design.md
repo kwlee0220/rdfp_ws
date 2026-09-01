@@ -226,6 +226,46 @@ j2 목표 -0.63398 로 1초 명령 → 중단
 
 ---
 
+## 5.4 servo 경로 — 브리지로 연결했다 (2026-09-01)
+
+**연결 전에는 모션 키 14개 전부가 무동작이었다.** servo 는 기본값으로
+`trajectory_msgs/JointTrajectory` 를 `/panda_arm_controller/joint_trajectory` 에
+발행하는데, 이 스택에는 ros2_control 컨트롤러가 없어 **그 토픽의 구독자가 0** 이다.
+계산은 정상이고 실행 경로만 끊겨 있어서, 증상이 "키가 안 먹는다"로만 보였다.
+
+```
+teleop_keyboard ─ delta_twist_cmds ┐
+teleop_retarget ─ ee_twist_node ───┴─> servo_node
+                                        │  std_msgs/Float64MultiArray
+                                        ↓  /servo_node/commands
+                                   servo_command_bridge
+                                        │  sensor_msgs/JointState
+                                        ↓  /input/panda_joint
+                                     시뮬레이터
+```
+
+**노드는 새로 만들지 않았다.** Isaac 이 쓰는 `servo_command_bridge_node` 가 토픽을
+상대 경로로 두어 백엔드 중립이므로, remap 만 바꿔 그대로 쓴다. 콘솔 스크립트에
+백엔드 중립 이름 `servo_command_bridge` 를 더했다 (`isaac_servo_bridge` 도 유지).
+
+`publish_joint_velocities: false` 는 **선택이 아니라 필수**다. `command_out_type` 이
+Float64MultiArray 인데 positions 와 velocities 를 모두 발행하도록 두면 servo 의
+파라미터 검증이 실패해 **노드가 아예 기동하지 못한다** (JGPC mock · Isaac 과 같은 제약).
+
+실측 (2026-09-01, 브리지 기동 후):
+
+| 입력 | 최대 관절 이동 |
+|---|---|
+| `j` (+x twist) | 0.11249 rad |
+| `q` (+z) / `a` (−z) | 0.07845 / 0.15261 rad |
+| `'` / `;` (joint1 jog) | 0.09159 / 0.07937 rad |
+
+> **움직인다는 것과 잘 따라간다는 것은 다르다.** servo 경로의 추종 품질은 여전히
+> 미해결이다 (§5.2 · 요청 B-1). 여기서 확인한 것은 **명령이 시뮬레이터에 도달한다**는
+> 사실까지다.
+
+---
+
 ## 6. 그리퍼 — 채널은 확정, 스택 통합이 보류
 
 **채널 사양은 §6.1 에서 확정됐다.** 보류인 것은 그 위의 스택이다 — 실물은

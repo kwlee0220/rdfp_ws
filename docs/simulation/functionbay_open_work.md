@@ -569,6 +569,13 @@ URDF 한계를 0.6 rad 넘겨 명령하고 실제로 멈추는 지점을 쟀다.
 
 ## 5. servo(twist) 경로 — 무동작이며 단순 브리지로는 안 된다
 
+> **연결됨 (2026-09-01).** servo 출력을 `std_msgs/Float64MultiArray` 로 돌리고
+> `servo_command_bridge` 로 `/input/panda_joint` 에 잇는 배선을
+> `panda_functionbay.launch.py` 에 넣었다. 그 전에는 servo 가
+> `/panda_arm_controller/joint_trajectory` 로 발행하는데 **구독자가 0** 이라
+> 모션 키 14개 전부가 무동작이었다. 실측으로 x/z/joint1 모두 움직임을 확인했다
+> (backend_design §5.4). **추종 품질은 별개로 미해결이다.**
+
 `/servo_node/delta_twist_cmds` 에 트위스트를 넣어도 **로봇은 움직이지 않는다.**
 그리고 **단순 중계 브리지로는 해결되지 않는다** — 실측으로 확인했다.
 
