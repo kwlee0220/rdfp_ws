@@ -178,7 +178,7 @@ Launch files are split by layer, helpers are not:
 | package | launches |
 |---|---|
 | `robot_control/launch/` | `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`, `panda_functionbay`, `panda_isaac` — robot control only, no session/recording |
-| `rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp_panda_isaac`, `rdfp`, `rdfp_advanced`, `rdfp_collect`, `replay_panda_mock`, `teleop_mirror` |
+| `rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp_panda_isaac`, `rdfp_panda_functionbay`, `rdfp`, `rdfp_advanced`, `rdfp_collect`, `replay_panda_mock`, `teleop_mirror` |
 
 **Helpers live in `robot_control/robot_control/launch_helpers/` as an installed Python module** and are imported normally by launches in both packages:
 

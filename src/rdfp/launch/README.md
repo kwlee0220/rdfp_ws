@@ -505,6 +505,7 @@ replay_panda_mock.launch.py
 | `rdfp_panda_jgpc_mock` | `robot_control panda_jgpc_mock` + `rdfp_collect arm_cmd_source:=float64_multi_array` | **완전 일치** ✅ |
 | `rdfp_panda_gazebo` | `robot_control panda_gazebo` + `rdfp_collect` (인자 필요, 아래) | **불일치** — 인자를 맞춰야 한다 |
 | `rdfp_panda_isaac` | `robot_control panda_isaac` + `rdfp_collect` (인자 필요) | **불일치** — 카메라 3종 + `arm_cmd_source` |
+| `rdfp_panda_functionbay` | `panda_functionbay` + 수집 4종. **시뮬레이터가 먼저 떠 있어야 한다.** 카메라 값의 공유 정의 파일이 없어 launch 상수로 둔다 — `image_recorder_fps` 기본 `5` 는 **목표값이고 실측 소스는 9.606 Hz** 라 소스를 맞추기 전에는 영상 시간축이 어긋난다 |
 
 ```bash
 # JTC — 완전 동등
