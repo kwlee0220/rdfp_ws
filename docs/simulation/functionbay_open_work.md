@@ -33,7 +33,7 @@
   **다만 과거 판정 일부는 진단 도구 결함에 의한 오진이었다** (§10.4)
 - **실효 가동범위가 URDF 보다 좁다** — joint7 상한 **1.6387 rad**. 관절 한계가 아니라
   **자기충돌**이다 (Robotiq 2F-85 가 팔에 닿는다) (§4.1)
-- **대상 로봇 URDF 를 확보했다** — `config/panda_ftsensor_robotiq.urdf`. 순기구학이
+- **대상 로봇 URDF 를 확보했다** — `src/panda_ftsensor_robotiq/` (전용 description 패키지). 순기구학이
   `/output/endeffector` 와 **완전 일치**해 EE 프레임·형식이 확정됐다 (§7 ⑥)
 - **대상 과제는 Peg-in-Hole** (접촉 개입) 이고 솔버 정식 명칭은 **Crisp** 이다 —
   [`config/TCP_정의.txt`](../../config/TCP_정의.txt)
@@ -520,7 +520,7 @@ RRTConnect: Motion planning start tree could not be initialized!
 ### 4.1 실효 가동범위 — 관절 한계와 자기충돌을 구분한다
 
 **서울대 솔버는 관절 한계를 강제한다.** 그 값은 **대상 로봇 URDF**
-([`config/panda_ftsensor_robotiq.urdf`](../../config/panda_ftsensor_robotiq.urdf))의
+([`src/panda_ftsensor_robotiq/urdf/panda_ftsensor_robotiq.urdf`](../../src/panda_ftsensor_robotiq/urdf/panda_ftsensor_robotiq.urdf))의
 것이며, 우리가 MoveIt 에 물린 `moveit_resources_panda_description` 과 다르다.
 
 URDF 한계를 0.6 rad 넘겨 명령하고 실제로 멈추는 지점을 쟀다.
@@ -1056,7 +1056,7 @@ data: [0.5044, -0.00013, 0.2076,  3.1377, -0.00066, -1.5708]
 
 #### 순기구학으로도 확인했다
 
-대상 로봇 URDF([`config/panda_ftsensor_robotiq.urdf`](../../config/panda_ftsensor_robotiq.urdf))로
+대상 로봇 URDF([`src/panda_ftsensor_robotiq/urdf/panda_ftsensor_robotiq.urdf`](../../src/panda_ftsensor_robotiq/urdf/panda_ftsensor_robotiq.urdf))로
 같은 관절값의 `robotiq_85_base_link` 자세를 계산해 비교했다.
 
 ```
@@ -1130,7 +1130,7 @@ res[3 * i + 2] = (float)f_full[vadr];   // force      ← 계산됨
 | **1** | **간헐적 고착 — 재판정 필요** | §2.2. 판정 도구에 결함이 있어(§10.4) 과거 사례 일부가 오진이었다. **고친 `fb_raw.py` 로 다시 관측한 뒤** 남은 사례만 벤더에 문의(A-4) |
 | **2** | **벤더 요청서 갱신 후 발송** | [functionbay_vendor_requests.md](functionbay_vendor_requests.md) 는 **펑션베이 솔버 수치로 작성**돼 있다. 솔버 교체로 A-1 은 상당 부분 해소되고 B-1 은 더 중요해졌다 — **갱신이 발송보다 먼저다** |
 | 3 | **중력 처짐 대응 방침** | §3.5 의 세 후보 중 선택. 오차가 10배 줄었지만(0.0097 rad) **구조는 그대로**라 결정은 여전히 필요 |
-| **4** | **대상 URDF 를 MoveIt 에 물리기** | §4.1 · §7 ⑥. URDF 는 확보됐다 (`config/panda_ftsensor_robotiq.urdf`). **메시(`package://Panda/...`)와 SRDF 가 없어** 아직 못 쓴다. 해결되면 관절 한계 · 충돌 기하 · EE 프레임이 한꺼번에 맞는다 |
+| **4** | **대상 URDF 를 MoveIt 에 물리기** | §4.1 · §7 ⑥. **`panda_ftsensor_robotiq` description 패키지로 정리했다** — 개정본 URDF(관절 한계 3건 정정)와 Robotiq 메시 10종(coarse+fine) 포함. 남은 것은 **Panda 링크 메시 `link0~7.obj` 8종**(벤더 요청)과 **SRDF**. 해결되면 관절 한계 · 충돌 기하 · EE 프레임이 한꺼번에 맞는다 |
 | 5 | 설계 문서 정정 | §7 ①~⑥. 전부 실측 근거가 있으므로 **지금 바로 가능** |
 | 6 | **twist 경로 — 추종 실패 원인** | §5.2. 발산은 사라졌으나 **명령 방향을 따르지 않는다**. 원인 규명이 클램프 설계보다 먼저 |
 | 7 | 자기충돌 가드 | §4. 명령 전 `/check_state_validity` 로 걸러낼지, 복구 스크립트만 두고 갈지 결정 |

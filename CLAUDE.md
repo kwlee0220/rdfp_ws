@@ -6,11 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ROS 2 (Humble) workspace for Franka Emika Panda robot development with MoveIt2, and the "real/virtual robot environment" subsystem of an imitation-learning data platform (see [docs/rdfp_framework_design.md](docs/rdfp_framework_design.md)).
 
-**Four packages, split along a layer boundary.** The lower layer is usable standalone as a plain ROS 2 robot-control stack; the upper layer adds learning-data collection on top.
+**Four code packages, split along a layer boundary** (plus `panda_ftsensor_robotiq`, an asset-only description package). The lower layer is usable standalone as a plain ROS 2 robot-control stack; the upper layer adds learning-data collection on top.
 
 | package | layer | contents | depends on |
 |---|---|---|---|
 | `rdfp_msgs` | — | msg/srv IDL (separate repo, build first) | — |
+| `panda_ftsensor_robotiq` | — | target-robot description (vendor URDF + Robotiq meshes); assets only, no code | — |
 | `robot_control` | **control (lower)** | `moveit/` `camera/` `scene/`, shared `ros2_utils`/`types`/`logging_bridge`, `launch_helpers/`, non-`rdfp_`-prefixed launches, robot description | `rdfp_msgs` |
 | `robot_twin` | control | REST gateway (`robot_twin`) exposing the control layer as variables/operations | `robot_control` |
 | `rdfp` | **collection (upper)** | `session/` `recorder/` `camera/` `dataset/` `rosbag/` `teleop/`, `rdfp_*` launches, replay | `robot_control`, `rdfp_msgs` |

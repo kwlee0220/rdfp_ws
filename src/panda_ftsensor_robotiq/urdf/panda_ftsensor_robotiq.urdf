@@ -13,14 +13,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link0.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link0.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link0.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link0.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -34,14 +34,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link1.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link1.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link1.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link1.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -62,14 +62,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link2.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link2.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link2.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link2.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -90,14 +90,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link3.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link3.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link3.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link3.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -118,14 +118,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link4.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link4.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link4.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link4.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -147,14 +147,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link5.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link5.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link5.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link5.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -175,14 +175,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link6.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link6.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link6.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link6.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -203,14 +203,14 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link7.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link7.obj"/>
       </geometry>
       <material name="panda_white"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://Panda/meshes/collision/link7.obj"/>
+        <mesh filename="package://panda_ftsensor_robotiq/meshes/collision/link7.obj"/>
       </geometry>
       <material name="panda_white"/>
     </collision>
@@ -248,7 +248,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/robotiq_85_base_link_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/robotiq_85_base_link_fine.stl" />
       </geometry>
       <material
         name="">
@@ -262,7 +262,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/robotiq_85_base_link_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/robotiq_85_base_link_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -288,7 +288,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_knuckle_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_knuckle_fine.stl" />
       </geometry>
       <material
         name="">
@@ -302,7 +302,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_knuckle_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_knuckle_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -346,7 +346,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_finger_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_finger_fine.stl" />
       </geometry>
       <material
         name="">
@@ -360,7 +360,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_finger_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_finger_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -399,7 +399,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_knuckle_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_knuckle_fine.stl" />
       </geometry>
       <material
         name="">
@@ -413,7 +413,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_knuckle_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_knuckle_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -461,7 +461,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_finger_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_finger_fine.stl" />
       </geometry>
       <material
         name="">
@@ -475,7 +475,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_finger_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_finger_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -492,11 +492,11 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="0"
-      upper="0.8757"
+      lower="-0.8757"
+      upper="0"
       velocity="2.0"
       effort="1000" />
-    <mimic 
+    <mimic
       joint="finger_joint"
       multiplier="-1"
       offset="0" />
@@ -523,7 +523,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_knuckle_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_knuckle_fine.stl" />
       </geometry>
       <material
         name="">
@@ -537,7 +537,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_knuckle_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_knuckle_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -554,11 +554,11 @@
     <axis
       xyz="0 1 0" />
     <limit
-      lower="0"
-      upper="0.8757"
+      lower="-0.8757"
+      upper="0"
       velocity="2.0"
       effort="1000" />
-    <mimic 
+    <mimic
       joint="finger_joint"
       multiplier="-1"
       offset="0" />
@@ -585,7 +585,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_finger_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_finger_fine.stl" />
       </geometry>
       <material
         name="">
@@ -599,7 +599,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/inner_finger_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/inner_finger_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -647,7 +647,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_knuckle_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_knuckle_fine.stl" />
       </geometry>
       <material
         name="">
@@ -661,7 +661,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_knuckle_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_knuckle_coarse.stl" />
       </geometry>
     </collision>
   </link>
@@ -678,11 +678,11 @@
     <axis
       xyz="0 1 0" />
     <limit
-      lower="0"
-      upper="0.8757"
+      lower="-0.8757"
+      upper="0"
       velocity="2.0"
       effort="1000" />
-    <mimic 
+    <mimic
       joint="finger_joint"
       multiplier="-1"
       offset="0" />
@@ -709,7 +709,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_finger_fine.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_finger_fine.stl" />
       </geometry>
       <material
         name="">
@@ -723,7 +723,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://robotiq_arg85_description/meshes/outer_finger_coarse.STL" />
+          filename="package://panda_ftsensor_robotiq/meshes/outer_finger_coarse.stl" />
       </geometry>
     </collision>
   </link>
