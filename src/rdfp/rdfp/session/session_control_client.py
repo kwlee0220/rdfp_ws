@@ -382,6 +382,29 @@ class SessionControlClient:
     # 내부 헬퍼
     # ------------------------------------------------------------------
 
+    def wait_until_ready(self, timeout_sec: float) -> bool:
+        """서비스가 모두 준비됐는지 **예외 없이** 확인한다.
+
+        `_wait_for_services_ready` 와 달리 실패를 `RuntimeError` 가 아니라 ``False``
+        로 돌려준다. `session_control_node` 는 수집 계층(`rdfp`) 소속이라 제어 스택만
+        띄운 경우 존재하지 않는데, 그때도 계속 동작해야 하는 호출자를 위한 것이다.
+
+        Args:
+            timeout_sec: 총 대기 한도(초). 0 이하이면 대기 없이 현재 상태만 본다.
+
+        Returns:
+            6 개 서비스가 모두 준비됐으면 ``True``.
+        """
+        try:
+            if timeout_sec > 0.0:
+                self._wait_for_services_ready(timeout_sec)
+            return all(cli.service_is_ready() for cli in (
+                self._start_session_cli, self._stop_session_cli,
+                self._start_episode_cli, self._stop_episode_cli,
+                self._set_task_label_cli, self._get_session_state_cli))
+        except RuntimeError:
+            return False
+
     def _wait_for_services_ready(self, total_timeout_sec: float) -> None:
         """6 개 서비스가 모두 ready 가 될 때까지 블로킹 대기한다.
 
@@ -442,7 +465,19 @@ class SessionControlClient:
 
         `Trigger` / `SetString` / `StopEpisode` 는 요청 타입만 다르고 응답 구조가
         같으므로 요청 객체만 받아 공통 처리한다.
+
+        **서버가 없으면 즉시 실패로 끝낸다.** `call_async` 는 미준비 서비스에도
+        future 를 돌려주는데 그것이 **영영 완료되지 않아** 콜백이 불리지 않는다 —
+        호출자는 아무 응답 없이 기다리게 되고 로그에도 단서가 남지 않는다.
+        동기 경로는 이미 같은 검사를 한다.
         """
+        if not client.service_is_ready():
+            future = Future()
+            future.set_result(None)
+            if done_callback is not None:
+                done_callback(False, _NOT_READY_MSG)
+            return future
+
         future = client.call_async(request)
         if done_callback is not None:
             future.add_done_callback(

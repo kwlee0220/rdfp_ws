@@ -183,7 +183,21 @@ class TeleopKeyboard(Node):
         self._gripper_pub = self.create_publisher(GripperCommand, _GRIPPER_CMD_TOPIC, 10)
 
         # --- SessionControlClient (비동기 API 사용) ---
-        self._session_client = SessionControlClient.create(self)
+        # **없어도 뜬다.** `session_control_node` 는 수집 계층(rdfp) 소속이라 제어
+        # 스택만 띄운 경우에는 존재하지 않는다. 그래도 텔레오퍼레이션 자체는 아무
+        # 문제가 없으므로 세션 키만 비활성으로 두고 나머지는 그대로 쓴다.
+        #
+        # `create()` 의 기본 동작은 6 개 서비스를 기다리다 `RuntimeError` 를 내는
+        # 것이라, 대기를 끄고 `wait_until_ready` 로 예외 없이 확인한다.
+        session_wait_sec = float(
+            self.declare_parameter("session_wait_sec", 2.0).value)
+        self._session_client = SessionControlClient.create(self, wait_timeout_sec=0.0)
+        self._session_available = self._session_client.wait_until_ready(session_wait_sec)
+        if not self._session_available:
+            self.get_logger().warning(
+                "session_control services not found — session/episode/task keys are "
+                "disabled. Start the collection layer if you need them "
+                "(e.g. ros2 launch rdfp rdfp_collect.launch.py)")
 
         # --- Servo utils ---
         self.servo_utils = ServoClient.create(self, _SERVO_NODE_NAME)
@@ -207,6 +221,17 @@ class TeleopKeyboard(Node):
         # Task selection keys: '1' through len(tasks)
         self.task_keys = {str(i + 1): name for i, name in enumerate(self.tasks[:9])}
 
+        # session_control 서버가 있어야 동작하는 키 전체. 세션·에피소드·작업 라벨이
+        # 모두 같은 노드의 서비스라 하나로 묶는다.
+        km = self.keys
+        self._session_keys = {
+            km.session_start, km.session_start_alt,
+            km.session_stop, km.session_stop_alt,
+            km.episode_start, km.episode_end,
+            km.task_clear,
+            *self.task_keys.keys(),
+        }
+
         # --- Twist state ---
         self.twist = TwistStamped()
         self.twist.header.frame_id = self.frame_id
@@ -217,7 +242,11 @@ class TeleopKeyboard(Node):
         self.joint_jog.joint_names = [_JOINT1_NAME]
         self.joint_jog.velocities = [0.0]
 
-        self.get_logger().info(HELP_TEXT)
+        self.get_logger().info(
+            HELP_TEXT if self._session_available
+            else HELP_TEXT.replace(
+                "  Session (split services on session_control):",
+                "  Session — DISABLED (session_control not found):"))
         if self.tasks:
             task_list = "  ".join(f"{i+1}:{name}" for i, name in enumerate(self.tasks[:9]))
             self.get_logger().info(f"Tasks: {task_list}")
@@ -469,6 +498,13 @@ class TeleopKeyboard(Node):
         # Home — MoveIt 'ready' named target 으로 이동
         if key == km.home:
             self._call_home()
+            return True
+
+        # 세션 계열은 서버가 있어야 한다. 없으면 **조용히 무시하지 않고** 알린다 —
+        # 키가 먹지 않는 것과 서버가 없는 것을 구분할 수 없으면 원인을 찾을 수 없다.
+        if key in self._session_keys and not self._session_available:
+            self.get_logger().warning(
+                f"'{key}' ignored: session_control not available")
             return True
 
         # Session lifecycle
