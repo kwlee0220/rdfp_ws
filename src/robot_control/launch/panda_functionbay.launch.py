@@ -131,6 +131,11 @@ def override_servo_params_for_functionbay(servo_params: dict) -> dict:
     params["publish_joint_positions"] = True
     params["publish_joint_velocities"] = False
     params["publish_joint_accelerations"] = False
+    # 실효 속도 보정용. **런타임 파라미터로는 바꿀 수 없다** — moveit_servo 는 기동
+    # 시점에만 읽는다(실측: `ros2 param set` 이 성공해도 동작이 그대로였다).
+    scale = LaunchConfiguration("servo_linear_scale")
+    params["scale"] = dict(params.get("scale") or {})
+    params["scale"]["linear"] = scale
     return servo_params
 
 
@@ -226,6 +231,11 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         declare_ros2_control_hardware_type_argument(),
         declare_log_level_argument(),
+        DeclareLaunchArgument(
+            "servo_linear_scale", default_value="0.8",
+            description=("servo 의 unitless twist → m/s 환산 계수. **MoveIt 원본값 0.4 가 "
+                         "아니라 0.8 이 기본이다** — 실측으로 고른 값이다(§5.5). 런타임 "
+                         "param set 으로는 바뀌지 않는다")),
         *declare_ee_pose_arguments(),
         *declare_simulator_camera_arguments(),
         *declare_functionbay_arguments(),
