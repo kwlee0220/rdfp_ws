@@ -26,10 +26,11 @@ Z90 = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))
 class _StubNode:
     """`_convert` 가 쓰는 부분만 갖춘 대역 (Node 초기화를 피한다)."""
 
-    def __init__(self, transforms: dict = None) -> None:
+    def __init__(self, transforms: dict = None, fixtures=None) -> None:
         self._base_frame = BASE
         self.warnings: list[str] = []
         self._transforms = transforms or {}
+        self._fixtures = set(fixtures or ())
 
     # MockSceneStateNode 의 메서드를 그대로 빌려 쓴다.
     _convert = MockSceneStateNode._convert
@@ -140,7 +141,7 @@ def test_pose_is_transformed_into_the_base_frame() -> None:
 
 
 def test_object_is_skipped_when_the_transform_is_missing() -> None:
-    """물체 하나 때문에 씬 전체 발행을 막지 않는다 — 경고 후 건너뛴다."""
+    """물체 하나 때문에 scene 전체 발행을 막지 않는다 — 경고 후 건너뛴다."""
     node = _StubNode()
 
     assert node._convert(_box(frame='world')) is None
@@ -261,7 +262,7 @@ def test_full_scene_replaces_everything() -> None:
 
 
 def test_full_empty_scene_clears_everything() -> None:
-    """`is_diff=False` 인 빈 씬은 '전부 지웠다'가 맞다."""
+    """`is_diff=False` 인 빈 scene 은 '전부 지웠다'가 맞다."""
     node = _AccumNode()
     node._on_planning_scene(_scene([_with_op(_box('cube_0'), CollisionObject.ADD)]))
 
@@ -327,3 +328,24 @@ def test_add_replaces_an_object_with_the_same_name() -> None:
 
     assert node.names == ['cube_0']
     assert list(node._convert(node._objects['cube_0']).dimensions) == [0.2, 0.2, 0.2]
+
+
+# ---------- 고정물 분류 ----------
+
+def test_fixture_flag_comes_from_the_remembered_reset():
+    """`/scene/reset` 에서 기억한 이름만 `fixture=True` 로 나간다.
+
+    planning scene 을 왕복하면 이 분류가 사라진다 — MoveIt 의 `CollisionObject` 에
+    실을 자리가 없어서, 노드가 붙들지 않으면 전부 false 가 된다.
+    """
+    node = _StubNode(fixtures={'table'})
+    table = node._convert(_box('table'))
+    block = node._convert(_box('block_a'))
+    assert table.fixture is True
+    assert block.fixture is False
+
+
+def test_fixture_is_false_before_the_first_reset():
+    """첫 `/scene/reset` 이전에는 알 수 없으므로 전부 조작 대상으로 나간다."""
+    node = _StubNode()
+    assert node._convert(_box('table')).fixture is False

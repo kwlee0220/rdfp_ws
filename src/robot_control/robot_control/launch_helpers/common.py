@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Optional
 
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import DeclareLaunchArgument
@@ -36,7 +36,7 @@ def declare_log_level_argument() -> DeclareLaunchArgument:
     )
 
 
-def build_moveit_config():
+def build_moveit_config(joint_limits_file: Optional[str] = None):
     """Panda MoveIt 설정 객체를 생성한다."""
     return (
         MoveItConfigsBuilder("panda", package_name=MOVEIT_CONFIGS_PACKAGE_NAME)
@@ -50,7 +50,9 @@ def build_moveit_config():
         )
         .robot_description_semantic(file_path="config/panda.srdf")
         .robot_description_kinematics(file_path="config/kinematics.yaml")
-        .joint_limits(file_path="config/joint_limits.yaml")
+        # 절대 경로를 주면 pathlib 이 그것을 그대로 쓴다 — 백엔드마다 다른 한계
+        # 파일을 넣을 수 있는 자리다 (Isaac 은 실제 Franka 스펙을 쓴다).
+        .joint_limits(file_path=joint_limits_file or "config/joint_limits.yaml")
         .trajectory_execution(file_path="config/gripper_moveit_controllers.yaml")
         .planning_pipelines(
             pipelines=["ompl", "pilz_industrial_motion_planner", "chomp"]
@@ -71,7 +73,18 @@ def build_servo_params() -> dict[str, Any]:
     )
 
 
-def create_static_tf_node() -> Node:
+def extra_parameter_list(extra_parameters: Optional[dict]) -> list:
+    """``parameters=[...]`` 뒤에 이어 붙일 추가 파라미터를 리스트로 만든다.
+
+    백엔드마다 노드에 얹어야 하는 파라미터가 다르다(예: Isaac 백엔드의
+    ``use_sim_time``). 헬퍼 시그니처를 백엔드별로 늘리지 않기 위해 dict 하나를
+    받아 그대로 뒤에 붙인다. ``None`` 이면 아무것도 붙이지 않으므로 기존 호출부는
+    동작이 바뀌지 않는다.
+    """
+    return [extra_parameters] if extra_parameters else []
+
+
+def create_static_tf_node(extra_parameters: Optional[dict] = None) -> Node:
     """world -> panda_link0 static TF 노드를 생성한다."""
     return Node(
         package="tf2_ros",
@@ -79,33 +92,39 @@ def create_static_tf_node() -> Node:
         name="static_transform_publisher",
         output="log",
         arguments=["0", "0", "0", "0", "0", "0", "world", "panda_link0"],
+        parameters=extra_parameter_list(extra_parameters),
     )
 
 
-def create_robot_state_publisher(moveit_config) -> Node:
+def create_robot_state_publisher(moveit_config, extra_parameters: Optional[dict] = None) -> Node:
     """robot_state_publisher 노드를 생성한다."""
     return Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         name="robot_state_publisher",
         output="screen",
-        parameters=[moveit_config.robot_description],
+        parameters=[moveit_config.robot_description, *extra_parameter_list(extra_parameters)],
     )
 
 
-def create_move_group_node(moveit_config) -> Node:
+def create_move_group_node(moveit_config, extra_parameters: Optional[dict] = None) -> Node:
     """move_group 노드를 생성한다."""
     return Node(
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        parameters=[moveit_config.to_dict()],
+        parameters=[moveit_config.to_dict(), *extra_parameter_list(extra_parameters)],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
     )
 
 
-def create_servo_node(moveit_config, servo_params: dict[str, Any]) -> Node:
-    """MoveIt Servo 노드를 생성한다."""
+def create_servo_node(moveit_config, servo_params: dict[str, Any], condition=None,
+                      extra_parameters: Optional[dict] = None) -> Node:
+    """MoveIt Servo 노드를 생성한다.
+
+    condition 을 주면 해당 조건이 참일 때만 기동한다 (예: enable_servo 토글).
+    extra_parameters 는 `use_sim_time` 처럼 백엔드가 덧붙이는 값이다.
+    """
     return Node(
         package=MOVEIT_SERVO_PACKAGE_NAME,
         executable="servo_node_main",
@@ -117,12 +136,15 @@ def create_servo_node(moveit_config, servo_params: dict[str, Any]) -> Node:
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
             moveit_config.joint_limits,
+            *extra_parameter_list(extra_parameters),
         ],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
+        condition=condition,
     )
 
 
-def create_rviz_node(moveit_config, condition=None) -> Node:
+def create_rviz_node(moveit_config, condition=None,
+                     extra_parameters: Optional[dict] = None) -> Node:
     """RViz2 노드를 생성한다.
 
     condition 을 주면 해당 조건이 참일 때만 기동한다 (예: enable_rviz 토글).
@@ -145,5 +167,6 @@ def create_rviz_node(moveit_config, condition=None) -> Node:
             moveit_config.robot_description_kinematics,
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
+            *extra_parameter_list(extra_parameters),
         ],
     )

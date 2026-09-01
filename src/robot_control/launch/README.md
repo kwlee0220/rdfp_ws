@@ -31,6 +31,7 @@ ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진
 | `panda_jgpc_mock.launch.py` | mock | 위와 노드 구성 동일, arm 컨트롤러 **타입만** JGPC 로 교체 |
 | `panda_gazebo.launch.py` | Gazebo (Fortress) | `panda_mock` 의 Gazebo 대응본 |
 | `panda_functionbay.launch.py` | 펑션베이 | **ros2_control 없음** — 토픽 브리지로 연동 |
+| `panda_isaac.launch.py` | Isaac Sim | **ros2_control 없음** — 토픽 브리지. 팔·그리퍼·scene·파지 (Phase 0~6). 카메라는 노드가 아니라 Isaac 이 직접 발행한다 |
 
 ### `panda_mock.launch.py`
 
@@ -63,9 +64,48 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 
 시뮬레이터가 내부 보간을 하지 않으므로 명령 스트리밍에 `publish_rate=50.0` 이
 **필수**다 (미지정 시 MoveIt 의 ~10 Hz 리샘플 그대로 계단 동작). 그리퍼는 실물이
-Robotiq 2F-145 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다**.
+Robotiq 2F-85 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다**.
 
 상세: [docs/simulation/functionbay_backend_design.md](../../../docs/simulation/functionbay_backend_design.md)
+
+### `panda_isaac.launch.py`
+
+`panda_functionbay` 와 같은 구조다 — ros2_control 없이 토픽으로만 연동하므로
+`controller_manager` · spawner 가 없고, `readiness_gate`(펑션베이 것 그대로)의 **종료
+코드**를 기동 신호로 쓴다. `joint_state_fusion` 은 **쓰지 않는다** — Isaac 이 관절
+이름과 finger 2개를 모두 채워 보내므로 중계할 것이 없다.
+
+펑션베이와 갈리는 지점은 **`use_sim_time`** 이다. Isaac 은 `/clock` 을 발행하므로
+기본값이 `true` 이고 모든 노드에 전파한다. 이 값이 한 노드라도 어긋나면 `move_group`
+이 `Failed to fetch current robot state` 로 **조용히** 무력해진다.
+
+**Phase 0~6 이 모두 구현·검증됐다.** 인자로 필요한 부분만 켠다.
+
+| 인자 | 기본 | 켜면 |
+|---|---|---|
+| — | — | Phase 0·1: `/clock`·`/joint_states`·MoveIt·팔 명령 |
+| `enable_gripper` | false | `gripper_action_bridge` + `gripper_control_node` (Phase 2) |
+| `enable_scene` | false | `isaac_scene_state_node` + `planning_scene_sync` (Phase 3·5) |
+| `sync_planning_scene` | true | scene 물체를 MoveIt **장애물**로 반영. 끄면 팔이 테이블을 뚫는다 |
+| `enable_servo` | false | `servo_node` + `servo_auto_start` + `isaac_servo_bridge`. **teleop 두 경로가 모두 여기로 수렴**한다 (Phase 10) |
+| `enable_rviz` | true | VRAM 이 빠듯한 호스트에서는 false 를 권한다 |
+
+**Isaac 쪽 준비가 선행되어야 한다** — `setup_graph.py` 의 `PHASE` 가 쓰려는 단계
+이상이어야 하고, scene 을 열 때마다 그 스크립트를 다시 돌려야 한다(ROS 2 bridge 확장
+활성화가 USD 에 저장되지 않는다).
+
+**카메라 인자는 없다.** 이미지를 카메라 노드가 아니라 **Isaac 그래프가 직접**
+발행하므로(`PHASE>=4`), 이 launch 가 켜고 끌 대상이 아니다. 보기·녹화는 수집 계층의
+몫이며 해상도·주파수·토픽은 `config/isaac_scene.json` 의 `camera` 블록이 단일 출처다.
+
+수용 기준은 `scripts/isaac/is_check_phase0.py` ~ `is_check_phase6.py` 가 검사한다.
+배관이 의심되면 `scripts/isaac/is_topics.py` 를 **먼저** 돌린다. 시작 자세가 scene 과
+충돌해 계획이 `-2`(INVALID_MOTION_PLAN)로 거부되면 `scripts/isaac/is_recover.py` 로
+계획 없이 빠져나온다.
+
+수집 계층까지 함께 띄우려면 `ros2 launch rdfp rdfp_panda_isaac.launch.py` 를 쓴다.
+
+상세: [docs/simulation/isaac_backend_skeleton.md](../../../docs/simulation/isaac_backend_skeleton.md)
 
 ### `panda_gazebo.launch.py`
 

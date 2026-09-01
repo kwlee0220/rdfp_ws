@@ -24,6 +24,8 @@ timeout_sec   60.0                   이 시간 안에 안 오면 실패 종료
 
 from __future__ import annotations
 
+import time
+
 import sys
 
 import rclpy
@@ -103,10 +105,19 @@ def main(args=None) -> int:
     node = None
     try:
         node = ReadinessGateNode()
-        deadline = node.get_clock().now().nanoseconds + int(node.timeout_sec * 1e9)
+        # **벽시계(monotonic)로 잰다. ROS 클럭을 쓰면 안 된다.**
+        #
+        # `use_sim_time` 이 켜진 백엔드(Isaac)에서는 첫 `/clock` 을 받기 전까지
+        # `now()` 가 0 이다. 그 상태로 deadline 을 잡으면 "0 + timeout" 이 되는데,
+        # 시뮬레이터가 이미 오래 돌아 sim time 이 그보다 크면 **첫 /clock 이 도착하는
+        # 순간 곧바로 타임아웃**한다 — 실제로 60초 한도가 113 ms 만에 터졌다.
+        # 반대로 `/clock` 이 영영 오지 않으면 시간이 0 에 멈춰 **영원히 대기**한다.
+        # 기동 게이트가 재려는 것은 시뮬레이션 시간이 아니라 사람이 기다리는
+        # 실제 시간이므로 monotonic 이 맞다.
+        deadline = time.monotonic() + node.timeout_sec
         while rclpy.ok() and not node.received:
             rclpy.spin_once(node, timeout_sec=0.1)
-            if node.get_clock().now().nanoseconds >= deadline:
+            if time.monotonic() >= deadline:
                 node.get_logger().error(
                     f"Timed out after {node.timeout_sec:.0f}s waiting for "
                     f"'{node.topic}'; the simulator did not publish")

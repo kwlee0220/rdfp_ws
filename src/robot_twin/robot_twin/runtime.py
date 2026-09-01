@@ -64,6 +64,7 @@ class RobotTwinRuntime:
         # 명령 토픽 퍼블리셔. `backend.topic` 을 선언한 연산마다 기동 시 하나씩
         # 만들어 둔다 (`_start_command_publishers`).
         self._command_publishers: dict[str, Any] = {}
+        self._service_clients: dict[str, Any] = {}
 
         # MoveGroup 클라이언트는 기동 4단계에서 백그라운드로 만든다. 실패해도
         # 프로세스는 유지되어야 `/health` 로 상태를 알릴 수 있다 (설계서 2.6).
@@ -113,6 +114,24 @@ class RobotTwinRuntime:
         """기동 시 만들어 둔 명령 퍼블리셔. 없으면 ``None``."""
         return self._command_publishers.get(topic)
 
+    def service_client(self, service: str, type_name: str) -> Any:
+        """연산용 서비스 클라이언트. 최초 호출 시 만들어 재사용한다.
+
+        퍼블리셔와 달리 기동 시 미리 만들지 않는다 — 클라이언트 생성이 가볍고,
+        서버가 아직 없어도 만들 수 있기 때문이다. 준비 여부는 호출 시점에
+        `service_is_ready()` 로 보고 거절한다.
+        """
+        client = self._service_clients.get(service)
+        if client is not None:
+            return client
+        from robot_twin.variables import import_service_type
+
+        srv_type = import_service_type(type_name)
+        client = self._node.create_client(srv_type, service)
+        self._service_clients[service] = client
+        self._logger.info(f'operation service client ready: {service} ({type_name})')
+        return client
+
     def session_control(self) -> Any:
         """`session_control_node` 클라이언트. 최초 호출 시 만든다.
 
@@ -144,15 +163,20 @@ class RobotTwinRuntime:
         """
         def _build() -> None:
             mode = self.config.moveit.move_group_mode
+            # 명령 채널은 백엔드마다 다르다 — 지정한 것만 넘기고, 없으면
+            # ros2_control 의 JGPC 기본값(Float64MultiArray)이 쓰인다.
+            kwargs = self.config.moveit.client_kwargs()
             try:
                 # 지연 import — ROS 없이 config/session 모듈을 쓰는 경로를 막지 않는다.
                 from robot_control.moveit.move_group_factory import create_move_group_client
                 # mode 는 항상 명시한다. 'auto' 는 설정 단계에서 이미 거부된다.
-                client = create_move_group_client(self._node, mode=mode)
+                client = create_move_group_client(self._node, mode=mode, **kwargs)
                 with self._mg_lock:
                     self._move_group = client
                     self._move_group_error = None
-                self._logger.info(f'MoveGroup client ready (mode={mode})')
+                self._logger.info(
+                    f'MoveGroup client ready (mode={mode}'
+                    + (f', {kwargs}' if kwargs else '') + ')')
             except Exception as exc:
                 with self._mg_lock:
                     self._move_group = None
@@ -245,6 +269,9 @@ class RobotTwinRuntime:
             'ros': 'CONNECTED',
             'move_group': 'READY' if mg_ready else 'NOT_READY',
             'move_group_mode': self.config.moveit.move_group_mode,
+            # 어느 토픽·형식으로 명령이 나가는지 드러낸다. 이것이 안 맞으면 팔이
+            # '성공했다고 보고하면서 아무것도 안 하는' 상태가 된다.
+            'arm_command': self.config.moveit.client_kwargs() or None,
             'move_group_error': mg_error,
             'estop': 'ENGAGED' if self.sessions.estop_engaged else 'RELEASED',
             'variables': {

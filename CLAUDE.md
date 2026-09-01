@@ -31,6 +31,7 @@ source install/setup.bash
 # Launches — Panda + MoveIt2 stacks
 ros2 launch robot_control panda_mock.launch.py    # MoveIt2 only (control layer)
 ros2 launch rdfp rdfp_panda_mock.launch.py       # + camera/ee_pose/recorder via YAML
+ros2 launch rdfp rdfp_panda_isaac.launch.py      # Isaac Sim backend + collection layer
 ros2 launch rdfp replay_panda_mock.launch.py     # replay-mode stack (see replay_arm_path)
 
 # Launches — session/camera apps (no MoveIt)
@@ -53,7 +54,9 @@ YAML-driven launches take a `config_file:=<path>` argument. **The default resolv
 | `config/panda_robot.yaml` | `rdfp` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock` | `config_file` |
 | `config/replay_panda_mock.yaml` | `rdfp` | `replay_panda_mock` | `config_file` |
 | `config/teleop_mirror.yaml` | `rdfp` | `teleop_mirror` | `config_file` |
-| `config/robot_twin_panda01.yaml` | `robot_twin` | `robot_twin` | `--config` |
+| `config/isaac_scene.json` | `robot_control` | `rdfp_panda_isaac` (카메라 기본값), Isaac 쪽 스크립트, `isaac_scene_state_node` | (fixed) |
+| `config/robot_twin_panda01.yaml` | `robot_twin` | `robot_twin` (mock 스택) | `--config` |
+| `config/robot_twin_panda_isaac.yaml` | `robot_twin` | `robot_twin` (Isaac 스택) | `--config` |
 
 `image_pipeline.yaml` is the **single source for camera/viewer/recorder settings** — it exists because the app launches used to hardcode `640x480`/`id: 4` in `camera_launch_helper` while the panda launches read `1280x720`/an mp4 path from YAML. `robot_control.launch_helpers.image_pipeline` owns the loading; `launch_helpers.camera.declare_camera_arguments()` is a thin wrapper over it.
 
@@ -65,7 +68,7 @@ Entry points are split across the three Python packages — **`ros2 run <pkg> <s
 
 | package | scripts |
 |---|---|
-| `robot_control` | `camera_node`, `image_capture_node`, `image_viewer_node`, `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `gripper_control_node`, `mock_scene_state_node`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `target_joint_states_publisher`, `target_joint_states_executor` |
+| `robot_control` | `camera_node`, `image_capture_node`, `image_viewer_node`, `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `gripper_control_node`, `mock_scene_state_node`, `planning_scene_sync`, `isaac_gripper_bridge`, `isaac_scene_state_node`, `isaac_servo_bridge`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `target_joint_states_publisher`, `target_joint_states_executor` |
 | `robot_twin` | `robot_twin` |
 | `rdfp` | `rdfp_camera_node`, `rdfp_image_viewer_node`, `session_control_node`, `image_recorder_node`, `rdfp_image_recorder`, `teleop_keyboard`, `session_teleop`, `teleop_retarget`, `clutch_pedal` (USB 풋페달 → 클러치; `python3-evdev` 필요), `import`, `replay`, `stats`, `list`, `init-db`, `rosbag`, `replay_gui` |
 
@@ -79,7 +82,7 @@ ros2 run rdfp import   --config dataset_config.yaml
 ros2 run rdfp stats    --config dataset_config.yaml
 ros2 run rdfp list     --config dataset_config.yaml
 ros2 run rdfp replay   42 --config dataset_config.yaml   # ROS-dep
-ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
+ros2 run rdfp rosbag   list-topics --rosbag-dir /data/rosbag   # 서브커맨드는 list-topics / clear 뿐
 ```
 
 ## Tests
@@ -104,11 +107,11 @@ cd src/robot_twin   && PYTHONPATH=.:$PYTHONPATH python3 -m pytest robot_twin/tes
 shell where `install/setup.bash` was sourced, and ROS-dependent modules fail at collection
 with `ModuleNotFoundError`. Appending keeps both.
 
-Test layout — colocated suites across three packages, **746 tests total** (`robot_control` 138 / `robot_twin` 215 / `rdfp` 393):
+Test layout — colocated suites across three packages, **874 tests total** (`robot_control` 246 / `robot_twin` 230 / `rdfp` 398):
 
 | package | suites |
 |---|---|
-| `robot_control` | `robot_control/moveit/tests/`, `robot_control/scene/tests/`, `robot_control/functionbay/tests/`, `robot_control/tests/` (layer boundary) |
+| `robot_control` | `robot_control/moveit/tests/`, `robot_control/scene/tests/`, `robot_control/isaac/tests/`, `robot_control/functionbay/tests/`, `robot_control/tests/` (layer boundary + Isaac 쪽 스크립트 경로 계약) |
 | `robot_twin` | `robot_twin/tests/` (incl. layer boundary) |
 | `rdfp` | `rdfp/camera/tests/`, `rdfp/dataset/tests/`, `rdfp/recorder/tests/`, `rdfp/rosbag/tests/`, `rdfp/teleop/tests/` |
 
@@ -153,7 +156,7 @@ Grouped by owning package. The `robot_control` block is the standalone robot-con
 | `camera/` | `camera_node` (OpenCV → ROS), `image_capture_node` (JPEG `CompressedImage` 전용, `ReconnectingCamera` 로 재연결), `image_viewer_node`, `OpenCvCamera` / capture helpers. **세션을 아는 노드는 여기 없다** — `rdfp_camera_node` / `rdfp_image_viewer_node` 는 `rdfp/camera/` 소속이다. |
 | `scene/` | scene 물체 상태를 `/scene/objects` (`rdfp_msgs/SceneObjects`) 로 발행한다. 백엔드마다 노드가 하나씩이며 현재는 `mock_scene_state_node` (MoveIt planning scene 폴링)뿐이다. 좌표계·단위·쿼터니언 순서를 맞추는 책임이 전부 여기 있다 — `pose_math.py` 는 그 합성을 ROS 없이 테스트할 수 있게 분리한 순수 함수다. |
 
-**`robot_twin`** (`src/robot_twin/robot_twin/`) — REST gateway. `config.py` (declarative variables/operations YAML), `runtime.py` (ROS wiring), `backends.py` (operation handlers), `api.py` (FastAPI), `backend_registry.py` (entry-point seam for upper-layer backends).
+**`robot_twin`** (`src/robot_twin/robot_twin/`) — REST gateway. `config.py` (declarative variables/operations YAML; `moveit.arm_command_*` 로 백엔드별 명령 채널을 고른다 — Isaac 은 `/isaac/arm_command` + `joint_state`), `runtime.py` (ROS wiring), `backends.py` (operation handlers), `api.py` (FastAPI), `backend_registry.py` (entry-point seam for upper-layer backends).
 
 **`rdfp`** (`src/rdfp/rdfp/`) — collection layer.
 
@@ -173,8 +176,8 @@ Launch files are split by layer, helpers are not:
 
 | package | launches |
 |---|---|
-| `robot_control/launch/` | `panda_mock`, `panda_jgpc_mock`, `panda_gazebo` — robot control only, no session/recording |
-| `rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp`, `rdfp_advanced`, `rdfp_collect`, `replay_panda_mock`, `teleop_mirror` |
+| `robot_control/launch/` | `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`, `panda_functionbay`, `panda_isaac` — robot control only, no session/recording |
+| `rdfp/launch/` | `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `rdfp_panda_gazebo`, `rdfp_panda_isaac`, `rdfp`, `rdfp_advanced`, `rdfp_collect`, `replay_panda_mock`, `teleop_mirror` |
 
 **Helpers live in `robot_control/robot_control/launch_helpers/` as an installed Python module** and are imported normally by launches in both packages:
 
@@ -190,7 +193,7 @@ Splitting is possible because **none of the four collection nodes has a hard sta
 
 `rdfp_panda_*` launches remain supersets of their `panda_*` counterparts: same helpers, same startup chain, plus the collection nodes (`session_control`, `image_recorder`, `rdfp_image_viewer`, `target_joint_cmds_publisher`) and YAML-driven argument defaults. The Panda startup chain is intentionally sequential via `RegisterEventHandler(OnProcessExit)`: `ros2_control_node` → `joint_state_broadcaster` → `panda_arm_controller` → `panda_hand_controller` → (`move_group` + `servo` + `rviz` + camera + ee_pose + scene). Three planning pipelines are loaded: OMPL, PILZ, CHOMP. Full helper inventory: [src/robot_control/launch/README.md](src/robot_control/launch/README.md) §5. Collection-layer launches: [src/rdfp/launch/README.md](src/rdfp/launch/README.md).
 
-The **backend scene node starts by default** in all four mock launches (`panda_mock`, `panda_jgpc_mock`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`) via `launch_helpers.scene`; `enable_scene_node:=false` turns it off. Default-on is deliberate: the node costs a 2 Hz timer and mutates nothing until a `/scene/commands` message arrives, whereas leaving it off makes the twin's `reset_scene` die on a result-topic timeout with nothing in the log pointing at the missing subscriber. `replay_panda_mock` deliberately does **not** get one — replayed object state must come from the dataset, and a live scene node would publish a second, conflicting source.
+The **backend scene node starts by default** in all four mock launches (`panda_mock`, `panda_jgpc_mock`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`) via `launch_helpers.scene`; `enable_scene_node:=false` turns it off. Default-on is deliberate: the node costs a 2 Hz timer and mutates nothing until a `/scene/reset` request arrives, whereas leaving it off makes the twin's `reset_scene` fail on a missing service with nothing in the log pointing at the absent server. `replay_panda_mock` deliberately does **not** get one — replayed object state must come from the dataset, and a live scene node would publish a second, conflicting source.
 
 ### Dataset pipeline (`rdfp/dataset/`)
 
@@ -238,6 +241,9 @@ Tk-based control surface. Uses `Mp4ImageReplayer` for image topics and a single 
 - **`teleop_retarget` 의 `pedal_timeout` 은 기본 0(비활성)** — 켜지 않으면 풋페달 hold 모드가 데드맨으로 동작하지 않는다. 페달 노드가 크래시하거나 USB 가 빠지면 disengage 를 보낼 주체가 사라져 클러치가 물린 채로 남기 때문. `pedal_timeout > 0` 이면 하트비트(`~/pedal_heartbeat`) 가 끊길 때 자동 해제하며, **하트비트 없이 engage 한 경우도 즉시 해제된다**. 클러치 상태는 `~/clutch_state` (`rdfp_msgs/ClutchState`, TRANSIENT_LOCAL) 구독 또는 `~/get_clutch_state` (`std_srvs/Trigger`) 조회로 확인한다 — `~/clutch` 는 SetBool 이라 호출 자체가 상태를 바꾸므로 조회에 쓸 수 없다. 코드에서는 `ClutchClient` 를 쓴다(QoS·비동기 처리를 캡슐화).
 - **`/session` topic uses `TRANSIENT_LOCAL` durability** so late-joining recorders see the current state. Subscribers and `ros2 topic echo` must match this QoS.
 - **rosbag2 sessions without `metadata.yaml` are silently skipped by `discover_splits`** (treated as "still recording / abnormally terminated"). If `rosbag2` was killed with SIGKILL or crashed, `ros2 run rdfp import` exits successfully with an empty summary and no error. Recovery: `ros2 bag reindex -s mcap <session_dir>` rebuilds `metadata.yaml` from the `.mcap` file order. Whenever `import` logs `found 0 finalized split(s)` despite `.mcap` files being present in `rosbag_dir`, this is almost always the cause.
+- **The scene write path is the `/scene/reset` service (`rdfp_msgs/srv/ResetScene`), not a topic pair — and reverting to topics would repeat a mistake.** Until 2026-09-01 it was `SceneCommand` on `/scene/commands` + `SceneCommandResult` on `/scene/command_results`; both msg types are now deleted. The stated reason for topics had been "a service response never lands in rosbag2, so a failed reset can't be audited later" — but **neither topic was ever in `config/recording_topics.list`**, so nothing was being recorded either way. The cost was real: the twin carried a result variable, a generation snapshot, and a 20 ms polling loop just to imitate a response. **If someone proposes going back to topics, two things must hold that did not hold before**: (1) the topics have to actually be added to `recording_topics.list`, and (2) there must be a reason to record the *command* — note that what the dataset needs is the *achieved* layout (`/scene/objects`), because in a physics sim blocks roll and settle away from where they were commanded. User-facing docs deliberately no longer carry this history; the rationale for the current design is in [docs/scene/scene_objects_guide.md](docs/scene/scene_objects_guide.md) §5.
+- **Which scene objects reach the MoveIt planning scene is decided by `SceneObject.fixture`, carried in the message — never by a name list in the consumer.** `planning_scene_sync` keeps only `fixture == true` (tables, fences); manipulables are excluded because a grasp pose then reads as a start-state collision and joint-space planning is rejected with `INVALID_MOTION_PLAN` (-2). Publishers fill the flag from their own single source: `isaac_scene_state_node` inverts `isaac_scene.json`'s `dynamic` (the same flag sim-side `setup_scene.py` uses for rigid-body-ness), and `mock_scene_state_node` remembers what arrived in the `/scene/reset` request — a round trip through the planning scene loses it, since `moveit_msgs/CollisionObject` has nowhere to carry it. **The default `false` means 'manipulable' on purpose**: a publisher that forgets the flag leaves the planning scene empty and the robot plans as if the table were not there, which shows up immediately; defaulting to 'fixture' would instead make grasps quietly rejected, and that symptom does not point at its cause. This replaced a `collision_objects` STRING_ARRAY parameter on `planning_scene_sync` (removed 2026-09-01) that made the launch pass a name list computed from the same JSON — the classification was written in two places, and its empty default was the opposite of the recommended setting.
+
 - **`image_streams` / `image_frames` are inserted via the FrameRouter path, not via `WriterBase`** — so they don't show up in `writers.values()` when the pipeline aggregates summary counts. Both `pipeline._run_ingestion` (serial) and `episode_worker._process_episode_inner` (parallel) must call `router.consume_inserted_count()` and merge it into the `inserted` dict. Skipping that merge leaves the JSON summary reporting `0` for image rows even though DB has them.
 
 ## External docs

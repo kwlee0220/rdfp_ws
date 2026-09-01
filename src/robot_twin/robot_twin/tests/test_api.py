@@ -10,11 +10,26 @@ from typing import Any, Optional
 
 import pytest
 
-# fastapi.testclient 는 httpx 를 요구한다. 없으면 collection 단계에서 터지므로
-# 모듈 최상단에서 자체 skip 한다 (dataset 테스트의 importorskip 관례와 동일).
-pytest.importorskip('httpx', reason='fastapi.testclient requires httpx')
+# fastapi.testclient 는 httpx 를 요구한다. 없는 환경에서도 이 모듈만 조용히 빠져야
+# 한다.
+#
+# **`pytest.importorskip` 을 최상단에 두면 안 된다.** 이 조합(pytest 6.2.5 + 패키지
+# 형태의 tests 디렉터리)에서는 그 skip 이 **디렉터리 수집 자체를 끝내버려서**, 뒤따르는
+# 열한 개 파일 190여 개가 통째로 사라진다. 실행 결과는 `1 skipped` 한 줄뿐이라
+# **테스트가 없어진 것을 아무도 눈치채지 못한다.**
+#
+# 그래서 import 를 직접 감싸고 `pytestmark` 로 건너뛴다 — 모듈은 정상적으로 수집되고
+# 그 안의 테스트만 skip 된다.
+try:
+    import httpx  # noqa: F401
 
-from fastapi.testclient import TestClient  # noqa: E402
+    from fastapi.testclient import TestClient
+    _HAS_HTTPX = True
+except ImportError:  # pragma: no cover - httpx 가 있는 환경에서는 실행되지 않는다
+    TestClient = None
+    _HAS_HTTPX = False
+
+pytestmark = pytest.mark.skipif(not _HAS_HTTPX, reason='fastapi.testclient requires httpx')
 
 from robot_twin.api import create_app  # noqa: E402
 from robot_twin.config import TwinConfig  # noqa: E402

@@ -391,11 +391,11 @@ def _move_gripper_to_target(runtime: 'RobotTwinRuntime', client: Optional[Any],
 # ----------------------------------------------------------------------
 
 # ----------------------------------------------------------------------
-# 씬 — 백엔드별 scene_state_node 에 명령 토픽으로 보낸다
+# scene — 백엔드별 scene_state_node 에 명령 토픽으로 보낸다
 # ----------------------------------------------------------------------
 
 def scene_recipes(op: OperationConfig) -> dict[str, Any]:
-    """`reset_scene` 의 씬 레시피 표. 설정이 단일 출처다."""
+    """`reset_scene` 의 scene 레시피 표. 설정이 단일 출처다."""
     recipes = op.backend.get('scenes')
     return recipes if isinstance(recipes, dict) else {}
 
@@ -420,6 +420,10 @@ def _sample_scene(recipe: dict[str, Any], seed: int) -> list[dict[str, Any]]:
             'dimensions': [float(v) for v in (spec.get('size') or [])],
             'position': {axis: _sample_axis(rng, spec.get(axis, 0.0), f'{name}.{axis}')
                          for axis in ('x', 'y', 'z')},
+            # 탁자처럼 조작 대상이 아닌 물체는 `fixture: true` 로 적는다. mock 은
+            # planning scene 을 왕복하면서 이 분류를 잃으므로 reset 요청에 실어
+            # 알려 주는 것이 유일한 경로다 (`SceneObject.msg` 참고).
+            'fixture': bool(spec.get('fixture', False)),
         })
     return out
 
@@ -438,9 +442,9 @@ def _sample_axis(rng: 'random.Random', raw: Any, what: str) -> float:
 
 def _reset_scene(runtime: 'RobotTwinRuntime', client: Optional[Any],
                  op: OperationConfig, session: Session, timeout: float) -> dict[str, Any]:
-    """씬을 레시피대로 새로 만든다.
+    """scene 을 레시피대로 새로 만든다.
 
-    저수준 spawn/remove 를 열지 않고 레시피 이름 하나로 받는 이유는, 씬 구성 로직이
+    저수준 spawn/remove 를 열지 않고 레시피 이름 하나로 받는 이유는, scene 구성 로직이
     클라이언트로 새어 나가면 **"어떤 배치였는지"가 데이터셋 밖에 남기** 때문이다.
 
     ``outputs.objects`` 가 실제 배치이며 **이것이 재현의 근거다.** seed 만 남기면
@@ -465,66 +469,68 @@ def _reset_scene(runtime: 'RobotTwinRuntime', client: Optional[Any],
 def _send_scene_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *, scene: str,
                         seed: int, objects: list[dict[str, Any]],
                         timeout: float) -> dict[str, Any]:
-    """명령 토픽에 발행하고 결과 변수가 갱신될 때까지 기다린다.
+    """scene 리셋 서비스를 호출하고 응답을 돌려준다.
 
-    그리퍼와 같은 구조다 (설계서 6.14) — 결과를 서비스 응답으로만 받으면 rosbag2 에
-    남지 않아 나중에 리셋 실패를 알 수 없다.
+    **예전에는 명령 토픽 + 결과 토픽 쌍이었다.** 근거는 "결과를 서비스 응답으로만
+    받으면 rosbag2 에 남지 않는다" 였는데, 두 토픽 다 `recording_topics.list` 에 없어
+    **애초에 기록되지 않았다.** 근거가 사라지자 남은 것은 비용뿐이었다 — 결과 변수를
+    선언하고, 세대(gen)를 스냅샷하고, 20 ms 마다 폴링하는 코드.
 
-    **`/scene/objects` 를 결과 채널로 쓰지 않는다.** 그쪽은 주기 발행이라 명령과
-    무관하게 계속 갱신되므로, '갱신됨'을 완료 신호로 삼으면 리셋 이전 상태를 완료로
-    오인한다.
+    배치의 출처 추적은 이 함수의 호출자가 `outputs.objects` 를 에피소드 metadata 로
+    넘기는 경로로 한다. 물리 시뮬레이터에서는 **명령한 배치와 실제 안착 위치가
+    다르므로** 재현의 근거는 어차피 실제 위치(`/scene/objects`)여야 한다.
     """
-    topic = op.backend.get('topic')
-    publisher = runtime.command_publisher(topic) if topic else None
-    if publisher is None:
-        raise BackendUnavailable(f"operation '{op.name}' has no publisher for topic {topic!r}")
-
-    entry = runtime.variables.entry(op.backend.get('result_variable') or '')
-    if entry is None:
+    service = op.backend.get('service')
+    type_name = op.backend.get('service_type')
+    if not service or not type_name:
         raise BackendUnavailable(
-            f"operation '{op.name}': backend.result_variable is not a declared variable"
-        )
+            f"operation '{op.name}': backend.service / backend.service_type are required")
 
+    try:
+        client = runtime.service_client(service, type_name)
+    except ValueError as exc:
+        raise BackendUnavailable(f"operation '{op.name}': {exc}") from exc
+
+    if not client.service_is_ready():
+        raise BackendUnavailable(
+            f"scene reset service '{service}' is not available; is the scene node running?")
+
+    request = client.srv_type.Request()
+    request.scene = str(scene)
+    request.seed = int(seed)
+    request.objects = [_make_scene_object(o) for o in objects]
+
+    future = client.call_async(request)
     deadline = time.monotonic() + timeout
-    before = _snapshot_gen(entry)
-    node = runtime._node  # noqa: SLF001 — 런타임 내부 협력자다
-    publisher.publish(_make_scene_command(node, scene, seed, objects))
-
-    while True:
-        snap = entry.snapshot
-        if snap is not None and snap.gen != before:
-            result = snap.msg
-            if not getattr(result, 'success', False):
-                raise BackendUnavailable(
-                    f'scene reset failed: {getattr(result, "message", "") or "unknown"}')
-            return {'applied_count': int(getattr(result, 'applied_count', 0))}
-        _remaining(deadline, f"{op.name} result on '{topic}'", timeout)
+    while not future.done():
+        _remaining(deadline, f"{op.name} response from '{service}'", timeout)
         time.sleep(0.02)
 
+    response = future.result()
+    if response is None:
+        raise BackendUnavailable(f"scene reset service '{service}' returned no response")
+    if not response.success:
+        raise BackendUnavailable(
+            f'scene reset failed: {response.message or "unknown"}')
+    return {'applied_count': int(response.applied_count)}
 
-def _make_scene_command(node: Any, scene: str, seed: int,
-                        objects: list[dict[str, Any]]) -> Any:
-    """`rdfp_msgs/SceneCommand` 를 만든다. `header.stamp` 는 반드시 채운다."""
-    from rdfp_msgs.msg import SceneCommand, SceneObject
 
-    msg = SceneCommand()
-    msg.header.stamp = node.get_clock().now().to_msg()
-    msg.command = 'reset'
-    msg.scene = scene
-    msg.seed = int(seed)
-    for spec in objects:
-        obj = SceneObject()
-        obj.name = spec['name']
-        obj.type = spec['type']
-        obj.dimensions = [float(v) for v in spec['dimensions']]
-        position = spec['position']
-        obj.pose.position.x = float(position['x'])
-        obj.pose.position.y = float(position['y'])
-        obj.pose.position.z = float(position['z'])
-        # 계약은 ROS xyzw 다. 레시피에 자세가 없으므로 회전 없음으로 둔다.
-        obj.pose.orientation.w = 1.0
-        msg.objects.append(obj)
-    return msg
+def _make_scene_object(spec: dict[str, Any]) -> Any:
+    """레시피 추출 결과 하나를 `rdfp_msgs/SceneObject` 로 만든다."""
+    from rdfp_msgs.msg import SceneObject
+
+    obj = SceneObject()
+    obj.name = spec['name']
+    obj.type = spec['type']
+    obj.dimensions = [float(v) for v in spec['dimensions']]
+    position = spec['position']
+    obj.pose.position.x = float(position['x'])
+    obj.pose.position.y = float(position['y'])
+    obj.pose.position.z = float(position['z'])
+    # 계약은 ROS xyzw 다. 레시피에 자세가 없으므로 회전 없음으로 둔다.
+    obj.pose.orientation.w = 1.0
+    obj.fixture = bool(spec.get('fixture', False))
+    return obj
 
 
 # ----------------------------------------------------------------------

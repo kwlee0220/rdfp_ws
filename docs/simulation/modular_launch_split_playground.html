@@ -127,7 +127,7 @@ const VARIANTS={
   mujoco:{name:'MuJoCo', sub:'mujoco_ros2_control', sim_time:true,
     hw:'mujoco_ros2_control/MujocoSystemInterface', cm:'mujoco_ros2_control 노드 내장 CM',
     staticTf:false, simInfra:['mujoco_node'], camera:'backend',
-    desc:'MuJoCo 물리(접촉 정밀). ros-controls/mujoco_ros2_control 노드가 MJCF 씬 로드+스텝+CM 호스팅, /clock 발행. 모델은 MJCF(XML) 필요.'},
+    desc:'MuJoCo 물리(접촉 정밀). ros-controls/mujoco_ros2_control 노드가 MJCF scene 로드+스텝+CM 호스팅, /clock 발행. 모델은 MJCF(XML) 필요.'},
   real:  {name:'Real Panda', sub:'franka_hardware', sim_time:false,
     hw:'franka_hardware/FrankaHardwareInterface', cm:'controller_manager (franka)',
     staticTf:true, simInfra:[], camera:'app',
@@ -177,7 +177,7 @@ function backendNodes(v){
   ns.push({id:'handctl',label:'panda_hand_controller',sub:'GripperActionController',band:'backend',swap:true,role:'그리퍼 제어.',needs:[]});
   if(V.staticTf) ns.push({id:'stf',label:'static_tf',sub:'tf2_ros',band:'backend',swap:true,role:'world→panda_link0 고정 TF.',needs:[]});
   V.simInfra.forEach(s=>{
-    const m={gz_sim:'ros_gz_sim/gz_sim',spawn_entity:'ros_gz_sim/create',clock_bridge:'ros_gz_bridge',isaac_bridge:'isaac ros2 bridge',mujoco_node:'mujoco_ros2_control (MJCF 씬+CM)'};
+    const m={gz_sim:'ros_gz_sim/gz_sim',spawn_entity:'ros_gz_sim/create',clock_bridge:'ros_gz_bridge',isaac_bridge:'isaac ros2 bridge',mujoco_node:'mujoco_ros2_control (MJCF scene+CM)'};
     ns.push({id:s,label:s,sub:m[s]||'',band:'backend',swap:true,role:'시뮬레이터 인프라('+v+' 전용).',needs:[]});
   });
   ns.push({id:'hw',label:V.hw.split('/').pop(),sub:V.hw,band:'backend',swap:true,hw:true,
@@ -294,8 +294,8 @@ function renderConcerns(){
   const modelNote={
     mock:'URDF 가 유일한 모델 소스.',
     gazebo:'URDF(+&lt;gazebo&gt; 태그)에서 SDF 로 변환되어 로드됨.',
-    isaac:'USD 씬이 별도 진실원본 → URDF↔USD 정합성(관절 이름/순서) 유지 필요.',
-    mujoco:'MJCF(XML) 씬이 별도로 필요 → URDF↔MJCF 정합성 유지(액추에이터·센서·카메라를 MJCF 에 추가). 일부 포크(dfki-ric)는 URDF 직접 사용도 지원.',
+    isaac:'USD scene 이 별도 진실원본 → URDF↔USD 정합성(관절 이름/순서) 유지 필요.',
+    mujoco:'MJCF(XML) scene 이 별도로 필요 → URDF↔MJCF 정합성 유지(액추에이터·센서·카메라를 MJCF 에 추가). 일부 포크(dfki-ric)는 URDF 직접 사용도 지원.',
     real:'URDF 가 유일한 모델 소스(실물).',
   }[state.variant];
   const items=[

@@ -62,7 +62,7 @@ class Session:
     id: str
     operation: str
     # 점유한 자원 전체. 대부분 0~1개지만 `reset_scene` 처럼 둘을 함께 잡는 연산이
-    # 있다 — 씬을 바꾸는 동안 팔이 그 공간으로 들어오면 안 되기 때문이다.
+    # 있다 — scene 을 바꾸는 동안 팔이 그 공간으로 들어오면 안 되기 때문이다.
     resources: tuple[str, ...]
     inputs: dict[str, Any]
     started_at: float

@@ -180,7 +180,7 @@ CLAUDE.md 에 적힌 "Cartesian 궤적은 ~10 Hz 로 resample 된다"가 그대�
 
 ## 6. 그리퍼 — 보류 (로봇 모델 불일치)
 
-실물은 **Robotiq 2F-145** 인데 스택 전체가 **Franka Panda Hand** 를 전제한다.
+실물은 **Robotiq 2F-85** 인데 스택 전체가 **Franka Panda Hand** 를 전제한다.
 
 | 위치 | 전제 |
 |---|---|
@@ -189,9 +189,10 @@ CLAUDE.md 에 적힌 "Cartesian 궤적은 ~10 Hz 로 resample 된다"가 그대�
 | robot_twin 목표표 | `open: 0.04` / `close: 0.0` / `grasp: 0.0 + 30 N` |
 | `gripper_control_node` | `control_msgs/GripperCommand` **액션** 클라이언트 |
 
-2F-145 는 스트로크 145 mm 의 링크 구동식이라 기구학 자체가 다르다. 값을 그대로
-넘기면 TF · 충돌검사 · robot_twin 파지 판정 · 데이터셋 그리퍼 채널이 **에러 없이**
-어긋난다.
+2F-85 는 **스트로크 85 mm 의 링크 구동식**이라 기구학 자체가 다르다. 손가락 개폐가
+직동(prismatic)이 아니라 **회전 관절**이며, 제공된 URDF 기준 `finger_joint` 가
+**0 ~ 0.725 rad** 이다. Panda Hand 의 미터 단위 값을 그대로 넘기면 TF · 충돌검사 ·
+robot_twin 파지 판정 · 데이터셋 그리퍼 채널이 **에러 없이** 어긋난다.
 
 **그래서 팔 연동을 먼저 완성하고 그리퍼는 분리했다.** 그동안
 `panda_finger_joint1` 은 `fb_finger_position`(기본 0.04) 고정값으로 채워 TF 만
@@ -199,13 +200,13 @@ CLAUDE.md 에 적힌 "Cartesian 궤적은 ~10 Hz 로 resample 된다"가 그대�
 
 ### 향후 작업
 
-1. `panda_arm` + `robotiq_2f_145` xacro 조합으로 URDF 재구성, SRDF `hand` 그룹
+1. `panda_arm` + `robotiq_2f_85` xacro 조합으로 URDF 재구성, SRDF `hand` 그룹
    재정의.
 2. `rdfp_msgs/GripperCommand` ↔ `/input,/output/gripper_joint` 브리지 노드.
    액션의 `reached_goal` / `stalled` 을 위치 보고만으로 재구성해야 한다
    (목표 대비 오차가 남은 채 정지 = stalled) — robot_twin 의 파지 성공 판정
    근거가 여기에 걸려 있다.
-3. robot_twin 설정의 `backend.targets` 를 2F-145 스케일로 재작성.
+3. robot_twin 설정의 `backend.targets` 를 2F-85 스케일로 재작성.
 
 > **Humble apt 에 Robotiq description 이 없다** (`ros-humble-robotiq-description`
 > 미제공). 서드파티 저장소를 vcs 로 가져오거나 직접 작성해야 한다.

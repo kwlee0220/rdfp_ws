@@ -116,7 +116,7 @@ variables:
     units:
       position: m
 
-  # 씬 안의 물체 상태. 백엔드별 발행 노드(mock 은 `mock_scene_state_node`)가 planning
+  # scene 안의 물체 상태. 백엔드별 발행 노드(mock 은 `mock_scene_state_node`)가 planning
   # scene / Gazebo / Isaac 을 각자 변환해 하나의 토픽으로 낸다 — 트윈은 어느 백엔드인지
   # 모른다.
   #
@@ -127,7 +127,7 @@ variables:
   # 보장되지 않아 지목 수단이 될 수 없다.
   - name: scene_objects
     description: >-
-      씬 안 물체들의 현재 위치·자세·크기. {물체이름: {position, orientation,
+      scene 안 물체들의 현재 위치·자세·크기. {물체이름: {position, orientation,
       type, dimensions}} 맵이며 좌표는 로봇 base 기준이다. **물체를 집기 전 파지
       좌표를 여기서 얻는다** — 고정 좌표를 쓰면 물체가 그 자리에 없다.
       dimensions 순서는 shape_msgs/SolidPrimitive 를 따르므로 cylinder 는
@@ -143,23 +143,6 @@ variables:
     units:
       position: m
       orientation: quaternion_xyzw
-
-  # `reset_scene` 의 **결과 채널**. 백엔드 노드가 명령 하나당 1건 발행한다.
-  # /scene/objects 를 결과로 쓰지 않는 이유: 그쪽은 주기 발행이라 명령과 무관하게
-  # 갱신되므로, '갱신됨'을 완료 신호로 삼으면 리셋 이전 상태를 완료로 오인한다.
-  #
-  # **이벤트성이다** — 명령이 없는 동안 갱신되지 않는다.
-  - name: scene_last_command_result
-    description: >-
-      마지막 reset_scene 명령의 결과(success/message/applied_count). 이벤트성이라
-      명령이 없는 동안은 갱신되지 않는다. reset_scene 이 이미 이 결과를 기다렸다가
-      반환하므로 보통 직접 읽을 일은 없고, 실패 원인을 확인할 때 쓴다.
-    source:
-      type: topic
-      topic: /scene/command_results
-      msg: rdfp_msgs/msg/SceneCommandResult
-      qos: { reliability: reliable, durability: transient_local, depth: 1 }
-    staleness_ms: null
 
   # 세션/에피소드 상태. `session_control_node` 가 전이할 때마다 발행한다.
   # value.state 는 'IDLE' | 'IN_SESSION' | 'IN_EPISODE' 문자열이라 enums 가 필요 없다.
@@ -340,8 +323,8 @@ operations:
       additionalProperties: false
     default_timeout_sec: 60
 
-  # --- 씬 (scene + arm 을 함께 점유한다) ---
-  # 저수준 spawn/remove 를 열지 않고 레시피 이름 하나로 받는다. 씬 구성 로직이
+  # --- scene (scene + arm 을 함께 점유한다) ---
+  # 저수준 spawn/remove 를 열지 않고 레시피 이름 하나로 받는다. scene 구성 로직이
   # 클라이언트로 새어 나가면 "어떤 배치였는지" 가 데이터셋 밖에 남기 때문이다.
   #
   # **arm 도 함께 잡는다** — 로봇이 움직이는 중에 물체를 순간이동시키면 물리
@@ -353,21 +336,20 @@ operations:
   # 넘겨 에피소드에 붙인다.
   - name: reset_scene
     description: >-
-      씬의 물체를 레시피(scene)대로 지우고 다시 배치한다. 위치는 레시피가 정한 범위
+      scene 의 물체를 레시피(scene)대로 지우고 다시 배치한다. 위치는 레시피가 정한 범위
       안에서 무작위 추출하며, seed 를 주면 같은 배치가 재현된다.
       **에피소드를 시작하기 전에 부른다** — 물체를 매번 다른 곳에 두는 것이 이 수집의
       목적이므로 리셋은 에피소드 밖이다.
       **반환된 outputs.objects 가 실제 배치이며 이후 파지 좌표의 출처다** —
       seed 만으로는 추출 방식이 바뀌면 재현이 깨지므로, 이 값을 stop_episode 의
       metadata 에 넣어 에피소드에 붙인다.
-      팔과 씬을 함께 점유하므로 이동 중에는 거부된다(409).
+      팔과 scene 을 함께 점유하므로 이동 중에는 거부된다(409).
     kind: sync
     resource: [scene, arm]
     idempotent: false
     backend:
-      topic: /scene/commands
-      topic_type: rdfp_msgs/msg/SceneCommand
-      result_variable: scene_last_command_result
+      service: /scene/reset
+      service_type: rdfp_msgs/srv/ResetScene
       # 레시피. 각 축은 숫자(고정) 또는 [최소, 최대] (균등 추출)다.
       scenes:
         one_cube:
@@ -431,7 +413,7 @@ operations:
     description: >-
       에피소드(학습 데이터 한 건)의 시작 경계를 찍는다. **IN_SESSION 에서만
       허용된다** — IDLE 이면 409 로 거부되므로 start_session 을 먼저 부른다.
-      이 시점부터 stop_episode 까지의 구간이 하나의 학습 샘플이 되므로, 씬 리셋과
+      이 시점부터 stop_episode 까지의 구간이 하나의 학습 샘플이 되므로, scene 리셋과
       초기 자세 이동은 이 호출 **앞**에서 끝낸다.
     kind: sync
     idempotent: false

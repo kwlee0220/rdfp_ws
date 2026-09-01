@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Windows(Isaac) <-> WSL2 구간용 Fast DDS 프로파일 — **SHM 전송을 끈다.**
+
+  mirrored networking 에서는 WSL2 가 Windows 의 네트워크 정체(호스트명·MAC·IP)를
+  그대로 쓴다. 그러면 Fast DDS 가 양쪽 참가자를 **같은 호스트**로 판단해 공유메모리
+  전송을 고른다. 그런데 Windows 의 SHM 세그먼트와 Linux 의 /dev/shm 은 서로 다른
+  물건이라, 디스커버리 패킷이 어디에도 도착하지 않는다.
+
+  증상이 지독한 이유는 **에러가 없다**는 점이다. 양쪽 다 정상 동작하고, 각자 자기
+  publisher 는 멀쩡히 보이며, 방화벽도 무죄다. 그저 서로를 못 볼 뿐이다.
+
+  UDPv4 만 남기면 이 오판이 사라진다.
+
+  거기에 더해 **initialPeersList 로 127.0.0.1 을 명시**한다. mirrored networking 에서
+  멀티캐스트는 한 방향(Windows -> WSL2)만 통하는 것으로 관측됐다 — WSL 은 Isaac 의
+  구독자를 보는데 Isaac 은 WSL 의 구독자를 못 봐서, Isaac 이 보낼 곳을 모른 채
+  발행만 하지 않는 상태가 됐다. 유니캐스트로 서로를 직접 찔러 그 비대칭을 없앤다.
+  (loopback 이 통한다는 근거: 이전에 Windows 의 Unity 가 127.0.0.1 로 WSL 의
+  ros_tcp_endpoint 에 TCP 접속했다.)
+
+  사용:
+      export FASTRTPS_DEFAULT_PROFILES_FILE=<이 파일의 절대경로>
+
+  Ubuntu 22.04 단독 호스트(같은 머신에 Isaac 과 스택이 함께)에서는 **쓰지 않는다** —
+  거기서는 SHM 이 실제로 같은 호스트를 뜻하고 UDP 보다 빠르다.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+
+        <!-- **MTU 아래로 쪼갠다. 이 한 줄이 큰 메시지를 살린다.**
+             기본값(65500)이면 9 KB 응답이 하나의 UDP 데이터그램으로 나가고, 커널이
+             IP 단편화를 하는데 **WSL2 mirrored networking 에서 그 조각들이 버려진다.**
+             RELIABLE 이라도 같은 크기로 재전송하므로 영영 도착하지 않는다.
+             1400 으로 두면 RTPS 가 직접 조각내어 IP 단편화가 일어나지 않는다.
+
+             실측 (파라미터 서비스 응답, 보내는 쪽·받는 쪽 모두 적용):
+                 100 B    0.00s  수신        9 KB   기본값  15s 타임아웃
+                 9 KB     0.00s  수신       20 KB   기본값  15s 타임아웃
+             **보내는 쪽에도 적용해야 한다** — 받는 쪽만 바꾸면 그대로 실패한다.
+
+             이것이 `/move_group/get_parameters` 로 SRDF(9 KB)를 못 받던 원인이고,
+             Phase 4 의 카메라 이미지도 같은 벽에 부딪힐 것이었다. -->
+        <maxMessageSize>1400</maxMessageSize>
+
+        <!-- 소켓 버퍼는 **건드리지 않는다.** `/move_group/get_parameters` 타임아웃을
+             버퍼 부족으로 의심해 sendBufferSize/receiveBufferSize 를 키웠더니 통신이
+             통째로 끊겼다(요청한 크기를 만들지 못하면 전송 자체가 서지 않는 것으로
+             보인다). SRDF 는 9 KB 라 애초에 버퍼 문제로 보기도 어려웠다.
+             OS 상한만 올려 둔다: sysctl net.core.rmem_max / wmem_max. -->
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="udp_only_participant" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_only</transport_id>
+        </userTransports>
+        <!-- 기본 전송(SHM 포함)을 쓰지 않는다. 이 한 줄이 핵심이다. -->
+        <useBuiltinTransports>false</useBuiltinTransports>
+
+        <builtin>
+          <initialPeersList>
+            <!-- **멀티캐스트를 반드시 함께 남긴다.**
+                 Fast DDS 는 initialPeersList 를 지정하면 기본 멀티캐스트 로케이터를
+                 **대체한다.** 유니캐스트(127.0.0.1)만 넣었더니 Windows 와는 통했지만
+                 WSL 내부 노드끼리 서로를 못 보게 됐다 — 유니캐스트 탐색은 참가자 ID
+                 0~4 정도만 훑는데 스택 노드가 7개를 넘기 때문이다. 실제로
+                 `/scene/objects` 의 publisher 가 0개로 보였다.
+                 아래 239.255.0.1 은 Fast DDS 기본 멀티캐스트 주소다. -->
+            <locator>
+              <udpv4>
+                <address>239.255.0.1</address>
+              </udpv4>
+            </locator>
+            <!-- loopback 유니캐스트. mirrored networking 에서 Windows 와 WSL2 가
+                 loopback 을 공유하므로, 멀티캐스트가 한 방향만 통하는 것을 메운다.
+
+                 **포트를 반드시 명시한다.** 주소만 적으면 Fast DDS 가 참가자 ID
+                 0~3 만 훑는다(maxInitialPeersRange 기본 4). 노드가 넷을 넘는 순간
+                 뒤에 뜬 참가자가 **아무에게도 보이지 않는다** — 실제로 스택 노드가
+                 늘자 rclpy 노드 다섯이 통째로 사라졌고, 카메라 트래픽 탓으로
+                 한참 오진했다.
+
+                 포트 = 7400 + 250*도메인 + 10 + 2*참가자ID.
+                 아래는 **도메인 31** 기준 ID 0~15 이다.
+                 **도메인을 바꾸면 이 목록을 다시 만들어야 한다.** -->
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15160</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15162</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15164</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15166</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15168</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15170</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15172</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15174</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15176</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15178</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15180</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15182</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15184</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15186</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15188</port>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+                <port>15190</port>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

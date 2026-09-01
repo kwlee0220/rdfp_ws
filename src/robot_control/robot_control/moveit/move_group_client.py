@@ -808,7 +808,8 @@ class MoveGroupClient(abc.ABC):
     def plan_joints_async(self, joint_values: dict[str, float], *,
                           velocity_scaling: Optional[float] = None,
                           planning_time: float = DEFAULT_PLANNING_TIME,
-                          tolerance: float = DEFAULT_JOINT_TOLERANCE,) -> Future:
+                          tolerance: float = DEFAULT_JOINT_TOLERANCE,
+                          externally_spun: bool = False,) -> Future:
         """:meth:`plan_joints` 의 비동기 버전.
 
         Args:
@@ -825,7 +826,14 @@ class MoveGroupClient(abc.ABC):
             RuntimeError: 클라이언트가 이미 close() 되었을 때(즉시 발생).
         """
         self._require_open()
-        values = self._complete_joint_values(_validate_joint_values(joint_values))
+        # **`externally_spun` 을 반드시 넘긴다.** 지정하지 않은 관절을 현재값으로
+        # 채우려면 `/joint_states` 한 건을 받아야 하는데, 그 대기가 기본값
+        # (`externally_spun=False`)에서는 이 노드를 **직접 spin** 한다. executor 가
+        # 이미 다른 스레드에서 노드를 돌리고 있으면(로봇 트윈이 그렇다) 콜백이
+        # 그쪽으로 가므로 여기서는 영원히 오지 않는다 — 예외도 타임아웃도 없이
+        # 연산이 RUNNING 인 채로 멈춘다.
+        values = self._complete_joint_values(_validate_joint_values(joint_values),
+                                             externally_spun=externally_spun)
         vs = self._resolve_velocity_scaling(velocity_scaling)
 
         result_future = Future()

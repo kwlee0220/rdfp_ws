@@ -205,7 +205,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
         self._require_open()
         result_future = Future()
         plan_future = self.plan_joints_async(joint_values, velocity_scaling=velocity_scaling,
-                                             planning_time=planning_time, tolerance=tolerance)
+                                             planning_time=planning_time, tolerance=tolerance,
+                                             externally_spun=externally_spun)
 
         def _on_plan_done(future: Future) -> None:
             """계획 완료 콜백: 스트리밍 스레드로 넘긴다."""

@@ -20,6 +20,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # 'auto' 는 의도적으로 제외한다 — 설계서 2.6 참조.
 MoveGroupMode = Literal['jtc', 'jgpc']
 
+# JGPC 명령 메시지 형식. `float64_multi_array` 는 ros2_control 의 JGPC 이고,
+# `joint_state` 는 토픽 연동형 시뮬레이터(Isaac Sim · 펑션베이)다.
+ArmCommandFormat = Literal['float64_multi_array', 'joint_state']
+
 # 상태 변수 소스 종류 (설계서 4.3).
 SourceType = Literal['topic', 'tf', 'service', 'static', 'derived']
 
@@ -96,6 +100,17 @@ class MoveItConfig(_Base):
     move_group_mode: MoveGroupMode
     planning_group: str = 'panda_arm'
 
+    # --- JGPC 명령 채널 (토픽 연동형 시뮬레이터용) ---
+    #
+    # 셋 다 생략하면 `create_move_group_client` 의 기본값을 쓴다 — ros2_control 의
+    # JGPC(`/panda_arm_controller/commands`, Float64MultiArray)다.
+    #
+    # Isaac Sim 처럼 **시뮬레이터가 직접 JointState 를 받는** 백엔드는 셋을 모두
+    # 지정해야 한다. 토픽 remap 으로는 못 바꾼다 — 메시지 타입이 다르다.
+    arm_command_topic: Optional[str] = None
+    arm_command_format: Optional[ArmCommandFormat] = None
+    arm_command_joint_names: Optional[list[str]] = None
+
     @field_validator('move_group_mode', mode='before')
     @classmethod
     def _reject_auto(cls, v: Any) -> Any:
@@ -105,6 +120,44 @@ class MoveItConfig(_Base):
                 'because topic-graph detection can silently mis-detect the stack'
             )
         return v
+
+    @model_validator(mode='after')
+    def _check_arm_command(self) -> 'MoveItConfig':
+        """명령 채널 설정의 짝을 맞춘다. **조용히 무시되는 키를 만들지 않는다.**"""
+        given = {
+            'arm_command_topic': self.arm_command_topic,
+            'arm_command_format': self.arm_command_format,
+            'arm_command_joint_names': self.arm_command_joint_names,
+        }
+        present = sorted(k for k, v in given.items() if v is not None)
+
+        # JTC 는 이 값들을 아예 보지 않는다. 남겨 두면 '설정했는데 안 먹는' 상태가
+        # 되고, 증상은 팔이 엉뚱한 토픽으로 명령을 보내는 것뿐이라 원인이 안 보인다.
+        if self.move_group_mode == 'jtc' and present:
+            raise ValueError(
+                f"moveit.{'/'.join(present)} only applies to move_group_mode 'jgpc'; "
+                "the JTC client executes through the MoveGroup action instead"
+            )
+
+        # joint_state 형식에는 컨트롤러가 없다 — 관절 이름을 조회할 곳이 없으므로
+        # 반드시 명시해야 한다. 빠지면 첫 스트리밍에서 조회를 기다리다 멈춘다.
+        if self.arm_command_format == 'joint_state' and not self.arm_command_joint_names:
+            raise ValueError(
+                "moveit.arm_command_joint_names is required when arm_command_format is "
+                "'joint_state'; there is no controller to query the joint order from"
+            )
+        return self
+
+    def client_kwargs(self) -> dict:
+        """`create_move_group_client` 에 넘길 추가 인자. 지정한 것만 담는다."""
+        kwargs = {}
+        if self.arm_command_topic is not None:
+            kwargs['arm_command_topic'] = self.arm_command_topic
+        if self.arm_command_format is not None:
+            kwargs['arm_command_format'] = self.arm_command_format
+        if self.arm_command_joint_names is not None:
+            kwargs['arm_command_joint_names'] = list(self.arm_command_joint_names)
+        return kwargs
 
 
 class QosConfig(_Base):
@@ -200,7 +253,7 @@ class OperationConfig(_Base):
     description: str = ''
     kind: OperationKind
     # 단일 자원이거나 목록이다. `reset_scene` 처럼 둘을 함께 잡아야 하는 연산이
-    # 있다 — 씬을 바꾸는 동안 팔이 그 공간으로 들어오면 안 되기 때문이다.
+    # 있다 — scene 을 바꾸는 동안 팔이 그 공간으로 들어오면 안 되기 때문이다.
     # 읽을 때는 `resource_names` 를 쓴다.
     resource: Optional[Union[ResourceName, list[ResourceName]]] = None
     idempotent: bool = True
@@ -235,7 +288,7 @@ class OperationConfig(_Base):
         """설정의 이름 표에서 ``inputs_schema`` 의 enum 을 파생한다.
 
         대상은 두 쌍이다 — ``backend.targets`` → ``target.enum`` (그리퍼 목표),
-        ``backend.scenes`` → ``scene.enum`` (씬 레시피).
+        ``backend.scenes`` → ``scene.enum`` (scene 레시피).
 
         목표 이름을 두 곳에 적으면 조용히 어긋난다. 특히 ``targets`` 에만 추가하고
         ``enum`` 을 빠뜨리면 **jsonschema 설치 여부에 따라** 같은 요청이 ``400`` 이

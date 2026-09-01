@@ -1,4 +1,4 @@
-"""mock 백엔드용 씬 상태 발행 노드 (MoveIt planning scene → `/scene/objects`).
+"""mock 백엔드용 scene 상태 발행 노드 (MoveIt planning scene → `/scene/objects`).
 
 `/monitored_planning_scene` 을 구독해 world collision object 를 누적하고, 그 상태를
 주기적으로 `rdfp_msgs/SceneObjects` 로 발행한다.
@@ -17,7 +17,7 @@ move_group 의 planning scene monitor 가 diff scene 과 parent 를 오가는 �
 1. 백엔드마다 성격이 다르다 — 물리 백엔드(Gazebo/Isaac)는 물체가 계속 움직여 주기
    발행이 자연스럽다. mock 만 이벤트성이면 트윈의 `staleness_ms` 를 백엔드별로
    달리 잡아야 한다.
-2. **발행자가 죽은 것을 감지할 수 있다.** 이벤트 발행이면 씬이 조용히 얼어붙은 것과
+2. **발행자가 죽은 것을 감지할 수 있다.** 이벤트 발행이면 scene 이 조용히 얼어붙은 것과
    정상인 것이 구분되지 않는다.
 
 **이 노드가 내는 pose 는 ground truth 가 아니다.** planning scene 의 물체는 물리를
@@ -30,8 +30,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+import time
+
 import rclpy
-from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
@@ -44,16 +47,18 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from robot_control.ros2_utils import get_parameter, parse_float, parse_str
 from robot_control.scene.pose_math import IDENTITY_QUAT, compose_pose
-from rdfp_msgs.msg import SceneCommand, SceneCommandResult, SceneObject, SceneObjects
+from rdfp_msgs.msg import SceneObject, SceneObjects
+from rdfp_msgs.srv import ResetScene
 
 
 _DEFAULT_SCENE_TOPIC = '/scene/objects'
-_DEFAULT_COMMAND_TOPIC = '/scene/commands'
-_DEFAULT_RESULT_TOPIC = '/scene/command_results'
+_DEFAULT_RESET_SERVICE = '/scene/reset'
 _MONITORED_SCENE_TOPIC = '/monitored_planning_scene'
 _APPLY_SCENE_SERVICE = '/apply_planning_scene'
+# 서비스 콜백 안에서 기다리는 한도.
+_APPLY_TIMEOUT_SEC = 10.0
 
-# 늦게 뜬 구독자(트윈·recorder)도 현재 씬을 즉시 보게 한다. 구독 측도 durability 를
+# 늦게 뜬 구독자(트윈·recorder)도 현재 scene 을 즉시 보게 한다. 구독 측도 durability 를
 # 맞춰야 매칭된다 — volatile 로 구독하면 값이 영영 오지 않는다.
 _SCENE_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -110,17 +115,35 @@ class MockSceneStateNode(Node):
         # 누적 상태. id → CollisionObject. 발행 시점에 SceneObject 로 변환한다.
         self._objects: dict[str, CollisionObject] = {}
 
+        # 고정물 이름. `/scene/reset` 요청에 실려 온 `fixture` 를 기억한다.
+        #
+        # planning scene 을 왕복하면 이 분류가 사라지기 때문이다 — MoveIt 의
+        # `CollisionObject` 에는 실을 자리가 없어서, 여기서 붙들지 않으면 발행하는
+        # `SceneObject.fixture` 가 전부 false 가 된다.
+        #
+        # **첫 `/scene/reset` 이전에는 알 수 없다.** launch 시점에 planning scene 에
+        # 이미 있던 물체는 전부 false 로 나간다. mock 스택은 `planning_scene_sync`
+        # 를 쓰지 않으므로(방향이 반대다 — planning scene 이 원천이다) 계획에는
+        # 영향이 없고, 영향받는 것은 데이터셋 라벨뿐이다.
+        self._fixtures: set[str] = set()
+
         self._pub = self.create_publisher(SceneObjects, scene_topic, _SCENE_QOS)
         self._sub = self.create_subscription(
             PlanningScene, _MONITORED_SCENE_TOPIC, self._on_planning_scene, _MONITORED_QOS)
 
-        # 쓰기 경로. 명령을 토픽으로 받고 결과도 토픽으로 낸다 — 결과를 서비스
-        # 응답으로만 주면 rosbag2 에 남지 않아 나중에 리셋 실패를 알 수 없다.
-        self._result_pub = self.create_publisher(
-            SceneCommandResult, _DEFAULT_RESULT_TOPIC, _SCENE_QOS)
-        self._cmd_sub = self.create_subscription(
-            SceneCommand, _DEFAULT_COMMAND_TOPIC, self._on_command, 10)
-        self._apply_cli = self.create_client(ApplyPlanningScene, _APPLY_SCENE_SERVICE)
+        # 쓰기 경로 — 서비스다. 요청/응답이 한 쌍이라 결과 토픽도, 결과를 기다리는
+        # 폴링도 필요 없다.
+        #
+        # **콜백 그룹을 나누는 것이 필수다.** 이 서버 콜백 안에서 다시
+        # `/apply_planning_scene` 을 호출하는데, 같은 그룹이면 응답을 기다리는 동안
+        # executor 가 막혀 **영원히 끝나지 않는다.** 그래서 서버와 클라이언트를 다른
+        # 그룹에 두고 `main` 이 MultiThreadedExecutor 를 쓴다.
+        self._reset_srv = self.create_service(
+            ResetScene, _DEFAULT_RESET_SERVICE, self._on_reset,
+            callback_group=MutuallyExclusiveCallbackGroup())
+        self._apply_cli = self.create_client(
+            ApplyPlanningScene, _APPLY_SCENE_SERVICE,
+            callback_group=MutuallyExclusiveCallbackGroup())
 
         self._timer = self.create_timer(1.0 / publish_rate, self._on_timer)
         self._last_warn = self.get_clock().now()
@@ -135,10 +158,10 @@ class MockSceneStateNode(Node):
     def _on_planning_scene(self, msg: PlanningScene) -> None:
         """`/monitored_planning_scene` 을 누적 상태에 반영한다.
 
-        `is_diff=False` 는 씬 전체이므로 통째로 교체하고, `is_diff=True` 는 변경된
+        `is_diff=False` 는 scene 전체이므로 통째로 교체하고, `is_diff=True` 는 변경된
         물체만 담고 있으므로 `operation` 에 따라 반영한다.
 
-        **`is_diff=True` 에 물체가 없는 것은 '씬을 비우라'는 뜻이 아니다** — 로봇
+        **`is_diff=True` 에 물체가 없는 것은 'scene 을 비우라'는 뜻이 아니다** — 로봇
         상태만 바뀐 diff 도 같은 토픽으로 오기 때문이다. 그것을 비움으로 해석하면
         물체가 매 주기 사라진다.
         """
@@ -179,19 +202,17 @@ class MockSceneStateNode(Node):
 
     # ── 명령 처리 ───────────────────────────────────────────────
 
-    def _on_command(self, msg: SceneCommand) -> None:
-        """`/scene/commands` 를 planning scene 에 적용한다.
+    def _on_reset(self, request: ResetScene.Request,
+                  response: ResetScene.Response) -> ResetScene.Response:
+        """`objects` 로 scene 을 **통째로 교체**한다.
 
-        현재 지원하는 것은 `reset` 하나이며 **씬을 통째로 교체**한다. 개별 추가/삭제
-        명령을 두지 않는 이유는 그 조합 로직이 클라이언트로 새어 나가고, 그러면
-        "어떤 배치였는지" 가 데이터셋 밖에 남기 때문이다.
+        개별 추가/삭제를 열지 않는 이유는 그 조합 로직이 클라이언트로 새어 나가고,
+        그러면 "어떤 배치였는지" 가 데이터셋 밖에 남기 때문이다.
+
+        **빈 `objects` 는 유효한 요청이다** — 'scene 을 비운다'는 뜻이다.
         """
-        if msg.command != 'reset':
-            self._publish_result(False, f"unsupported command {msg.command!r}", 0)
-            return
         if not self._apply_cli.service_is_ready():
-            self._publish_result(False, f"service '{_APPLY_SCENE_SERVICE}' not ready", 0)
-            return
+            return self._fail(response, f"service '{_APPLY_SCENE_SERVICE}' not ready")
 
         scene = PlanningScene()
         scene.is_diff = True
@@ -199,30 +220,63 @@ class MockSceneStateNode(Node):
         clear_all = CollisionObject()
         clear_all.operation = CollisionObject.REMOVE
         objects = [clear_all]
-        for obj in msg.objects:
+        for obj in request.objects:
             collision_object = self._to_collision_object(obj)
             if collision_object is None:
-                self._publish_result(False, f"unsupported type {obj.type!r} for '{obj.name}'", 0)
-                return
+                return self._fail(response, f"unsupported type {obj.type!r} for '{obj.name}'")
             objects.append(collision_object)
         scene.world.collision_objects = objects
 
-        request = ApplyPlanningScene.Request()
-        request.scene = scene
-        future = self._apply_cli.call_async(request)
-        count = len(msg.objects)
-        future.add_done_callback(lambda fut: self._on_applied(fut, count))
+        # scene 을 통째로 교체하는 요청이므로 분류도 통째로 갈아 끼운다.
+        fixtures = {obj.name for obj in request.objects if obj.fixture}
 
-    def _on_applied(self, future, count: int) -> None:
-        try:
-            response = future.result()
-        except Exception as exc:   # noqa: BLE001
-            self._publish_result(False, f'apply_planning_scene failed: {exc}', 0)
-            return
-        if response is None or not response.success:
-            self._publish_result(False, 'apply_planning_scene rejected the scene', 0)
-            return
-        self._publish_result(True, '', count)
+        apply_request = ApplyPlanningScene.Request()
+        apply_request.scene = scene
+        future = self._apply_cli.call_async(apply_request)
+        # 다른 콜백 그룹이므로 여기서 기다려도 executor 가 막히지 않는다.
+        applied = self._await(future)
+        if applied is None:
+            return self._fail(response, 'apply_planning_scene did not respond in time')
+        if not applied.success:
+            return self._fail(response, 'apply_planning_scene rejected the scene')
+
+        # 적용에 성공한 뒤에 반영한다 — 거부된 요청의 분류를 남기면 실제 scene 과
+        # 어긋난다.
+        self._fixtures = fixtures
+
+        response.success = True
+        response.message = ''
+        response.applied_count = len(request.objects)
+        self.get_logger().info(
+            f'scene reset applied: {response.applied_count} object(s), '
+            f'{len(fixtures)} fixture(s) '
+            f'(scene={request.scene!r}, seed={request.seed})')
+        return response
+
+    def _await(self, future, timeout_sec: float = _APPLY_TIMEOUT_SEC):
+        """`call_async` 결과를 기다린다. 시간 초과면 ``None``.
+
+        `spin_until_future_complete` 를 쓰지 않는다 — 이미 executor 가 다른 스레드에서
+        노드를 돌리고 있으므로, 여기서 또 spin 하면 콜백이 그쪽으로 가서 영영 오지
+        않는다.
+        """
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if future.done():
+                try:
+                    return future.result()
+                except Exception as exc:   # noqa: BLE001
+                    self.get_logger().error(f'apply_planning_scene failed: {exc}')
+                    return None
+            time.sleep(0.01)
+        return None
+
+    def _fail(self, response: ResetScene.Response, message: str) -> ResetScene.Response:
+        self.get_logger().warning(f'scene reset failed: {message}')
+        response.success = False
+        response.message = message
+        response.applied_count = 0
+        return response
 
     def _to_collision_object(self, obj: SceneObject) -> Optional[CollisionObject]:
         """계약의 `SceneObject` 를 planning scene 의 `CollisionObject` 로 되돌린다.
@@ -251,16 +305,6 @@ class MockSceneStateNode(Node):
         collision_object.primitive_poses = [identity]
         return collision_object
 
-    def _publish_result(self, success: bool, message: str, applied_count: int) -> None:
-        if not success:
-            self.get_logger().warning(f'scene command failed: {message}')
-        result = SceneCommandResult()
-        result.header.stamp = self.get_clock().now().to_msg()
-        result.success = success
-        result.message = message
-        result.applied_count = applied_count
-        self._result_pub.publish(result)
-
     # ── 발행 ────────────────────────────────────────────────────
 
     def _on_timer(self) -> None:
@@ -282,7 +326,7 @@ class MockSceneStateNode(Node):
         """`CollisionObject` 를 `SceneObject` 로 옮긴다.
 
         기하가 없거나 좌표 변환이 불가능하면 ``None`` 을 반환하고 경고만 남긴다 —
-        물체 하나 때문에 나머지 씬 전체를 발행하지 못하는 편이 더 나쁘다.
+        물체 하나 때문에 나머지 scene 전체를 발행하지 못하는 편이 더 나쁘다.
         """
         primitive_count = len(obj.primitives)
         if primitive_count > 1:
@@ -317,6 +361,7 @@ class MockSceneStateNode(Node):
         scene_object.type = type_name
         scene_object.dimensions = dimensions
         scene_object.pose = pose
+        scene_object.fixture = obj.id in self._fixtures
         return scene_object
 
     def _to_base_frame(self, obj: CollisionObject, local_pose: Pose) -> Optional[Pose]:
@@ -382,7 +427,8 @@ def _as_tuples(pose: Pose) -> tuple[tuple[float, float, float],
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = MockSceneStateNode()
-    executor = SingleThreadedExecutor()
+    # 서비스 콜백 안에서 다른 서비스를 기다리므로 **단일 스레드로는 교착된다.**
+    executor = MultiThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()

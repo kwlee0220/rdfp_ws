@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+from robot_control.launch_helpers.common import extra_parameter_list
 
 
 def declare_ee_pose_arguments() -> list[DeclareLaunchArgument]:
@@ -28,7 +32,7 @@ def declare_ee_pose_arguments() -> list[DeclareLaunchArgument]:
     ]
 
 
-def create_ee_pose_node() -> Node:
+def create_ee_pose_node(extra_parameters: Optional[dict] = None) -> Node:
     """EE pose publisher 노드를 생성한다."""
     return Node(
         package="robot_control",
@@ -40,6 +44,7 @@ def create_ee_pose_node() -> Node:
                 "base_frame": LaunchConfiguration("base_frame"),
                 "ee_frame": LaunchConfiguration("ee_frame"),
                 "publish_rate": LaunchConfiguration("publish_rate"),
-            }
+            },
+            *extra_parameter_list(extra_parameters),
         ],
     )

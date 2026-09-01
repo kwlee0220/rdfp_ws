@@ -1,4 +1,4 @@
-"""씬 물체 상태 발행 서브패키지.
+"""scene 물체 상태 발행 서브패키지.
 
 백엔드(mock / Gazebo / Isaac)마다 물체를 표현하는 방식이 다르지만, 각 백엔드의
 `*_scene_state_node` 가 `rdfp_msgs/SceneObjects` 로 변환해 **하나의 토픽**

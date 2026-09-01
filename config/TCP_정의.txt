@@ -1,0 +1,301 @@
+현재 Peg In Hole 모델 Crisp(서울대) 솔버의 경우 아래와 같이 body 9 번 기준점을 출력해 드리고 있습니다.
+
+ 
+
+//     이어서 EE (robotiq_85_base_link, body 인덱스 9) pose:
+
+    //       res[3*N + 0..2] : EE position (x,y,z)
+
+    //       res[3*N + 3..5] : EE orientation (roll,pitch,yaw) [rad]
+
+    //                         d->body.quat[EE_BODY_ID] 를 ZYX intrinsic 로 변환
+
+    {
+
+        constexpr int EE_BODY_ID = 9;
+
+ 
+
+        const int nu     = m->size.nu;
+
+        auto      q_full = d->state.q();
+
+        auto      v_full = d->state.v();
+
+        auto      f_full = d->act.f();
+
+ 
+
+        for (int i = 0; i < nu; ++i)
+
+        {
+
+            int jid  = m->act.jointid[i];
+
+            int qadr = m->jnt.qadr[jid];
+
+            int vadr = m->jnt.vadr[jid];
+
+ 
+
+            res[3 * i + 0] = (float)q_full[qadr];
+
+            res[3 * i + 1] = (float)v_full[vadr];
+
+            res[3 * i + 2] = (float)f_full[vadr];
+
+        }
+
+ 
+
+        if (EE_BODY_ID < nb)
+
+        {
+
+            auto const& ee_p = d->body.pos [EE_BODY_ID];
+
+            auto const& ee_q = d->body.quat[EE_BODY_ID];
+
+ 
+
+            res[3 * nu + 0] = (float)ee_p[0];
+
+            res[3 * nu + 1] = (float)ee_p[1];
+
+            res[3 * nu + 2] = (float)ee_p[2];
+
+ 
+
+            // quaternion(w,x,y,z) -> RPY (ZYX intrinsic)
+
+            //   roll  = atan2(2(wx + yz), 1 - 2(x^2 + y^2))
+
+            //   pitch = asin (2(wy - zx))          [-1,1] clamp
+
+            //   yaw   = atan2(2(wz + xy), 1 - 2(y^2 + z^2))
+
+            double qw = ee_q.w(), qx = ee_q.x(), qy = ee_q.y(), qz = ee_q.z();
+
+            double sinp = 2.0 * (qw * qy - qz * qx);
+
+            if (sinp >  1.0) sinp =  1.0;
+
+            if (sinp < -1.0) sinp = -1.0;
+
+            double roll  = std::atan2(2.0 * (qw * qx + qy * qz),
+
+                                      1.0 - 2.0 * (qx * qx + qy * qy));
+
+            double pitch = std::asin(sinp);
+
+            double yaw   = std::atan2(2.0 * (qw * qz + qx * qy),
+
+                                      1.0 - 2.0 * (qy * qy + qz * qz));
+
+ 
+
+            res[3 * nu + 3] = (float)roll;
+
+            res[3 * nu + 4] = (float)pitch;
+
+            res[3 * nu + 5] = (float)yaw;
+
+        }
+
+ 
+
+SDF 정보 입니다.
+
+ 
+
+sdf_t cylinder_sdf(Eigen::Vector3d p, const double& r, const double& h) {
+
+    Eigen::Vector2d p_2d(std::sqrt(p(0) * p(0) + p(1) * p(1)), p(2));
+
+    double xy = std::sqrt(p(0) * p(0) + p(1) * p(1));
+
+    double radial_dist = xy - r;
+
+    double axial_dist = abs(p(2)) - 0.5 * h;
+
+ 
+
+    double radial_out = std::max(radial_dist, 0.0);
+
+    double axial_out = std::max(axial_dist, 0.0);
+
+ 
+
+    double dist;
+
+    Eigen::Vector3d grad;
+
+ 
+
+   if (radial_out > 0.0 || axial_out > 0.0) {
+
+        dist = sqrt(radial_out * radial_out + axial_out * axial_out);
+
+ 
+
+        Eigen::Vector3d g(0.0, 0.0, 0.0);
+
+        if (radial_out > 1e-12 && xy > 1e-12) {
+
+            g(0) = (radial_out / dist) / xy * p(0);
+
+            g(1) = (radial_out / dist) / xy * p(1);
+
+        }
+
+        if (axial_out > 1e-12) {
+
+            g(2) = (axial_out / dist) * (p(2) >= 0.0 ? 1.0 : -1.0);
+
+        }
+
+        grad = g.normalized();
+
+    }
+
+    else {
+
+        dist = std::max(radial_dist, axial_dist);
+
+ 
+
+        if (axial_dist <= radial_dist) {
+
+            if (xy > 1e-12) {
+
+                grad << p(0) / xy, p(1) / xy, 0.0;
+
+            }
+
+            else {
+
+                grad << 1.0, 0.0, 0.0;
+
+            }
+
+        }
+
+        else {
+
+            grad << 0.0, 0.0, (p(2) >= 0.0 ? 1.0 : -1.0);
+
+        }
+
+    }
+
+    return sdf_t{ dist, grad };
+
+}
+
+ 
+
+double peg_distance(
+
+    const Eigen::Vector3d& p, double r, double half_h, double r_fillet) {
+
+    double xy = std::sqrt(p.x() * p.x() + p.y() * p.y());
+
+    double dx = xy - r + r_fillet;
+
+    double dz = std::abs(p.z()) - half_h;
+
+    double d_out = std::sqrt(
+
+        std::max(dx, 0.0) * std::max(dx, 0.0) +
+
+        std::max(dz, 0.0) * std::max(dz, 0.0));
+
+    double d_in = std::min(std::max(dx, dz), 0.0);
+
+    return d_in + d_out - r_fillet;
+
+}
+
+ 
+
+Eigen::Vector3d peg_gradient_fd(
+
+    const Eigen::Vector3d& p, double r, double half_h, double r_fillet) {
+
+    const double eps = 1e-8;
+
+    const double d0 = peg_distance(p, r, half_h, r_fillet);
+
+ 
+
+    Eigen::Vector3d px = p;
+
+    px.x() += eps;
+
+    Eigen::Vector3d py = p;
+
+    py.y() += eps;
+
+    Eigen::Vector3d pz = p;
+
+    pz.z() += eps;
+
+ 
+
+    return Eigen::Vector3d(
+
+        (peg_distance(px, r, half_h, r_fillet) - d0) / eps,
+
+        (peg_distance(py, r, half_h, r_fillet) - d0) / eps,
+
+        (peg_distance(pz, r, half_h, r_fillet) - d0) / eps);
+
+}
+
+ 
+
+int peg_eval(
+
+    crisp::Ref<crisp::Vector3r const> x_rel,
+
+    crisp::Ref<crisp::VectorXr const> param, int, crisp::real_t& phi,
+
+    crisp::Ref<crisp::Vector3r> grad, crisp::Ref<crisp::Matrix3r>) {
+
+    const double r_fillet = 0.0005;
+
+    const double r = param[0];
+
+    const double half_h = param[1] * 0.5 - r_fillet;
+
+    Eigen::Vector3d x = x_rel;
+
+ 
+
+    phi = peg_distance(x, r, half_h, r_fillet);
+
+    Eigen::Vector3d g = peg_gradient_fd(x, r, half_h, r_fillet);
+
+    double gn = g.norm();
+
+    grad = gn > 1e-12 ? (g / gn).eval() : Eigen::Vector3d::Zero();
+
+    return crisp::sdf_eval_grad;
+
+}
+
+ 
+
+void peg_aabb(
+
+    crisp::Ref<crisp::Matrix3r const>, crisp::Ref<crisp::VectorXr const> param,
+
+    crisp::Ref<crisp::Vector6r> aabb) {
+
+    double r = param[0];
+
+    double half_h = param[1] * 0.5;
+
+    aabb << -r, -r, -half_h, r, r, half_h;
+
+}

@@ -39,7 +39,7 @@ ros2 launch robot_control panda_mock.launch.py
 
 이것으로 충분하다. 트윈은 **제어 계층**에 속하고 `package.xml` 의 의존도
 `robot_control` 뿐이므로, arm·gripper·scene 연산은 이 스택만으로 전부 동작한다.
-씬 노드(`reset_scene` 이 필요로 한다)도 이 launch 가 기본으로 함께 띄운다
+scene 노드(`reset_scene` 이 필요로 한다)도 이 launch 가 기본으로 함께 띄운다
 (`enable_scene_node:=false` 로 끌 수 있다).
 
 **세션/에피소드 연산(`start_session` 등)을 쓸 때만** 수집 계층 launch 로 바꾼다 —
@@ -386,7 +386,6 @@ HTTP 상태 코드는 **프로토콜 처리 결과**, 본문의 `status` 는 **�
 | `gripper_last_command_result` | 제어 | `/gripper_control/gripper_action_states` | ✅ | `move_gripper_to_target` 의 결과 채널. **이벤트성**이며 보통 직접 조회하지 않는다 (아래 참조) |
 | `session_state` | **수집** | `/session` | ✅ | 세션/에피소드 상태 (`IDLE`/`IN_SESSION`/`IN_EPISODE`)와 task label |
 | `scene_objects` | 제어 | `/scene/objects` | ✅ | scene 안 물체들의 종류·크기·pose. **물체 이름으로 접근하는 map** 이다 |
-| `scene_last_command_result` | 제어 | `/scene/command_results` | ✅ | `reset_scene` 의 결과 채널. **이벤트성** — 명령이 없으면 갱신되지 않는다 |
 | `named_targets` | 제어 | SRDF 조회 (`static`) | ✅ | 그룹별 named target 목록. **최초 조회 시 lazy 하게 가져와 캐시**한다 |
 
 `session_state` 만 수집 스택에 묶인다 — `/session` 의 발행자가 `rdfp` 의
@@ -468,8 +467,6 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 > **mock 의 물체는 물리를 갖지 않는다.** 파지에 실패해도 굴러떨어져도 pose 가 변하지
 > 않으므로, mock 에서는 이 변수로 **성패를 관측할 수 없다.** 배관 검증용이다.
 
-**`scene_last_command_result`** — `rdfp_msgs/SceneCommandResult`
-
 ```jsonc
 { "header": { "...": "..." }, "success": true, "message": "", "applied_count": 2 }
 ```
@@ -533,7 +530,7 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 MoveIt 을 직접 쓰므로 제어 스택만으로 충분하다.
 
 `reset_scene` 이 "제어" 인 것이 헷갈릴 수 있다 — **수집을 위한 연산이지만 구현은 제어
-계층에 있다.** 씬 노드가 `robot_control/scene/` 으로 옮겨졌고 mock 계열 launch 넷이
+계층에 있다.** scene 노드가 `robot_control/scene/` 으로 옮겨졌고 mock 계열 launch 넷이
 모두 기본으로 띄우기 때문이다(`enable_scene_node:=false` 로 끌 수 있다).
 
 수집 스택 없이 세션 연산을 부르면 `PRECONDITION_FAILED` + `session_control_node is

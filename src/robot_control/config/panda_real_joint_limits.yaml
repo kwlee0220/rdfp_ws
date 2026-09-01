@@ -1,0 +1,89 @@
+# Panda 관절 한계 — **실제 Franka Emika 스펙**으로 좁힌다.
+#
+# `moveit_resources_panda_moveit_config` 의 원본은 URDF 한계를 그대로 쓰는데, 그
+# URDF 는 실제 로봇보다 **모든 관절이 4° 씩 헐겁다**(panda_joint4 상한은 9°).
+#
+#   joint          URDF          실제 스펙        차
+#   panda_joint1   ±2.9671       ±2.8973         0.0698 (4°)
+#   panda_joint4   -3.1416~0.0873  -3.0718~-0.0698  상한 0.1571 (9°)
+#
+# **이것이 실제로 문제가 됐다.** Isaac 은 실제 스펙을 강제하므로, MoveIt 이 계획한
+# 자세를 시뮬레이터가 한계에서 막는다. `extended`(j4=0)로 이동시켰더니 팔이
+# -0.0698 에서 멈췄고, 그 값이 "정착 오차 0.0698 rad" 로 보여 중력 처짐으로 오독했다.
+# 강성을 625배 올려도 값이 소수점 4자리까지 그대로인 것을 보고서야 갈렸다.
+#
+# 스펙 쪽을 택한 이유는 **수집한 데이터가 실물로 가야 하기 때문**이다. 헐거운 쪽에
+# 맞추면 실제 로봇이 갈 수 없는 자세가 데이터셋에 섞인다.
+#
+# 속도·가속도 항목은 원본 그대로다 (position 만 덧붙였다).
+#
+# 적용 범위: 현재 `panda_isaac.launch.py` 뿐이다. mock/Gazebo/펑션베이까지 넓힐지는
+# 별도 결정 사항이다 — docs/simulation/isaac_backend_skeleton.md §7 Q6.
+
+joint_limits:
+  panda_joint1:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.175
+    has_acceleration_limits: true
+    max_acceleration: 3.75
+  panda_joint2:
+    has_position_limits: true
+    min_position: -1.7628
+    max_position: 1.7628
+    has_velocity_limits: true
+    max_velocity: 2.175
+    has_acceleration_limits: true
+    max_acceleration: 1.875
+  panda_joint3:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.175
+    has_acceleration_limits: true
+    max_acceleration: 2.5
+  panda_joint4:
+    has_position_limits: true
+    min_position: -3.0718
+    max_position: -0.0698
+    has_velocity_limits: true
+    max_velocity: 2.175
+    has_acceleration_limits: true
+    max_acceleration: 3.125
+  panda_joint5:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.61
+    has_acceleration_limits: true
+    max_acceleration: 3.75
+  panda_joint6:
+    has_position_limits: true
+    min_position: -0.0175
+    max_position: 3.7525
+    has_velocity_limits: true
+    max_velocity: 2.61
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  panda_joint7:
+    has_position_limits: true
+    min_position: -2.8973
+    max_position: 2.8973
+    has_velocity_limits: true
+    max_velocity: 2.61
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  panda_finger_joint1:
+    has_velocity_limits: true
+    max_velocity: 0.1
+    has_acceleration_limits: false
+    max_acceleration: 0.0
+  panda_finger_joint2:
+    has_velocity_limits: true
+    max_velocity: 0.1
+    has_acceleration_limits: false
+    max_acceleration: 0.0

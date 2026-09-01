@@ -17,6 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetString.srv"
   "srv/GetSessionState.srv"
   "srv/StopEpisode.srv"
+  "srv/ResetScene.srv"
   "msg/SessionCommand.msg"
   "msg/GripperCommand.msg"
   "msg/GripperActionState.msg"
@@ -24,8 +25,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ClutchState.msg"
   "msg/SceneObject.msg"
   "msg/SceneObjects.msg"
-  "msg/SceneCommand.msg"
-  "msg/SceneCommandResult.msg"
   DEPENDENCIES std_msgs trajectory_msgs geometry_msgs
 )
 

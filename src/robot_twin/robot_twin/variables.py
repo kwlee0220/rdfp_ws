@@ -72,6 +72,20 @@ def build_qos(cfg: QosConfig) -> QoSProfile:
     )
 
 
+def import_service_type(type_name: str) -> type:
+    """``rdfp_msgs/srv/ResetScene`` 형식의 이름을 서비스 클래스로 해석한다.
+
+    ``<pkg>/<Type>`` 로 줄여 쓰면 ``srv`` 로 채운다 — 메시지 쪽 기본값이 ``msg`` 라
+    같은 함수를 쓰면 두 글자 차이로 조용히 엉뚱한 타입을 잡는다.
+    """
+    parts = type_name.split('/')
+    if len(parts) == 2:
+        type_name = f'{parts[0]}/srv/{parts[1]}'
+    elif len(parts) != 3 or parts[1] != 'srv':
+        raise ValueError(f'invalid service type name: {type_name!r}')
+    return import_message_type(type_name)
+
+
 def import_message_type(type_name: str) -> type:
     """``sensor_msgs/msg/JointState`` 형식의 이름을 메시지 클래스로 해석한다.
 
@@ -463,5 +477,5 @@ def _iso_utc(epoch_sec: float) -> str:
 
 __all__ = [
     'STATIC_RETRY_SEC', 'StaticSourceUnavailable', 'VariableCache', 'VariableEntry',
-    'build_qos', 'import_message_type'
+    'build_qos', 'import_message_type', 'import_service_type'
 ]

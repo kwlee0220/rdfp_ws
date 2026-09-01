@@ -20,7 +20,7 @@ mock 과의 차이
 - ``/joint_states`` 를 `joint_state_broadcaster` 가 아니라 fusion 노드가 낸다.
 - 기동 순서 신호가 spawner 의 ``OnProcessExit`` 가 아니라
   `readiness_gate` 의 종료다 (같은 event handler 로 엮인다).
-- ``gripper_control_node`` 를 띄우지 않는다 — 실물이 Robotiq 2F-145 라 Panda Hand
+- ``gripper_control_node`` 를 띄우지 않는다 — 실물이 Robotiq 2F-85 라 Panda Hand
   를 전제한 URDF/SRDF 와 기구학이 다르다. 팔 연동을 먼저 완성하고 그리퍼는 별도
   진행한다. 그때까지 ``panda_finger_joint1`` 은 고정값으로 채워 TF 만 성립시킨다.
 

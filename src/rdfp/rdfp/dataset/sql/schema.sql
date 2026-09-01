@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- success=false 인 **유효한 에피소드**이므로 학습셋에서 무조건 제외하지 않는다.
     success         BOOLEAN,
     -- 에피소드 재현·분석에 필요한 부가 정보 (seed, scene 이름, 초기 물체 배치,
-    -- 실패 사유 등). 형태가 씬 레시피·백엔드마다 달라지므로 정규화하지 않는다.
+    -- 실패 사유 등). 형태가 scene 레시피·백엔드마다 달라지므로 정규화하지 않는다.
     -- 중단된 에피소드는 success IS NULL + metadata->>'abort_reason' 으로 구분한다.
     metadata        JSONB,
     UNIQUE (start_sec, start_nanosec)
@@ -207,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_pose_stampeds_stamp_ts ON pose_stampeds (stamp_ts
 
 
 -- /scene/objects → rdfp_msgs/msg/SceneObjects
--- 씬 안 물체들의 ground-truth 상태. 자동 라벨링(place 성공 판정), 오프라인 큐레이션
+-- scene 안 물체들의 ground-truth 상태. 자동 라벨링(place 성공 판정), 오프라인 큐레이션
 -- (파지 오차 계산·실패 에피소드 선별), pose estimator 학습 라벨이 모두 여기서 나온다.
 --
 -- **정책의 학습 입력(observation)으로 쓸지는 export 단계의 별도 결정**이며 적재 단계에서
@@ -238,11 +238,16 @@ CREATE TABLE IF NOT EXISTS scene_objects (
     frame_id        TEXT          NOT NULL DEFAULT '',
     -- SceneObject 배열. 원소 형태는
     --   {"name": str, "type": str, "dimensions": [float, ...],
-    --    "position": [x, y, z], "orientation": [x, y, z, w]}
+    --    "position": [x, y, z], "orientation": [x, y, z, w], "fixture": bool}
     -- 이며 orientation 은 **ROS 규약 xyzw** 다 (Isaac 의 wxyz 가 아니다).
-    -- 물체가 없으면 빈 배열이고, 그것도 '씬이 비었다'는 유효한 상태다.
+    -- 물체가 없으면 빈 배열이고, 그것도 'scene 이 비었다'는 유효한 상태다.
+    --
+    -- `fixture` 는 탁자·펜스처럼 조작 대상이 아닌 물체를 뜻한다. 조작 대상만 남기면
+    -- '블록이 탁자 위에 놓였는가' 를 판정할 때 지지면의 크기·위치를 데이터 밖의
+    -- 설정 파일에서 찾아야 하고, 그 파일이 바뀐 뒤에는 라벨이 조용히 틀린다.
+    -- 도입 이전 행에는 이 키가 없으므로 reader 가 false 로 채운다.
     objects         JSONB         NOT NULL,
-    -- 빈 씬 제외 같은 필터를 매번 배열을 풀지 않고 걸 수 있게 한다.
+    -- 빈 scene 제외 같은 필터를 매번 배열을 풀지 않고 걸 수 있게 한다.
     object_count    INTEGER       GENERATED ALWAYS AS (jsonb_array_length(objects)) STORED,
     CHECK (jsonb_typeof(objects) = 'array')
 );

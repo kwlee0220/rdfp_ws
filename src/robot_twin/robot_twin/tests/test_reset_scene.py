@@ -48,7 +48,7 @@ def test_name_is_derived_when_omitted() -> None:
 
 
 def test_empty_recipe_yields_an_empty_scene() -> None:
-    """물체가 없는 것도 '씬을 비운다'는 유효한 요청이다."""
+    """물체가 없는 것도 'scene 을 비운다'는 유효한 요청이다."""
     assert _sample_scene({'objects': []}, 0) == []
 
 

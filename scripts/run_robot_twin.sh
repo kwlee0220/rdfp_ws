@@ -8,7 +8,7 @@
 #
 # **로봇 스택이 먼저 떠 있어야 한다.** 트윈은 로봇을 제어하지 않고 중계만 한다.
 #
-#   ./scripts/run_panda_mock.sh                        # 팔·그리퍼·씬 연산까지
+#   ./scripts/run_panda_mock.sh                        # 팔·그리퍼·scene 연산까지
 #   ros2 launch rdfp rdfp_panda_mock.launch.py         # + 세션/에피소드 연산
 #
 # 세션/에피소드 연산(start_session 등)은 rdfp 의 session_control_node 에 중계되므로

@@ -605,7 +605,7 @@ CLI 는 관심사별로 **여러 독립 console_script** 로 분리되어 있습
 
 | 명령 | 모듈 | 역할 | ROS 의존 |
 |---|---|---|---|
-| `rosbag list-episodes`/`rosbag …` | `rdfp.rosbag.cli` | rosbag2 split 조회 (DB 미사용) | 없음 |
+| `rosbag list-topics` / `rosbag clear` | `rdfp.rosbag.cli` | rosbag2 split 조회 (DB 미사용). **`--config` 가 아니라 `--rosbag-dir`** | 없음 |
 | `init-db` | `rdfp.dataset.init_db_cmd` | DB 스키마 생성/재생성 | 없음 |
 | `import` | `rdfp.dataset.import_cmd` | rosbag → DB/MP4 적재 | 있음 (sensor_msgs 등) |
 | `stats` | `rdfp.dataset.stats_cmd` | 적재된 테이블별 행 수 출력 | 없음 |
@@ -668,7 +668,7 @@ vi /etc/rdfp/rosbag_config.yaml  /etc/rdfp/dataset_config.yaml
 ros2 run rdfp import --config /etc/rdfp/dataset_config.yaml
 
 # rosbag2 split 단위 조회 (DB 미사용)
-ros2 run rdfp rosbag list-episodes --config /etc/rdfp/rosbag_config.yaml
+ros2 run rdfp rosbag list-topics --rosbag-dir /data/rdfp/rosbag
 
 # 적재된 DB 조회
 ros2 run rdfp stats --config /etc/rdfp/dataset_config.yaml

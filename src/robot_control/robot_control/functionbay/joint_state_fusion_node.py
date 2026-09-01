@@ -14,7 +14,7 @@
 non-fixed 이므로 이것까지 채워야 TF 가 손끝까지 이어진다
 (`panda_finger_joint2` 는 URDF 에서 `<mimic>` 이라 rsp 가 파생한다).
 
-그리퍼는 아직 연동하지 않는다 (실물이 Robotiq 2F-145 라 Panda Hand 를 전제한
+그리퍼는 아직 연동하지 않는다 (실물이 Robotiq 2F-85 라 Panda Hand 를 전제한
 URDF/SRDF 와 기구학이 다르다). 그때까지는 `extra_joint_positions` 의 고정값으로
 TF 만 성립시킨다.
 

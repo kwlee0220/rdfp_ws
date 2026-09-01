@@ -1,5 +1,10 @@
 # 자동 에피소드 수집을 위한 트윈 확장 (초안)
 
+> ⚠️ **이 문서의 scene 명령 부분은 낡았다 (2026-09-01).** 쓰기 경로는 서비스로 바뀌었다 —
+> `SceneCommand`/`SceneCommandResult` 토픽 쌍은 제거되고 `rdfp_msgs/srv/ResetScene`
+> (`/scene/reset`) 하나가 되었다. 근거는
+> [scene/scene_objects_guide.md](../scene/scene_objects_guide.md) §5 를 본다.
+
 > **상태: 작업 기록 — §6 의 1~5b 완료, 6~7 미착수 (갱신 2026-08-22).** 2026-08-17 논의를
 > 정리한 초안으로 시작했으나 이후 작업이 이 문서 안에서 진행되어, **절 제목에
 > `(구현 완료, 2026-08-17)` 또는 `(결정, 2026-08-17)` 이 붙은 것은 이미 코드에 반영된
@@ -848,7 +853,7 @@ YAML 이 정상 사용 패턴**이다. 그 파일들은 `colcon build` 로 갱�
       identity + 비대칭 회전 + TF 교차 검증으로 확인한다. 단위·up-axis 까지 묶어
       "좌표 규약 어댑터" 로 7번 작업에 편입 (§2.5, 2026-08-17 결정)
 - [ ] **`scene_objects` 를 observation 에 넣을지** → **보류 (실 카메라 연결 후 실측).**
-      적재는 완료했으므로 지금 결정하지 않아도 손실이 없다. 현재는 씬 카메라가 없어
+      적재는 완료했으므로 지금 결정하지 않아도 손실이 없다. 현재는 scene 카메라가 없어
       (실 카메라 미연결로 mp4 파일을 임시 소스로 쓴다) 카메라만 쓰는 안도 GT 를 직접
       넣는 안도 검증이 불가능하다. 선택지·판단 기준·재검토 트리거는
       [scene_objects_observation_decision.md](../rosbag2/scene_objects_observation_decision.md)

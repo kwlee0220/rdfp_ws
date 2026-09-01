@@ -142,7 +142,7 @@ def generate_launch_description() -> LaunchDescription:
     camera_node = create_camera_node()
     ee_pose_node = create_ee_pose_node()
     gripper_control_node = create_gripper_control_node()
-    # 씬 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
+    # scene 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
     # 기다리지 않으므로 같은 그룹에서 동시에 spawn 해도 안전하다.
     scene_node = create_mock_scene_node()
 

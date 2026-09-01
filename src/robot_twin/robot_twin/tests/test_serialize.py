@@ -180,7 +180,7 @@ def test_project_scene_object_map() -> None:
 
 
 def test_project_scene_object_map_accepts_an_empty_scene() -> None:
-    """물체가 없는 것도 '씬이 비었다'는 유효한 상태다."""
+    """물체가 없는 것도 'scene 이 비었다'는 유효한 상태다."""
     out = project_scene_object_map({'header': {}, 'objects': []})
 
     assert out['objects'] == {}

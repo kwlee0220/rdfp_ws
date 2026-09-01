@@ -45,6 +45,7 @@ helper 목록과 각각의 역할은
 | `rdfp_panda_mock.launch.py` | `panda_mock` 전체 + 수집 노드 4종 | `panda_robot.yaml` + `image_pipeline.yaml` |
 | `rdfp_panda_jgpc_mock.launch.py` | 위의 **JGPC 판** | 동일 |
 | `rdfp_panda_gazebo.launch.py` | `panda_gazebo` + 수집 노드 | (제어 계층 것) |
+| `rdfp_panda_isaac.launch.py` | `panda_isaac` + 수집 노드 | **`isaac_scene.json`** (카메라) |
 | `replay_panda_mock.launch.py` | 데이터셋 **재생 전용** variant | `replay_panda_mock.yaml` |
 | `teleop_mirror.launch.py` | leader-follower 미러링 체인 | `teleop_mirror.yaml` |
 | `rdfp.launch.py` | 세션 + 뷰어 + 녹화 (MoveIt 없음) | `image_pipeline.yaml` |
@@ -485,6 +486,7 @@ replay_panda_mock.launch.py
 | 학습 데이터 수집 전체 스택 | `rdfp_panda_mock.launch.py` |
 | 위의 JGPC 판 | `rdfp_panda_jgpc_mock.launch.py` |
 | Gazebo 백엔드로 수집 | `rdfp_panda_gazebo.launch.py` |
+| Isaac Sim 백엔드로 수집 | `rdfp_panda_isaac.launch.py` |
 | **제어 스택은 그대로 두고 수집만 재시작** | `rdfp_collect.launch.py` (§6.1) |
 | 적재된 에피소드 재생 | `replay_panda_mock.launch.py` |
 | leader-follower teleop | `teleop_mirror.launch.py` (follower 스택이 이미 떠 있어야 함) |
@@ -502,6 +504,7 @@ replay_panda_mock.launch.py
 | `rdfp_panda_mock` | `robot_control panda_mock` + `rdfp_collect` | **완전 일치** ✅ |
 | `rdfp_panda_jgpc_mock` | `robot_control panda_jgpc_mock` + `rdfp_collect arm_cmd_source:=float64_multi_array` | **완전 일치** ✅ |
 | `rdfp_panda_gazebo` | `robot_control panda_gazebo` + `rdfp_collect` (인자 필요, 아래) | **불일치** — 인자를 맞춰야 한다 |
+| `rdfp_panda_isaac` | `robot_control panda_isaac` + `rdfp_collect` (인자 필요) | **불일치** — 카메라 3종 + `arm_cmd_source` |
 
 ```bash
 # JTC — 완전 동등
@@ -514,6 +517,25 @@ ros2 launch rdfp rdfp_collect.launch.py arm_cmd_source:=float64_multi_array
 ```
 
 #### Gazebo 조합은 인자를 명시해야 한다
+
+`rdfp_panda_isaac` 도 **`image_pipeline.yaml` 을 읽지 않는다** — 대신
+`isaac_scene.json` 의 `camera` 블록을 읽는다. 이미지를 카메라 노드가 아니라
+**시뮬레이터가 직접** 발행하므로 해상도·주파수를 정하는 쪽이 Isaac 이기 때문이다.
+`rdfp_collect` 로 분리해 쓰려면 네 인자를 맞춰야 한다.
+
+```bash
+ros2 launch robot_control panda_isaac.launch.py enable_gripper:=true enable_scene:=true
+ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
+    arm_cmd_source:=joint_state \
+    target_joint_cmds_input_topic:=/isaac/arm_command \
+    camera_image_topic:=/isaac/camera/image_raw \
+    camera_resolution:=640x480 image_recorder_fps:=5
+```
+
+`arm_cmd_source:=joint_state` 는 **컨트롤러의 `joints` 파라미터를 조회하지 않는다** —
+메시지에 이름이 이미 있기 때문이다. ros2_control 컨트롤러가 없는 Isaac 스택에서
+중요한 성질이며, 기본값(`joint_trajectory`)으로 두면 조회가 실패해 `JointState.name`
+이 빈 채로 적재된다.
 
 `rdfp_panda_gazebo` 는 **`image_pipeline.yaml` 을 읽지 않고 자체 기본값을 쓴다.**
 그 값들이 백엔드에 묶여 있기 때문이다 — 해상도는 `description/panda.gazebo.xacro`

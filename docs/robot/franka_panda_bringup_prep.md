@@ -75,7 +75,7 @@ FCI 는 **1 kHz UDP** 다. 기존 네트워크와 회선을 공유하면 패킷 
 | 충돌 임계값 정책 | `collision_behavior`. 민감하면 계속 멈추고 둔하면 위험하다 |
 | 초기 자세(`ready` named target)가 실기에서 안전한가 | mock 기준 값이 실기 셋업에서 충돌할 수 있다 |
 | 비상정지 위치·복구 절차 | `error_recovery` 호출 시점 |
-| 카메라 배치 (연결 예정이라면) | 씬을 담는지가 [observation 결정](../rosbag2/scene_objects_observation_decision.md)과 직결된다 |
+| 카메라 배치 (연결 예정이라면) | scene 을 담는지가 [observation 결정](../rosbag2/scene_objects_observation_decision.md)과 직결된다 |
 
 ---
 

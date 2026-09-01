@@ -318,7 +318,7 @@ pose_rotated_about_base_z(grasp, 50)          → 목표 좌표 (쿼터니언 �
 move_linear(...) → move_gripper_to_target('open')
 ```
 
-**같은 실행을 학습 데이터로 남기려면** 앞뒤에 경계를 두른다. 이때 물체는 `read_state` 가 아니라 `begin_task` 가 돌려준다 — 씬을 새로 배치하면서 그 배치를 서버가 기억해 `end_task` 의 metadata 로 넘기기 때문이다(§5.7).
+**같은 실행을 학습 데이터로 남기려면** 앞뒤에 경계를 두른다. 이때 물체는 `read_state` 가 아니라 `begin_task` 가 돌려준다 — scene 을 새로 배치하면서 그 배치를 서버가 기억해 `end_task` 의 metadata 로 넘기기 때문이다(§5.7).
 
 ```
 begin_task(task_label, scene='one_cube')      → 실제 배치 objects  ← read_state 대신
