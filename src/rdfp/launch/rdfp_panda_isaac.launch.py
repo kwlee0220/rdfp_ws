@@ -82,7 +82,6 @@ def _included_backend() -> IncludeLaunchDescription:
         "enable_rviz": LaunchConfiguration("enable_rviz"),
         "enable_gripper": LaunchConfiguration("enable_gripper"),
         "enable_scene": LaunchConfiguration("enable_scene"),
-        "sync_planning_scene": LaunchConfiguration("sync_planning_scene"),
         "use_sim_time": LaunchConfiguration("use_sim_time"),
     }
     return IncludeLaunchDescription(
@@ -103,10 +102,6 @@ def _declare_arguments(camera: dict) -> list[DeclareLaunchArgument]:
             "enable_scene", default_value="true",
             choices=["true", "false"],
             description="scene 물체 상태(/scene/objects). 데이터셋 채널이므로 기본 on"),
-        DeclareLaunchArgument(
-            "sync_planning_scene", default_value="true",
-            choices=["true", "false"],
-            description="scene 물체를 MoveIt 의 장애물로 밀어 넣는다"),
         DeclareLaunchArgument(
             "use_sim_time", default_value="true",
             choices=["true", "false"],

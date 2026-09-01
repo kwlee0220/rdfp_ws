@@ -12,7 +12,8 @@
     - /readiness_gate      — 첫 관절 보고를 기동 완료 신호로 삼고 종료
 - ``moveit``: /move_group, /moveit_servo, /ee_pose_publisher
 - ``rviz2``: /rviz2
-- ``camera``: /camera (또는 시뮬레이터 카메라를 remap)
+- ``camera``: 시뮬레이터가 ``/camera_image`` 로 발행한다. OpenCV 카메라 노드는
+  기본 off 이며(`enable_camera_node`), 켤 때의 설정은 image_pipeline.yaml 에서 온다
 
 mock 과의 차이
 --------------
@@ -52,7 +53,11 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from robot_control.launch_helpers.camera import create_camera_node, declare_camera_arguments
+from robot_control.launch_helpers.camera import (
+    create_camera_node,
+    declare_simulator_camera_arguments,
+)
+from robot_control.launch_helpers.image_pipeline import load_config
 from robot_control.launch_helpers.controller_startup import _chain_or_shutdown
 from robot_control.launch_helpers.common import (
     build_moveit_config,
@@ -150,7 +155,7 @@ def generate_launch_description() -> LaunchDescription:
         create_move_group_node(moveit_config),
         create_servo_node(moveit_config, servo_params),
         create_rviz_node(moveit_config),
-        create_camera_node(),
+        create_camera_node(load_config()),
         create_ee_pose_node(),
     ]
 
@@ -172,7 +177,7 @@ def generate_launch_description() -> LaunchDescription:
         declare_ros2_control_hardware_type_argument(),
         declare_log_level_argument(),
         *declare_ee_pose_arguments(),
-        *declare_camera_arguments(),
+        *declare_simulator_camera_arguments(),
         *declare_functionbay_arguments(),
         static_tf,
         robot_state_publisher,

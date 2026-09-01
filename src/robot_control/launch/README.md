@@ -161,6 +161,18 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `camera_frame_id` | `camera.frame_id` | `camera_link` | |
 | `camera_compress_image` | `camera.compress_image` | `false` | `rdfp_camera_node`(rdfp 패키지) 는 미지원 |
 
+> **시뮬레이터 계열은 이 9개를 쓰지 않는다.** `panda_functionbay` 는
+> `declare_simulator_camera_arguments()` 로 **`enable_camera_node` 와
+> `camera_image_topic` 둘만** 선언한다 (`panda_isaac` 은 카메라 인자가 아예 없다).
+>
+> 카메라 주기·해상도·`camera_id` 는 **우리가 정하는 값이 아니라 시뮬레이터가 주는
+> 대로 쓰는 값**이라 인자로 열지 않는다. 열어 두면 실제와 다른 값을 넣을 수 있고,
+> 특히 레코더가 CFR 이라 fps 가 어긋나면 **영상의 시간축이 통째로 밀린다.**
+> `camera_info` 도 OpenCV 경로 전용이다 — 시뮬레이터는 제공하지 않는다.
+>
+> `enable_camera_node` 는 남긴다(기본 **`false`**) — USB 카메라를 함께 붙이는 경우가
+> 있어서이며, 그때 쓰는 설정은 `image_pipeline.yaml` 에서 직접 온다.
+
 > **이 두 launch 는 설정 파일을 갈아끼울 argument 가 없다.** `image_pipeline.yaml`을 기본값 원천으로만 쓴다. 값을 바꾸려면 `arg:=value` 로 개별 지정하거나 YAML 자체를 수정한다. 파일 교체가 필요하면 `rdfp_panda_mock` 계열을 쓴다 (`image_pipeline_config_file:=`).
 
 ### 2.2 `panda_gazebo` — 16개
