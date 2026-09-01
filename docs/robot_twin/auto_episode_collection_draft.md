@@ -758,7 +758,7 @@ ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 �
 | ~~3~~ | ~~트윈 변수 `scene_objects` + projection~~ | **완료** | 2026-08-17. 어휘는 **B안**(입력 메시지 기준): `joint_state_map` / `scene_object_map` |
 | ~~4~~ | ~~`start_episode`/`stop_episode` 연산 + `sessions` 스키마 확장~~ | **완료** | 2026-08-17. 연산 4개(§4.4), 거부는 `PRECONDITION_FAILED`(§4.2), 스키마·생산 경로(§4.5·§4.6) |
 | ~~5~~ | ~~`reset_scene` 연산 + mock 구현 + `resource` 리스트 확장~~ | **완료** | 2026-08-17. 무작위 추출은 **트윈**이 하고 백엔드는 배치를 받아 적용만 한다 (§3.5) |
-| ~~5b~~ | ~~scene 노드를 mock 계열 launch 에 편입~~ | **완료** | 2026-08-17. `robot_control/launch_helpers/scene.py` + `enable_scene_node`(기본 `true`). 스택↔어댑터 짝을 사용자가 고르지 않게 한다 |
+| ~~5b~~ | ~~scene 노드를 mock 계열 launch 에 편입~~ | **완료** | 2026-08-17. `robot_control/launch_helpers/scene.py` + `enable_scene`(기본 `true`). 스택↔어댑터 짝을 사용자가 고르지 않게 한다 |
 | 6 | Gazebo 백엔드 연동 | 중 | **여기서부터 진짜 데이터.** `gazebo_scene_state_node` 를 만들고 `launch_helpers/scene.py` 에 형제 팩토리를 추가해 `panda_gazebo` 계열에 같은 인자로 붙인다 |
 | 7 | Isaac Sim 연동 + **좌표 규약 어댑터** | 중 | wxyz·단위·up-axis. identity + 비대칭 회전으로 검증 (§2.5) |
 

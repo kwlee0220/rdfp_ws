@@ -278,7 +278,7 @@ ros2 launch rdfp rdfp_panda_mock.launch.py \
 
 | launch argument | 기본값 | 비고 |
 |---|---|---|
-| `enable_scene_node` | `true` | 백엔드 scene 상태 노드(mock 은 `mock_scene_state`) 기동 여부. 끄면 `/scene/objects` 가 없고 트윈의 `reset_scene` 이 결과 대기 timeout 으로 실패한다 |
+| `enable_scene` | `true` | 백엔드 scene 상태 노드(mock 은 `mock_scene_state`) 기동 여부. 끄면 `/scene/objects` 가 없고 트윈의 `reset_scene` 이 `/scene/reset` 서비스를 찾지 못해 실패한다 |
 | `scene_publish_rate` | `2.0` | `/scene/objects` 발행 Hz. `publish_rate` 라는 이름을 못 쓰는 이유는 EE pose 인자와 충돌해서다 |
 
 scene 만 YAML 밖에 있는 이유는 노브가 둘뿐이고 스택마다 달라질 값이 아니어서다.

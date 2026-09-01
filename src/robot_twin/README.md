@@ -47,10 +47,9 @@ moveit:
 ### Isaac 설정에 `reset_scene` 이 없는 이유
 
 scene 물체가 **USD 스테이지**에 있어 고치려면 시뮬레이터 안에서 스테이지를 써야 한다 —
-ROS 쪽 노드는 원리적으로 할 수 없고, `isaac_scene_state_node` 가 `/scene/commands` 를
-구독조차 하지 않는 이유다. 남겨 두면 결과 토픽을 기다리다 타임아웃할 뿐이고 구독자가
-없다는 단서는 로그에 남지 않는다. scene 초기화는 Isaac 쪽에서 `setup_scene.py` 를 다시
-돌린다.
+ROS 쪽 노드는 원리적으로 할 수 없고, `isaac_scene_state_node` 가 `/scene/reset` 서비스를
+**열지 않는** 이유다(발행 전용이다). 설정에 연산을 남겨 두면 서비스를 찾지 못해 실패할
+뿐이다. scene 초기화는 Isaac 쪽에서 `setup_scene.py` 를 다시 돌린다.
 
 ### 트윈은 시작 자세 충돌에서 스스로 빠져나오지 못한다
 

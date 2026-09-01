@@ -31,7 +31,7 @@ Panda + MoveIt2 만          panda_mock                 panda_jgpc_mock
 - ``rviz2``: /rviz2
 - ``camera``: /camera_node
 - ``gripper``: /gripper_control
-- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
+- ``scene``: /mock_scene_state (``enable_scene:=false`` 로 비활성화 가능)
 - ``rdfp 애플리케이션``:
     - /session_control
     - /rdfp_image_viewer_node

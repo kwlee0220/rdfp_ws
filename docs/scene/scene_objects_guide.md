@@ -361,20 +361,21 @@ scenes:
 
 ### launch 인자 (YAML 을 거치지 않는다)
 
-**mock 계열** (`panda_mock` · `panda_jgpc_mock` · `rdfp_panda_*`) — `launch_helpers/scene.py`
+**이름은 백엔드와 무관하게 같다.** `enable_scene` 하나로 어느 스택에서든 scene 노드를 켜고 끈다 — 스택을 바꿔도 명령줄을 고칠 필요가 없다.
 
-| 인자 | 기본 | 설명 |
+| 인자 | 적용 | 기본 | 설명 |
+|---|---|---|---|
+| `enable_scene` | 전 스택 | 아래 참조 | 백엔드 scene 상태 노드 기동 여부 |
+| `scene_publish_rate` | 전 스택 | `2.0` | `/scene/objects` 발행 Hz |
+| `sync_planning_scene` | Isaac 계열만 | `true` | `planning_scene_sync`(§7) 기동 여부. `enable_scene` 과 **둘 다 true** 일 때만 뜬다 |
+
+`enable_scene` 의 기본값만 launch 마다 다르다:
+
+| launch | 기본 | 왜 |
 |---|---|---|
-| `enable_scene_node` | `true` | 백엔드 scene 상태 노드 기동 여부 |
-| `scene_publish_rate` | `2.0` | `/scene/objects` 발행 Hz |
-
-**Isaac 계열** (`panda_isaac` · `rdfp_panda_isaac`) — 인자 이름이 다르고 하나가 더 있다
-
-| 인자 | 기본 | 설명 |
-|---|---|---|
-| `enable_scene` | `true` | `isaac_scene_state_node` 기동 여부. "데이터셋 채널이므로 기본 on" |
-| `sync_planning_scene` | `true` | `planning_scene_sync`(§7) 기동 여부. `enable_scene` 과 **둘 다 true** 일 때만 뜬다 |
-| `scene_publish_rate` | `2.0` | 공통 |
+| `panda_mock` · `panda_jgpc_mock` · `rdfp_panda_*` | `true` | 아래 "기본 on 은 의도적이다" |
+| `rdfp_panda_isaac` | `true` | `/scene/objects` 는 데이터셋 채널이므로 수집 스택에서는 켜져 있어야 한다 |
+| `panda_isaac` | **`false`** | Isaac 백엔드는 단계별로 올린다 — Phase 3 에 도달하기 전에는 물체 TF 자체가 없어서, 켜 두면 조회 실패 경고만 쌓인다 |
 
 - **기본 on 은 의도적이다.** 노드는 2 Hz 타이머 하나를 쓰고 `/scene/reset` 요청이 오기 전까지 아무것도 바꾸지 않는 반면, 꺼 두면 트윈의 `reset_scene` 이 **서비스를 찾지 못해** 실패하면서 로그에 원인이 남지 않는다.
 - **`publish_rate` 라는 이름을 쓸 수 없다** — EE pose 헬퍼가 이미 그 이름을 50 Hz 기본값으로 선언하고 있어 충돌한다.
@@ -411,7 +412,7 @@ ORDER BY s.stamp_ts DESC;
 | 자세가 '그럴듯하게' 틀리다 | 쿼터니언 wxyz ↔ xyzw 혼동. norm 검사로는 안 잡힌다 — 알려진 비대칭 회전으로 확인 |
 | cylinder 크기가 이상하다 | `dimensions` 가 `[높이, 반지름]` 순서다 |
 | 오프셋 가진 물체만 어긋난다 | `오브젝트 ← primitive` 합성 누락 (§6.2.3) |
-| `reset_scene` 이 타임아웃으로 실패 | `enable_scene_node:=false` 로 노드가 없음 |
+| `reset_scene` 이 타임아웃으로 실패 | `enable_scene:=false` 로 노드가 없음 |
 | `reset_scene` 이 409 | `scene` 뿐 아니라 `arm` 도 점유한다 — 팔 이동 중에는 거부 |
 | scene 이 조용히 얼어붙었다 | 주기 발행이므로 `staleness_ms` 로 감지된다 (이벤트 발행이면 구분 불가) |
 | mock 에서 파지 성패가 안 잡힌다 | 물리가 없어 pose 가 변하지 않는다. 배관 검증용이다 |

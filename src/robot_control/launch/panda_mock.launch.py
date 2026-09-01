@@ -16,7 +16,7 @@
 - ``rviz2``: /rviz2
 - ``camera``: /camera
 - ``gripper``: /gripper_control
-- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
+- ``scene``: /mock_scene_state (``enable_scene:=false`` 로 비활성화 가능)
 
 본 파일은 위 단위와 같은 책임 경계를 유지하면서, 기존과 동일한 순차 기동
 정책을 event handler 로 orchestration 한다.

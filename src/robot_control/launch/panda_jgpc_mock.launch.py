@@ -54,7 +54,7 @@ JGPC 는 ``forward_command_controller`` 기반이라 보간 없이 마지막으�
 - ``rviz2``: /rviz2
 - ``camera``: /camera_node
 - ``gripper``: /gripper_control
-- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
+- ``scene``: /mock_scene_state (``enable_scene:=false`` 로 비활성화 가능)
 """
 
 from __future__ import annotations

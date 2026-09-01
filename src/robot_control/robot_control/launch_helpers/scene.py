@@ -4,8 +4,10 @@ scene 노드는 백엔드와 **1:1 로 묶인다** — mock 스택은 `mock_scen
 Gazebo 스택은 `gazebo_scene_state_node`(미구현) 를 띄워야 한다. 어느 스택을
 기동하느냐가 곧 어느 어댑터가 필요한지를 결정하므로, 그 짝을 사용자에게 맡기지
 않고 launch 파일이 백엔드별 팩토리를 골라 쓴다. 팩토리는 백엔드마다 하나씩
-추가하되 argument 이름(`enable_scene_node`) 은 공유한다 — 그래야 스택을 바꿔도
-같은 인자로 켜고 끌 수 있다.
+추가하되 argument 이름(`enable_scene`) 은 공유한다 — 그래야 스택을 바꿔도
+같은 인자로 켜고 끌 수 있다. **이 헬퍼를 쓰지 않는 Isaac 계열 launch 도 같은
+이름으로 선언한다** (`panda_isaac` / `rdfp_panda_isaac`). 이름이 갈리면 스택을
+바꿀 때마다 명령줄을 고쳐야 하므로, 헬퍼 밖에서도 이 이름을 지킨다.
 
 기동 순서
 ---------
@@ -43,7 +45,7 @@ def declare_scene_arguments() -> list[DeclareLaunchArgument]:
     """
     return [
         DeclareLaunchArgument(
-            "enable_scene_node",
+            "enable_scene",
             default_value="true",
             description=(
                 "Launch the backend scene state node "
@@ -71,7 +73,7 @@ def create_mock_scene_node() -> Node:
         name="mock_scene_state",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_scene_node")),
+        condition=IfCondition(LaunchConfiguration("enable_scene")),
         parameters=[
             {
                 "base_frame": LaunchConfiguration("base_frame"),

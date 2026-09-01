@@ -109,7 +109,7 @@ watch rdfp_list_topics.sh
 ros2 launch rdfp rdfp_panda_mock.launch.py
 ```
 실행 후 RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control,
-mock_scene_state 노드가 모두 실행되어야 합니다 (scene 노드는 `enable_scene_node:=false` 로 끌 수 있습니다).
+mock_scene_state 노드가 모두 실행되어야 합니다 (scene 노드는 `enable_scene:=false` 로 끌 수 있습니다).
 
 #### 3.2.3 키보드기반 teleop 으로 학습 데이터 생성 (별도 터미널)
 ```bash

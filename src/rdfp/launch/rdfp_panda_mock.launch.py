@@ -20,7 +20,7 @@
 - ``rviz2``: /rviz2
 - ``camera``: /camera
 - ``gripper``: /gripper_control
-- ``scene``: /mock_scene_state (``enable_scene_node:=false`` 로 비활성화 가능)
+- ``scene``: /mock_scene_state (``enable_scene:=false`` 로 비활성화 가능)
 - ``rdfp 애플리케이션``:
     - /session_control
     - /rdfp_image_viewer_node
@@ -307,7 +307,7 @@ def _build_actions(context: LaunchContext) -> list:
         *_declare_arguments(config),
         *declare_image_pipeline_arguments(image_config),
         # scene 노드는 YAML 블록 없이 helper 의 하드코딩 기본값을 쓴다 — 노브가
-        # `enable_scene_node` / `scene_publish_rate` 둘뿐이고 스택마다 달라질
+        # `enable_scene` / `scene_publish_rate` 둘뿐이고 스택마다 달라질
         # 값이 아니다. YAML 로 옮기면 기존 외부 설정 파일이 KeyError 로 깨진다.
         *declare_scene_arguments(),
         # --- 즉시 기동 노드 ---

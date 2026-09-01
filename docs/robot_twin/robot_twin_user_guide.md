@@ -40,7 +40,7 @@ ros2 launch robot_control panda_mock.launch.py
 이것으로 충분하다. 트윈은 **제어 계층**에 속하고 `package.xml` 의 의존도
 `robot_control` 뿐이므로, arm·gripper·scene 연산은 이 스택만으로 전부 동작한다.
 scene 노드(`reset_scene` 이 필요로 한다)도 이 launch 가 기본으로 함께 띄운다
-(`enable_scene_node:=false` 로 끌 수 있다).
+(`enable_scene:=false` 로 끌 수 있다).
 
 **세션/에피소드 연산(`start_session` 등)을 쓸 때만** 수집 계층 launch 로 바꾼다 —
 그 연산들의 실제 구현은 `rdfp` 의 `session_control_node` 이고, 트윈은 그것을 entry
@@ -462,7 +462,7 @@ pose 가 `value.pose` 아래에 한 겹 더 들어간다 (`PoseStamped` 구조 �
 MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 `panda_jgpc_mock`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`)가 이 노드를 기본으로
 함께 띄운다 — 스택마다 짝이 되는 어댑터가 정해져 있어 사용자가 고를 일이 아니기
-때문이다. 끄려면 `enable_scene_node:=false`, 발행 주기는 `scene_publish_rate`.
+때문이다. 끄려면 `enable_scene:=false`, 발행 주기는 `scene_publish_rate`.
 
 > **mock 의 물체는 물리를 갖지 않는다.** 파지에 실패해도 굴러떨어져도 pose 가 변하지
 > 않으므로, mock 에서는 이 변수로 **성패를 관측할 수 없다.** 배관 검증용이다.
@@ -531,7 +531,7 @@ MoveIt 을 직접 쓰므로 제어 스택만으로 충분하다.
 
 `reset_scene` 이 "제어" 인 것이 헷갈릴 수 있다 — **수집을 위한 연산이지만 구현은 제어
 계층에 있다.** scene 노드가 `robot_control/scene/` 으로 옮겨졌고 mock 계열 launch 넷이
-모두 기본으로 띄우기 때문이다(`enable_scene_node:=false` 로 끌 수 있다).
+모두 기본으로 띄우기 때문이다(`enable_scene:=false` 로 끌 수 있다).
 
 수집 스택 없이 세션 연산을 부르면 `PRECONDITION_FAILED` + `session_control_node is
 not available` 로 거부된다. 나머지 연산은 영향을 받지 않는다.
@@ -856,7 +856,7 @@ curl -s -X POST $B/operations/reset_scene -H 'Content-Type: application/json' \
 |---|---|
 | `400 INVALID_INPUT` | 선언되지 않은 `scene` 이름. 응답 메시지에 쓸 수 있는 이름이 나열된다 |
 | `409 RESOURCE_BUSY` | **팔이 움직이는 중**이다. `scene` 과 `arm` 을 함께 잡는다 (4.4) |
-| 결과가 오지 않고 timeout | 백엔드 scene 노드가 없다. mock 계열 launch 는 기본으로 띄우므로 먼저 `enable_scene_node:=false` 로 껐는지 확인하고, 단독으로 띄우려면 `ros2 run robot_control mock_scene_state_node` |
+| 결과가 오지 않고 timeout | 백엔드 scene 노드가 없다. mock 계열 launch 는 기본으로 띄우므로 먼저 `enable_scene:=false` 로 껐는지 확인하고, 단독으로 띄우려면 `ros2 run robot_control mock_scene_state_node` |
 
 > **scene 리셋은 에피소드 밖에서 한다.** 에피소드 안에서 부르면 물체가 순간이동하는
 > 장면이 학습 데이터에 들어간다.
@@ -1465,7 +1465,7 @@ def _grasp_pose_of(obj: dict) -> dict:
 > **필요한 것**: `session_control_node`, 백엔드 scene 노드(mock 은 `mock_scene_state_node`),
 > 그리고 기록 중인 rosbag2. 셋 중 하나라도 없으면 루프는 돌지만 데이터가 남지 않는다.
 > 앞의 둘은 `rdfp_panda_mock.launch.py` 가 함께 띄우므로 따로 실행할 필요가 없다
-> (scene 노드는 `enable_scene_node:=false` 로 끌 수 있다).
+> (scene 노드는 `enable_scene:=false` 로 끌 수 있다).
 >
 > **mock 에서는 물체가 잡히지 않는다** — 물리가 없어 파지 판정(`stalled`)이 성립하지
 > 않는다. mock 으로는 배관만 검증하고, 실제 수집은 물리 백엔드에서 한다.

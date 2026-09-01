@@ -15,7 +15,7 @@
 # 값 하나만 바꿀 때는 인자로 넘긴다 — 전체 목록은 `--show-args` 로 본다.
 #
 #   ./scripts/run_panda_mock.sh enable_camera_node:=false
-#   ./scripts/run_panda_mock.sh camera_resolution:=640x480 enable_scene_node:=false
+#   ./scripts/run_panda_mock.sh camera_resolution:=640x480 enable_scene:=false
 #   ./scripts/run_panda_mock.sh --show-args
 
 # ros2 launch robot_control panda_mock.launch.py "$@"

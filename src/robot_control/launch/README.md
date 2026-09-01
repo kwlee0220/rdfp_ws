@@ -143,7 +143,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `base_frame` | `panda_link0` | `launch_helpers/ee_pose.py` | EE pose TF lookup 기준 프레임 |
 | `ee_frame` | `panda_hand` | `launch_helpers/ee_pose.py` | EE pose TF lookup 대상 프레임 |
 | `publish_rate` | `50.0` | `launch_helpers/ee_pose.py` | `/ee_pose` 발행 Hz |
-| `enable_scene_node` | `true` | `launch_helpers/scene.py` | 백엔드 scene 상태 노드 기동 여부 |
+| `enable_scene` | `true` | `launch_helpers/scene.py` | 백엔드 scene 상태 노드 기동 여부 |
 | `scene_publish_rate` | `2.0` | `launch_helpers/scene.py` | `/scene/objects` 발행 Hz |
 
 `scene_publish_rate` 가 `publish_rate` 라는 이름을 쓰지 않는 이유는 EE pose 인자와 이름이 충돌하기 때문이다.
@@ -270,7 +270,7 @@ ros2_control_node start
 
 ### scene 노드는 기본 on 이다
 
-`enable_scene_node:=false` 로 끌 수 있지만 **기본값 `true` 는 의도적**이다. 노드는 2 Hz 타이머 하나를 쓰고 `/scene/commands` 메시지가 오기 전까지 아무것도 바꾸지 않는 반면, 꺼 두면 robot twin 의 `reset_scene` 이 결과 토픽 타임아웃으로 죽으면서 로그에 원인이 남지 않는다.
+`enable_scene:=false` 로 끌 수 있지만 **기본값 `true` 는 의도적**이다. 노드는 2 Hz 타이머 하나를 쓰고 `/scene/reset` 요청이 오기 전까지 아무것도 바꾸지 않는 반면, 꺼 두면 robot twin 의 `reset_scene` 이 **서비스를 찾지 못해** 실패하면서 로그에 원인이 남지 않는다.
 
 MoveIt 계획 파이프라인은 셋이 로드된다: OMPL, PILZ, CHOMP.
 
