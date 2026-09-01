@@ -1165,7 +1165,10 @@ ros2 topic info /output/panda_joint      # Publisher count 가 1 이어야 한�
 ### 9.2 스택 기동
 
 ```bash
-./scripts/functionbay/run_panda_functionbay.sh
+./scripts/run_panda_functionbay.sh
+
+# 수집 계층(세션·녹화)까지 필요하면
+./scripts/run_rdfp_panda_functionbay.sh image_recorder_fps:=10
 ```
 
 ### 9.3 진단 — 반드시 이 순서로

@@ -447,7 +447,7 @@ Robotiq 쪽 메시 10종(coarse + fine)은 이미 받아 `panda_ftsensor_robotiq
 ```bash
 # 0) 도메인·RMW 를 시뮬레이터와 맞춘다 (ROS_DOMAIN_ID=31 / rmw_fastrtps_cpp)
 ros2_env humble
-./scripts/functionbay/run_panda_functionbay.sh
+./scripts/run_panda_functionbay.sh
 
 # 1) 명령에 반응하는가 — 가장 먼저 (A-4 판정도 겸한다)
 ./scripts/functionbay/fb_raw.py named 0.30 4.0
