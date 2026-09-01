@@ -41,25 +41,28 @@
 | 방향 | 토픽 | 타입 | 비고 |
 |---|---|---|---|
 | 명령 | `/input/panda_joint` | `sensor_msgs/JointState` | 위치 제어. **내부 보간 없음** |
-| 보고 | `/output/panda_joint` | `sensor_msgs/JointState` | 50 Hz |
-| 보고 | `/output/endeffector` | `std_msgs/Float64MultiArray` | x,y,z,r,p,y — **사용하지 않는다** (§5.3) |
-| 명령 | `/input/gripper_joint` | `std_msgs/Float64MultiArray` | 보류 (§6) |
-| 보고 | `/output/gripper_joint` | `std_msgs/Float64MultiArray` | 보류 (§6) |
+| 보고 | `/output/panda_joint` | `sensor_msgs/JointState` | 50 Hz. **`name` 이 채워진다** (§2.1) |
+| 보고 | `/output/endeffector` | `std_msgs/Float64MultiArray` | x,y,z,r,p,y — **사용하지 않는다** (§5.3). 2026-09-01 현재 **발행되지 않음** |
+| 명령 | `/input/gripper_joint` | `std_msgs/Float64MultiArray` | 6축 목표각 [rad] (§6.1) |
+| 보고 | `/output/gripper_joint` | `sensor_msgs/JointState` | 30 Hz, 6축 · position/velocity/effort (§6.1) |
 | 센서 | `/camera_image` | `sensor_msgs/Image` | remap 으로 흡수 |
 
-### 2.1 `name` 이 비어 있다 — 순서가 계약이다
+### 2.1 `name` — 순서 계약이었으나 해소됐다
 
-`JointState` 를 쓰면서도 `name` 필드를 채우지 않는다. 배열 순서
-(`panda_joint1` … `panda_joint7`)가 암묵 규약이다.
+**2026-09-01 실측: `/output/panda_joint` 가 `panda_joint1`~`panda_joint7` 을 채워
+보낸다.** `/output/gripper_joint` 도 `gripper_joint1`~`6` 을 채운다.
 
-**이것이 이 백엔드의 가장 큰 위험이다.** JGPC 의 `Float64MultiArray` 와 같은
-성질로, 순서가 어긋나면 에러 없이 엉뚱한 관절이 움직인다. 대응:
+원래 이 백엔드의 가장 큰 위험이 여기 있었다 — `name` 을 비운 채 배열 순서만 계약이면
+JGPC 의 `Float64MultiArray` 와 같은 성질이라, 순서가 어긋나도 에러 없이 엉뚱한 관절이
+움직인다. `joint_state_fusion` 은 그 상황을 전제로 만들어졌고 **입력이 `name` 을
+채우기 시작하면 그것을 신뢰**하도록 되어 있었으므로(`if msg.name:` 분기), 코드 변경
+없이 그대로 이득을 본다.
 
-- `joint_state_fusion` 이 기동 시 기대 순서를 로그로 남긴다.
+남은 경로는 **입력 방향**이다. `/input/gripper_joint` 는 여전히
+`Float64MultiArray` 라 순서가 계약이다 (§6.1).
+
+- `joint_state_fusion` 이 기동 시 이름 출처(메시지 / 파라미터)를 로그로 남긴다.
 - 입력 길이가 `joint_names` 개수와 다르면 **발행하지 않고** 주기적 에러를 낸다.
-- 입력이 나중에 `name` 을 채우기 시작하면 **그것을 신뢰**하도록 되어 있다 —
-  시뮬레이터 쪽을 고칠 수 있다면 순서 계약이 통째로 사라지므로 **채워 달라고
-  요청하는 것이 최선**이다.
 
 ---
 
@@ -84,7 +87,7 @@ panda_functionbay.launch.py
 관절을 덧붙인다.
 
 ```
-/output/panda_joint (7축, 이름 없음)
+/output/panda_joint (7축, 이름 채워짐 — 없으면 파라미터로 보완)
     → name = [panda_joint1..7]
     → panda_finger_joint1 = 0.04 (고정, §6)
     → /joint_states (8축)
@@ -178,9 +181,10 @@ CLAUDE.md 에 적힌 "Cartesian 궤적은 ~10 Hz 로 resample 된다"가 그대�
 
 ---
 
-## 6. 그리퍼 — 보류 (로봇 모델 불일치)
+## 6. 그리퍼 — 채널은 확정, 스택 통합이 보류
 
-실물은 **Robotiq 2F-85** 인데 스택 전체가 **Franka Panda Hand** 를 전제한다.
+**채널 사양은 §6.1 에서 확정됐다.** 보류인 것은 그 위의 스택이다 — 실물은
+**Robotiq 2F-85** 인데 스택 전체가 **Franka Panda Hand** 를 전제한다.
 
 | 위치 | 전제 |
 |---|---|
@@ -197,6 +201,58 @@ robot_twin 파지 판정 · 데이터셋 그리퍼 채널이 **에러 없이** �
 **그래서 팔 연동을 먼저 완성하고 그리퍼는 분리했다.** 그동안
 `panda_finger_joint1` 은 `fb_finger_position`(기본 0.04) 고정값으로 채워 TF 만
 성립시킨다 — **실제 그리퍼 상태가 아니다.**
+
+### 6.1 채널 사양 — 실측 (2026-09-01)
+
+**보류였던 것은 스택 통합이지 채널 자체가 아니다.** peg-in-hole 모델에 접속해
+측정한 결과 입출력 형식이 확정됐다.
+
+```
+/output/gripper_joint   sensor_msgs/JointState   30 Hz   RELIABLE / VOLATILE
+    name[i]     = gripper_joint{i+1}          (i = 0..5)
+    position[i] = 관절 i 각도    [rad]
+    velocity[i] = 관절 i 각속도  [rad/s]
+    effort[i]   = 관절 i 토크    [N·m]
+
+/input/gripper_joint    std_msgs/Float64MultiArray
+    data[i]     = 관절 i 목표 각도 [rad]
+    길이 가변 — data=[x] 는 관절 0 만 움직이고 나머지는 유지한다
+```
+
+**팔보다 정보가 많다.** `/output/panda_joint` 는 `velocity`/`effort` 가 빈 배열인데
+그리퍼는 셋 다 채워진다. 벤더 패킹 규약(`res[3*i+0/1/2] = q/v/f`, `TCP_정의.txt`)이
+**관절마다** 세 값을 만들고, 그리퍼 발행자만 전부 내보내는 것이다.
+
+> "6개 값 = finger 2개 × (angle, velocity, torque)" 로 설명되기도 하는데 **그 해석은
+> 측정과 맞지 않는다.** 6개는 **관절** 수다. 슬롯별로 명령을 넣어 대각선 응답을
+> 확인했고(슬롯 k → 출력 k, 타축 간섭 ≤ 0.028), `position[1]` 을 속도로 읽으면
+> 12 초에 7.37 rad 이 움직여야 하는데 실제 변화는 0 이었다. "3개의 값"은 finger
+> 단위가 아니라 **관절 단위**다.
+
+#### 부호가 축마다 반대다
+
+`data=[0.30]×6` 을 주면 `[0.3, 0.3, -0.0, -0.0, -0.0, 0.3]` 이 된다 — 인덱스 2·3·4 는
+음수 영역이 정상 범위라 **0 에서 클램프**된다.
+
+| idx | 관측 기준값 | 부호 | URDF 대응 (부호·크기 기준 추정) |
+|---|---|---|---|
+| 0 | +0.650 | + | `finger_joint` (구동축, `[0, 0.725]`) |
+| 1 | +0.619 | + | `left_inner_knuckle_joint` |
+| 2 | −0.663 | − | `left_inner_finger_joint` |
+| 3 | −0.650 | − | `right_outer_knuckle_joint` |
+| 4 | −0.620 | − | `right_inner_knuckle_joint` |
+| 5 | +0.662 | + | `right_inner_finger_joint` |
+
+#### ⚠️ mimic 을 시뮬레이터가 강제하지 않는다
+
+`data=[0.30]` 만 보내면 인덱스 0 만 0.30 으로 가고 **나머지 5축은 그대로 남는다.**
+URDF 대로면 mimic 으로 함께 움직여야 하므로, 그 상태는 링키지가 어긋난 자세다.
+**6축을 일관되게 채워 보내는 것이 브리지 노드의 책임**이며, 한 축만 보내는 API 를
+노출하면 그 오류가 TF·파지 판정·데이터셋에 에러 없이 스며든다.
+
+추종 오차도 축마다 다르다 — 0·2·3·5 는 0.00% 인데 **1·4(inner_knuckle)는 25%**
+(0.15 명령에 0.113 도달) 다. 링키지 반력을 받는 자리라 위치 오차가 남는다. 파지
+성공 판정을 "목표 대비 오차"로 세우려면 이 축들의 정상 오차를 기준선에 넣어야 한다.
 
 ### 향후 작업
 
