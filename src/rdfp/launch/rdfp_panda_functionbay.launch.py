@@ -44,10 +44,7 @@ ros2_control 컨트롤러가 없는 이 스택에서 중요한 성질이다.
 `/panda_arm_controller/commands` 의 유무만 보므로 이 스택을 JTC 로 오판하고, 그러면
 계획만 되고 실행이 일어나지 않는다.
 
-    ros2 run rdfp teleop_keyboard --ros-args \
-      -p arm_command_mode:=jgpc \
-      -p arm_command_topic:=/input/panda_joint \
-      -p arm_command_format:=joint_state
+    ros2 run rdfp teleop_keyboard --ros-args -p backend:=functionbay
 
 사용 예
 -------

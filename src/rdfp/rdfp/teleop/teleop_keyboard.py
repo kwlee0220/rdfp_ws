@@ -121,6 +121,28 @@ _DELTA_TWIST_TOPIC = "/servo_node/delta_twist_cmds"  # Default topic for TwistSt
 _DEFAULT_ARM_COMMAND_TOPIC = "/panda_arm_controller/commands"
 # JTC 실행 경로의 액션. 서버 부재 확인에 쓴다.
 _JTC_ACTION_NAME = "/panda_arm_controller/follow_joint_trajectory"
+
+# 백엔드별 arm 명령 채널 프로파일.
+#
+# `auto` 판별은 `/panda_arm_controller/commands` 토픽의 유무만 보므로 **mock 계열
+# 에서만 맞는다.** 펑션베이·Isaac 은 명령 채널 이름이 아예 달라(`/input/panda_joint`,
+# `/isaac/arm_command`) 알려주지 않으면 찾을 방법이 없고, 그러면 JTC 로 오판해
+# `/`(ready 이동)가 `CONTROL_FAILED`(-4) 로 실패한다 — 계획은 되고 실행만 안 된다.
+#
+# 그래서 값 세 개를 매번 손으로 주는 대신 `backend` 하나로 고른다.
+_BACKEND_PROFILES: dict = {
+    # mock / jgpc_mock — 토픽 이름이 표준이라 auto 판별이 옳게 동작한다.
+    "auto": {},
+    "mock": {"arm_command_mode": "auto"},
+    "functionbay": {"arm_command_mode": "jgpc",
+                    "arm_command_topic": "/input/panda_joint",
+                    "arm_command_format": "joint_state",
+                    "arm_command_joint_names": [f"panda_joint{i}" for i in range(1, 8)]},
+    "isaac": {"arm_command_mode": "jgpc",
+              "arm_command_topic": "/isaac/arm_command",
+              "arm_command_format": "joint_state",
+              "arm_command_joint_names": [f"panda_joint{i}" for i in range(1, 8)]},
+}
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
 _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살표 매핑)
 
@@ -167,9 +189,11 @@ class TeleopKeyboard(Node):
         self.declare_parameter("angular_step", 0.50)
         self.declare_parameter("deadman_ttl_sec", _DEFAULT_DEADMAN_TTL_SEC)
         self.declare_parameter("tasks", _DEFAULT_TASK_LIST)
-        self.declare_parameter("arm_command_mode", "auto")
-        self.declare_parameter("arm_command_topic", _DEFAULT_ARM_COMMAND_TOPIC)
-        self.declare_parameter("arm_command_format", "float64_multi_array")
+        # 빈 값이 "미설정" 이다 — 프로파일이 채우게 두고, 명시하면 그것이 이긴다.
+        self.declare_parameter("backend", "auto")
+        self.declare_parameter("arm_command_mode", "")
+        self.declare_parameter("arm_command_topic", "")
+        self.declare_parameter("arm_command_format", "")
         self.declare_parameter("arm_command_joint_names", [""])
 
         self.frame_id = get_parameter(self, "frame_id", parse_str, default="panda_link0")
@@ -190,14 +214,7 @@ class TeleopKeyboard(Node):
         #   펑션베이: mode=jgpc topic=/input/panda_joint  format=joint_state
         #   Isaac   : mode=jgpc topic=/isaac/arm_command  format=joint_state
         #   jgpc mock: mode=auto (토픽이 있어 올바로 판별된다)
-        self.arm_command_mode = get_parameter(self, "arm_command_mode", parse_str,
-                                              default="auto")
-        self.arm_command_topic = get_parameter(self, "arm_command_topic", parse_str,
-                                               default=_DEFAULT_ARM_COMMAND_TOPIC)
-        self.arm_command_format = get_parameter(self, "arm_command_format", parse_str,
-                                                default="float64_multi_array")
-        self.arm_command_joint_names = get_parameter(
-            self, "arm_command_joint_names", parse_str_list, default=[])
+        self._resolve_arm_command_channel()
 
         # --- Publishers ---
         self.twist_pub = self.create_publisher(TwistStamped, _DELTA_TWIST_TOPIC, 10)
@@ -435,6 +452,34 @@ class TeleopKeyboard(Node):
 
     # ── Home helpers (MoveIt named target 'ready' 이동) ─────────────
 
+    def _resolve_arm_command_channel(self) -> None:
+        """`backend` 프로파일과 명시 파라미터로 arm 명령 채널을 정한다.
+
+        우선순위는 **명시 파라미터 > 프로파일 > 전역 기본값** 이다. 빈 문자열이
+        "미설정" 을 뜻하므로, 프로파일만 주고 한 값만 덮어쓰는 것도 된다.
+        """
+        backend = str(self.get_parameter("backend").value or "auto")
+        if backend not in _BACKEND_PROFILES:
+            raise ValueError(
+                f"backend must be one of {sorted(_BACKEND_PROFILES)}, got {backend!r}")
+        profile = _BACKEND_PROFILES[backend]
+
+        def pick(name: str, fallback):
+            explicit = self.get_parameter(name).value
+            if isinstance(explicit, str) and explicit.strip():
+                return explicit.strip()
+            if isinstance(explicit, list) and [v for v in explicit if v]:
+                return [v for v in explicit if v]
+            return profile.get(name, fallback)
+
+        self.arm_command_mode = pick("arm_command_mode", "auto")
+        self.arm_command_topic = pick("arm_command_topic", _DEFAULT_ARM_COMMAND_TOPIC)
+        self.arm_command_format = pick("arm_command_format", "float64_multi_array")
+        self.arm_command_joint_names = pick("arm_command_joint_names", [])
+        self.get_logger().info(
+            f"arm command channel: backend={backend} mode={self.arm_command_mode} "
+            f"topic={self.arm_command_topic} format={self.arm_command_format}")
+
     def _create_move_group(self):
         """arm 명령 채널 파라미터로 MoveGroup 클라이언트를 만든다.
 
@@ -457,8 +502,8 @@ class TeleopKeyboard(Node):
                 "arm command path resolved to JTC but no FollowJointTrajectory action "
                 f"server is running on '{_JTC_ACTION_NAME}' — "
                 f"'{KeyMapping.home}' (move to "
-                "'ready') will plan but never execute. Pass arm_command_mode/topic/format "
-                "for this backend (e.g. jgpc + /input/panda_joint + joint_state).")
+                "'ready') will plan but never execute — MoveGroup returns CONTROL_FAILED "
+                "(-4). Pick a backend profile: backend:=functionbay or backend:=isaac.")
         return client
 
     def _jtc_server_present(self) -> bool:
