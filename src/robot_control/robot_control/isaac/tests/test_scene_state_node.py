@@ -208,28 +208,22 @@ def test_explicit_config_file_is_used_as_is(tmp_path):
     assert _ParamNode(f'  {target}  ')._config_path() == str(target)
 
 
-# ---------- 고정물 분류 ----------
+# ---------- 발행 대상 선별 ----------
 
-def test_fixture_is_the_inverse_of_the_json_dynamic_flag():
-    """분류의 출처는 `isaac_scene.json` 하나다.
+def test_only_dynamic_objects_are_loaded():
+    """`/scene/objects` 는 조작 대상 채널이다 — `dynamic: false` 는 싣지 않는다.
 
-    `dynamic` 은 시뮬레이터 쪽 `setup_scene.py` 가 rigid body 여부로 쓰는 물리
-    플래그이며, 그것을 뒤집어 쓴다. `fixture` 키를 JSON 에 따로 두면 같은 사실이
-    두 곳에 적혀 어긋난다.
+    빠지는 것은 발행뿐이며 시뮬레이터에는 그대로 있다 (`setup_scene.py` 가 같은
+    JSON 으로 prim 을 만든다). 구분자를 새로 만들지 않고 기존 `dynamic` 을 쓴다.
     """
-    node = _StubNode(
-        [{'name': 'table', 'type': 'box', 'dimensions': [0.6, 1.0, 0.4], 'dynamic': False},
-         {'name': 'block_a', 'type': 'box', 'dimensions': [0.05] * 3, 'dynamic': True}],
-        {(BASE, 'table'): _tf(0.55, 0.0, 0.2),
-         (BASE, 'block_a'): _tf(0.5, -0.15, 0.425)})
-    node._on_timer()
-    published = {o.name: o.fixture for o in node._publisher.published[-1].objects}
-    assert published == {'table': True, 'block_a': False}
+    cfg = {'objects': [
+        {'name': 'table', 'type': 'box', 'dimensions': [0.6, 1.0, 0.4], 'dynamic': False},
+        {'name': 'block_a', 'type': 'box', 'dimensions': [0.05] * 3, 'dynamic': True},
+    ]}
+    assert [o['name'] for o in cfg['objects'] if o.get('dynamic', False)] == ['block_a']
 
 
-def test_missing_dynamic_key_is_treated_as_a_fixture():
-    """`dynamic` 이 없으면 static 이라는 뜻이므로 고정물이다 (setup_scene.py 와 동일)."""
-    node = _StubNode([{'name': 'wall', 'type': 'box', 'dimensions': [1.0, 0.1, 1.0]}],
-                     {(BASE, 'wall'): _tf(0.0, 0.5, 0.5)})
-    node._on_timer()
-    assert node._publisher.published[-1].objects[0].fixture is True
+def test_missing_dynamic_key_is_not_published():
+    """`dynamic` 이 없으면 static 이라는 뜻이므로 발행 대상이 아니다."""
+    cfg = {'objects': [{'name': 'wall', 'type': 'box', 'dimensions': [1.0, 0.1, 1.0]}]}
+    assert [o['name'] for o in cfg['objects'] if o.get('dynamic', False)] == []

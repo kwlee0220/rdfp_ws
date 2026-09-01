@@ -115,18 +115,6 @@ class MockSceneStateNode(Node):
         # 누적 상태. id → CollisionObject. 발행 시점에 SceneObject 로 변환한다.
         self._objects: dict[str, CollisionObject] = {}
 
-        # 고정물 이름. `/scene/reset` 요청에 실려 온 `fixture` 를 기억한다.
-        #
-        # planning scene 을 왕복하면 이 분류가 사라지기 때문이다 — MoveIt 의
-        # `CollisionObject` 에는 실을 자리가 없어서, 여기서 붙들지 않으면 발행하는
-        # `SceneObject.fixture` 가 전부 false 가 된다.
-        #
-        # **첫 `/scene/reset` 이전에는 알 수 없다.** launch 시점에 planning scene 에
-        # 이미 있던 물체는 전부 false 로 나간다. mock 스택은 `planning_scene_sync`
-        # 를 쓰지 않으므로(방향이 반대다 — planning scene 이 원천이다) 계획에는
-        # 영향이 없고, 영향받는 것은 데이터셋 라벨뿐이다.
-        self._fixtures: set[str] = set()
-
         self._pub = self.create_publisher(SceneObjects, scene_topic, _SCENE_QOS)
         self._sub = self.create_subscription(
             PlanningScene, _MONITORED_SCENE_TOPIC, self._on_planning_scene, _MONITORED_QOS)
@@ -227,9 +215,6 @@ class MockSceneStateNode(Node):
             objects.append(collision_object)
         scene.world.collision_objects = objects
 
-        # scene 을 통째로 교체하는 요청이므로 분류도 통째로 갈아 끼운다.
-        fixtures = {obj.name for obj in request.objects if obj.fixture}
-
         apply_request = ApplyPlanningScene.Request()
         apply_request.scene = scene
         future = self._apply_cli.call_async(apply_request)
@@ -240,16 +225,11 @@ class MockSceneStateNode(Node):
         if not applied.success:
             return self._fail(response, 'apply_planning_scene rejected the scene')
 
-        # 적용에 성공한 뒤에 반영한다 — 거부된 요청의 분류를 남기면 실제 scene 과
-        # 어긋난다.
-        self._fixtures = fixtures
-
         response.success = True
         response.message = ''
         response.applied_count = len(request.objects)
         self.get_logger().info(
-            f'scene reset applied: {response.applied_count} object(s), '
-            f'{len(fixtures)} fixture(s) '
+            f'scene reset applied: {response.applied_count} object(s) '
             f'(scene={request.scene!r}, seed={request.seed})')
         return response
 
@@ -361,7 +341,6 @@ class MockSceneStateNode(Node):
         scene_object.type = type_name
         scene_object.dimensions = dimensions
         scene_object.pose = pose
-        scene_object.fixture = obj.id in self._fixtures
         return scene_object
 
     def _to_base_frame(self, obj: CollisionObject, local_pose: Pose) -> Optional[Pose]:

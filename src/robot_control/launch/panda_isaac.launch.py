@@ -43,7 +43,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from ament_index_python.packages import get_package_share_directory
@@ -140,13 +140,6 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
         DeclareLaunchArgument(
             "scene_publish_rate", default_value="2.0",
             description="/scene/objects 발행 Hz",
-        ),
-        DeclareLaunchArgument(
-            "sync_planning_scene", default_value="true",
-            description=(
-                "scene 물체를 MoveIt planning scene 에 장애물로 반영한다. 끄면 MoveIt 이 "
-                "빈 공간을 가정해 테이블을 뚫는 궤적을 계획한다"
-            ),
         ),
     ]
 
@@ -276,28 +269,6 @@ def create_servo_nodes(moveit_config) -> list[Node]:
     ]
 
 
-def create_planning_scene_sync_node() -> Node:
-    """scene 물체를 MoveIt 이 **장애물로 보게** 만든다.
-
-    `isaac_scene_state_node` 와 짝이다 — 하나는 Isaac 의 TF 를 `/scene/objects` 로
-    바꾸고, 이 노드는 그것을 planning scene 에 밀어 넣는다. 없으면 MoveIt 이 테이블을
-    모른 채 계획해 팔이 상판을 뚫는다 (§7 Q8).
-
-    **고정물만 넣는다.** 조작 대상(블록)까지 넣으면 파지가 충돌이 되어 관절공간 계획이
-    거부된다. 무엇이 고정물인지는 `isaac_scene_state_node` 가 `isaac_scene.json` 의
-    `dynamic` 을 뒤집어 `SceneObject.fixture` 에 실어 보내므로, 여기서 이름 목록을
-    따로 넘기지 않는다 — 넘기면 같은 분류가 두 곳에 적힌다.
-    """
-    return Node(
-        package="robot_control", executable="planning_scene_sync",
-        name="planning_scene_sync", output="screen", emulate_tty=True,
-        condition=IfCondition(
-            PythonExpression(["'", LaunchConfiguration("enable_scene"), "' == 'true' and '",
-                              LaunchConfiguration("sync_planning_scene"), "' == 'true'"])),
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
-    )
-
-
 def create_scene_node() -> Node:
     """Phase 3 — Isaac 물체 TF → `/scene/objects`.
 
@@ -337,7 +308,6 @@ def generate_launch_description() -> LaunchDescription:
         *create_gripper_nodes(),
         *create_servo_nodes(moveit_config),
         create_scene_node(),
-        create_planning_scene_sync_node(),
     ]
 
     startup_handler = RegisterEventHandler(

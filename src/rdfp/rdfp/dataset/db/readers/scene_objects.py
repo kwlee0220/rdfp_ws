@@ -48,9 +48,6 @@ def _build_object(scene_object_cls: type, item: dict[str, Any]) -> Any:
     obj.pose.orientation.y = float(orientation[1])
     obj.pose.orientation.z = float(orientation[2])
     obj.pose.orientation.w = float(orientation[3])
-    # `fixture` 도입 이전에 적재된 행에는 이 키가 없다. 기본값 false 는
-    # '조작 대상' 이라 planning scene 이 비는 쪽으로 틀리며, 그 편이 즉시 드러난다.
-    obj.fixture = bool(item.get('fixture', False))
     return obj
 
 

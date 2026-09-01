@@ -420,10 +420,6 @@ def _sample_scene(recipe: dict[str, Any], seed: int) -> list[dict[str, Any]]:
             'dimensions': [float(v) for v in (spec.get('size') or [])],
             'position': {axis: _sample_axis(rng, spec.get(axis, 0.0), f'{name}.{axis}')
                          for axis in ('x', 'y', 'z')},
-            # 탁자처럼 조작 대상이 아닌 물체는 `fixture: true` 로 적는다. mock 은
-            # planning scene 을 왕복하면서 이 분류를 잃으므로 reset 요청에 실어
-            # 알려 주는 것이 유일한 경로다 (`SceneObject.msg` 참고).
-            'fixture': bool(spec.get('fixture', False)),
         })
     return out
 
@@ -529,7 +525,6 @@ def _make_scene_object(spec: dict[str, Any]) -> Any:
     obj.pose.position.z = float(position['z'])
     # 계약은 ROS xyzw 다. 레시피에 자세가 없으므로 회전 없음으로 둔다.
     obj.pose.orientation.w = 1.0
-    obj.fixture = bool(spec.get('fixture', False))
     return obj
 
 

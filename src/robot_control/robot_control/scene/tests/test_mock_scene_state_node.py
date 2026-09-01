@@ -26,11 +26,10 @@ Z90 = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))
 class _StubNode:
     """`_convert` 가 쓰는 부분만 갖춘 대역 (Node 초기화를 피한다)."""
 
-    def __init__(self, transforms: dict = None, fixtures=None) -> None:
+    def __init__(self, transforms: dict = None) -> None:
         self._base_frame = BASE
         self.warnings: list[str] = []
         self._transforms = transforms or {}
-        self._fixtures = set(fixtures or ())
 
     # MockSceneStateNode 의 메서드를 그대로 빌려 쓴다.
     _convert = MockSceneStateNode._convert
@@ -328,24 +327,3 @@ def test_add_replaces_an_object_with_the_same_name() -> None:
 
     assert node.names == ['cube_0']
     assert list(node._convert(node._objects['cube_0']).dimensions) == [0.2, 0.2, 0.2]
-
-
-# ---------- 고정물 분류 ----------
-
-def test_fixture_flag_comes_from_the_remembered_reset():
-    """`/scene/reset` 에서 기억한 이름만 `fixture=True` 로 나간다.
-
-    planning scene 을 왕복하면 이 분류가 사라진다 — MoveIt 의 `CollisionObject` 에
-    실을 자리가 없어서, 노드가 붙들지 않으면 전부 false 가 된다.
-    """
-    node = _StubNode(fixtures={'table'})
-    table = node._convert(_box('table'))
-    block = node._convert(_box('block_a'))
-    assert table.fixture is True
-    assert block.fixture is False
-
-
-def test_fixture_is_false_before_the_first_reset():
-    """첫 `/scene/reset` 이전에는 알 수 없으므로 전부 조작 대상으로 나간다."""
-    node = _StubNode()
-    assert node._convert(_box('table')).fixture is False

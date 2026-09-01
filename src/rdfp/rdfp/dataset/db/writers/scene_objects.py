@@ -44,10 +44,6 @@ def _object_to_dict(obj: Any) -> dict[str, Any]:
 
     orientation 은 **ROS 규약 xyzw 순서**로 담는다. 순서를 바꾸면 4개 float 에
     unit norm 이라 어떤 검사도 통과하면서 '그럴듯하게 틀린 자세'가 된다.
-
-    `fixture` 를 함께 남긴다 — 자동 라벨링이 '블록이 탁자 위에 놓였는가'를 판정할 때
-    어느 것이 지지면인지 알아야 하는데, 그것을 데이터 밖의 설정 파일에서 다시 찾으면
-    파일이 바뀐 뒤 라벨이 조용히 틀린다.
     """
     pos = obj.pose.position
     ori = obj.pose.orientation
@@ -57,7 +53,6 @@ def _object_to_dict(obj: Any) -> dict[str, Any]:
         'dimensions': [float(d) for d in (obj.dimensions or [])],
         'position': [float(pos.x), float(pos.y), float(pos.z)],
         'orientation': [float(ori.x), float(ori.y), float(ori.z), float(ori.w)],
-        'fixture': bool(obj.fixture),
     }
 
 

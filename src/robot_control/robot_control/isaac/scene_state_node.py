@@ -79,9 +79,7 @@ class IsaacSceneStateNode(Node):
             f'IsaacSceneStateNode started: {len(self._objects)} object(s) -> {scene_topic}')
         self.get_logger().info(f'  base frame: {self._base_frame}')
         self.get_logger().info(
-            f'  objects: {[obj["name"] for obj in self._objects]}')
-        self.get_logger().info(
-            f'  fixtures: {[o["name"] for o in self._objects if not o.get("dynamic", False)]}')
+            f'  objects: {[obj["name"] for obj in self._objects]} (dynamic only)')
 
     def _config_path(self) -> str:
         """물체 정의 JSON 경로. 지정이 없으면 패키지 share 에서 찾는다."""
@@ -94,11 +92,20 @@ class IsaacSceneStateNode(Node):
                             _DEFAULT_CONFIG_RELPATH)
 
     def _load_objects(self) -> list[dict[str, Any]]:
+        """`dynamic: true` 인 물체만 싣는다 — `/scene/objects` 는 조작 대상 채널이다.
+
+        `dynamic: false` 인 것(탁자 등)은 **시뮬레이터에는 그대로 존재한다** —
+        `setup_scene.py` 가 같은 JSON 으로 prim 을 만든다. 여기서 빼는 것은 발행뿐이다.
+
+        기존 `dynamic` 플래그를 그대로 쓰고 구분자를 새로 만들지 않는다. 물리적으로
+        움직이지 않는 물체는 pose 가 변하지 않아 상태 채널에 실을 값이 없고, 그래서
+        "rigid body 인가"와 "조작 대상인가"가 이 씬에서 같은 집합이 된다.
+        """
         path = self._config_path()
         with open(path, encoding='utf-8') as f:
             config = json.load(f)
         self.get_logger().info(f'  scene config: {path}')
-        return list(config['objects'])
+        return [o for o in config['objects'] if o.get('dynamic', False)]
 
     def _lookup(self, frame: str) -> Optional[Any]:
         """물체 프레임을 베이스 프레임 기준으로 조회한다."""
@@ -134,10 +141,6 @@ class IsaacSceneStateNode(Node):
             obj.name = spec['name']
             obj.type = spec['type']
             obj.dimensions = [float(v) for v in spec.get('dimensions', [])]
-            # `dynamic` 은 시뮬레이터 쪽 `setup_scene.py` 가 rigid body 여부로 쓰는
-            # 물리 플래그다. 그것을 뒤집어 쓰고 `fixture` 키를 따로 두지 않는다 —
-            # 분류를 JSON 에 두 번 적으면 어긋난다.
-            obj.fixture = not bool(spec.get('dynamic', False))
             obj.pose.position.x = transform.transform.translation.x
             obj.pose.position.y = transform.transform.translation.y
             obj.pose.position.z = transform.transform.translation.z

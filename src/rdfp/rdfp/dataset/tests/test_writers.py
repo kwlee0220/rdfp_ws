@@ -424,14 +424,13 @@ def test_schema_check_requires_the_new_session_columns() -> None:
 # --------------------------------------------------------------------------
 
 def _scene_object(name: str, type_: str, dimensions: list, pos: tuple,
-                  ori: tuple, fixture: bool = False) -> SimpleNamespace:
+                  ori: tuple) -> SimpleNamespace:
     return SimpleNamespace(
         name=name, type=type_, dimensions=dimensions,
         pose=SimpleNamespace(
             position=SimpleNamespace(x=pos[0], y=pos[1], z=pos[2]),
             orientation=SimpleNamespace(x=ori[0], y=ori[1], z=ori[2], w=ori[3]),
         ),
-        fixture=fixture,
     )
 
 
@@ -452,8 +451,6 @@ def test_scene_objects_row_values() -> None:
                           (0.4, 0.1, 0.025), (0.0, 0.0, 0.0, 1.0)),
             _scene_object('can_0', 'cylinder', [0.12, 0.03],
                           (0.5, -0.2, 0.06), (0.0, 0.0, 0.7071, 0.7071)),
-            _scene_object('table', 'box', [0.6, 1.0, 0.4],
-                          (0.55, 0.0, 0.2), (0.0, 0.0, 0.0, 1.0), fixture=True),
         ],
     )
     episode_id, topic_id, sec, nsec, frame_id, objects = w.row_values(5, msg)
@@ -461,16 +458,9 @@ def test_scene_objects_row_values() -> None:
     # jsonb 어댑터로 감싸 넘긴다 — 내용은 .obj 로 확인한다.
     assert objects.obj == [
         {'name': 'cube_0', 'type': 'box', 'dimensions': [0.05, 0.05, 0.05],
-         'position': [0.4, 0.1, 0.025], 'orientation': [0.0, 0.0, 0.0, 1.0],
-         'fixture': False},
+         'position': [0.4, 0.1, 0.025], 'orientation': [0.0, 0.0, 0.0, 1.0]},
         {'name': 'can_0', 'type': 'cylinder', 'dimensions': [0.12, 0.03],
-         'position': [0.5, -0.2, 0.06], 'orientation': [0.0, 0.0, 0.7071, 0.7071],
-         'fixture': False},
-        # 고정물도 함께 남긴다 — 자동 라벨링이 '블록이 탁자 위인가'를 판정할 때
-        # 지지면의 크기·위치가 데이터 안에 있어야 한다.
-        {'name': 'table', 'type': 'box', 'dimensions': [0.6, 1.0, 0.4],
-         'position': [0.55, 0.0, 0.2], 'orientation': [0.0, 0.0, 0.0, 1.0],
-         'fixture': True},
+         'position': [0.5, -0.2, 0.06], 'orientation': [0.0, 0.0, 0.7071, 0.7071]},
     ]
 
 

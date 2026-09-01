@@ -238,14 +238,13 @@ CREATE TABLE IF NOT EXISTS scene_objects (
     frame_id        TEXT          NOT NULL DEFAULT '',
     -- SceneObject 배열. 원소 형태는
     --   {"name": str, "type": str, "dimensions": [float, ...],
-    --    "position": [x, y, z], "orientation": [x, y, z, w], "fixture": bool}
+    --    "position": [x, y, z], "orientation": [x, y, z, w]}
     -- 이며 orientation 은 **ROS 규약 xyzw** 다 (Isaac 의 wxyz 가 아니다).
     -- 물체가 없으면 빈 배열이고, 그것도 'scene 이 비었다'는 유효한 상태다.
     --
-    -- `fixture` 는 탁자·펜스처럼 조작 대상이 아닌 물체를 뜻한다. 조작 대상만 남기면
-    -- '블록이 탁자 위에 놓였는가' 를 판정할 때 지지면의 크기·위치를 데이터 밖의
-    -- 설정 파일에서 찾아야 하고, 그 파일이 바뀐 뒤에는 라벨이 조용히 틀린다.
-    -- 도입 이전 행에는 이 키가 없으므로 reader 가 false 로 채운다.
+    -- **여기 실리는 것은 조작 대상뿐이다.** 탁자 같은 환경 물체는 발행 노드가
+    -- 걸러내므로 들어오지 않는다 — 2026-09-01 결정 (docs/scene/scene_objects_guide.md).
+    -- `fixture` 키가 있는 행은 그 이전에 적재된 것이며, reader 는 무시한다.
     objects         JSONB         NOT NULL,
     -- 빈 scene 제외 같은 필터를 매번 배열을 풀지 않고 걸 수 있게 한다.
     object_count    INTEGER       GENERATED ALWAYS AS (jsonb_array_length(objects)) STORED,

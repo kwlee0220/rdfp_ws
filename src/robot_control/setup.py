@@ -43,7 +43,6 @@ setup(
             'isaac_gripper_bridge = robot_control.isaac.gripper_action_bridge_node:main',
             'isaac_scene_state_node = robot_control.isaac.scene_state_node:main',
             'isaac_servo_bridge = robot_control.isaac.servo_command_bridge_node:main',
-            'planning_scene_sync = robot_control.scene.planning_scene_sync_node:main',
             'target_joint_cmds_publisher = robot_control.moveit.target_joint_cmds_publisher:main',
             'target_joint_cmds_executor = robot_control.moveit.target_joint_cmds_executor:main',
             'target_joint_states_publisher = robot_control.moveit.target_joint_states_publisher:main',

@@ -185,7 +185,7 @@ int32  applied_count      # 성공 시 요청한 개수와 같아야 한다
 | **Isaac** | [`isaac_scene_state_node`](../../src/robot_control/robot_control/isaac/scene_state_node.py) | ✅ | Isaac 이 내보내는 **물체 TF** (§6.3) |
 | **Gazebo** | `gazebo_scene_state_node` | ❌ 미구현 | `ros_gz_bridge` 예정 |
 
-**§6.1 은 모든 발행 노드에 공통**이고, §6.2 는 mock, §6.3 은 Isaac 이다. 반대편 — `/scene/objects` 를 **읽어** MoveIt 에 넣는 `planning_scene_sync` — 는 발행 노드가 아니고 환경마다 하나도 아니므로 §7 로 따로 뺐다.
+**§6.1 은 모든 발행 노드에 공통**이고, §6.2 는 mock, §6.3 은 Isaac 이다. 이 노드들이 **무엇을 싣고 무엇을 빼는지**는 §7 에 있다.
 
 ### 6.1 공통 — 모든 발행 노드에 적용
 
@@ -256,56 +256,56 @@ obj.pose.orientation = transform.transform.rotation
 
 TF 조회에 실패한 물체는 **그 물체만 빠지고** 나머지는 발행된다 (§6.1 의 공통 정책).
 
-## 7. Planning scene 등록 — `planning_scene_sync`
+## 7. 무엇이 실리는가 — 조작 대상뿐이다
 
-[scene/planning_scene_sync_node.py](../../src/robot_control/robot_control/scene/planning_scene_sync_node.py)
+**`/scene/objects` 에 실리는 것은 전부 조작 대상이다.** 탁자·펜스 같은 환경 물체는
+들어오지 않는다.
 
-지금까지가 "scene → 계약"이라면 이 노드는 **"계약 → MoveIt"** 이다.
+발행 노드가 걸러낸다. Isaac 은 `isaac_scene.json` 의 **`dynamic: true` 인 것만** 싣고,
+mock 은 `/scene/reset` 으로 놓인 것만 갖는다(레시피에 환경 물체가 없다). 구분자를
+새로 만들지 않고 기존 `dynamic` 플래그를 그대로 쓴다 — 물리적으로 움직이지 않는
+물체는 pose 가 변하지 않아 **상태 채널에 실을 값이 없고**, 그래서 "rigid body 인가"와
+"조작 대상인가"가 같은 집합이 된다.
 
-```
-mock 백엔드        : planning scene  →  /scene/objects   (읽는다)
-planning_scene_sync: /scene/objects  →  planning scene   (쓴다)
-```
+> **빠지는 것은 발행뿐이다.** 탁자는 시뮬레이터에 그대로 있다 — `setup_scene.py` 가
+> 같은 JSON 으로 prim 을 만든다. 물리적으로 존재하고 블록을 받쳐 준다.
 
-**시뮬레이터가 scene 의 원본인 백엔드(Isaac·펑션베이)에서만 쓴다.** 없으면 MoveIt 이 빈 공간을 가정하고 계획해 **팔이 테이블을 뚫는다** — 실제로 Isaac 에서 손가락이 상판 안에 박혀 그리퍼가 물리적으로 막혔고, 그것을 "그리퍼 고장"으로 오독한 이력이 있다.
+### MoveIt 은 이 물체들을 모른다
 
-> ⚠️ **mock 백엔드에서는 띄우면 안 된다.** 자기가 읽은 것을 자기가 되쓰는 고리가 된다.
+**planning scene 에 아무것도 넣지 않는다.** 2026-09-01 결정이며, 그 전까지 있던
+`planning_scene_sync` 노드와 `SceneObject.fixture` 필드는 이때 함께 삭제됐다.
 
-`moveit_msgs/PlanningScene` 을 `is_diff=True` 로 발행한다. 같은 `id` 로 다시 보내면 MoveIt 이 갱신하므로 물체가 움직여도 따로 지울 필요가 없다.
+근거는 이렇다. 조작 대상을 planning scene 에 넣으면 **파지 자세가 시작 자세 충돌이
+되어** 관절공간 계획이 `INVALID_MOTION_PLAN`(-2)으로 거부된다. 그래서 넣을 수 있는
+것은 환경 물체뿐인데, 위처럼 환경 물체를 아예 발행하지 않기로 하면 **넣을 것이 하나도
+남지 않는다.** 매 tick 빈 diff 를 내는 노드가 되므로 없앴다.
 
-### 무엇을 넣을 것인가 — `fixture` 인 것만
+> ⚠️ **감수하는 위험 — 관절공간 이동 중 팔이 탁자를 통과한다.**
+>
+> 이건 가설이 아니라 관측이다. 예전에 Isaac 에서 손가락이 상판 안에 박혀 그리퍼가
+> 물리적으로 막혔고, 그것을 "그리퍼 고장"으로 오독한 이력이 있다. **단순성을 위해
+> 감수하기로 한 것**이며(2026-09-01), 되살릴 근거가 생기면 아래 대안을 검토한다.
+>
+> 다만 노출 범위는 좁다.
+>
+> - **자기충돌 검사는 그대로 동작한다** — 로봇 링크끼리의 충돌은 world 물체와
+>   무관하게 SRDF 의 ACM 으로 검사된다.
+> - **파지 동작은 영향이 0 이다** — 접근·하강·상승이 전부 cartesian 인데
+>   `GetCartesianPath` 는 `avoid_collisions` 기본값이 `False` 라 애초에 planning
+>   scene 을 보지 않았다.
+>
+> 실제로 잃는 것은 **`move_to_named_target` / `move_to_joints` 중의 탁자 회피**뿐이다.
+> 되살릴 때의 후보는 (1) 안전한 경유 자세를 SRDF `group_state` 에 정의, (2) 탁자만
+> launch 시점에 상자 하나로 planning scene 에 정적 등록, (3) 작업공간 z 하한을
+> `PositionConstraint` 로 강제. **(2)가 이 설계와 가장 잘 맞는다** — scene 채널을
+> 건드리지 않고 환경 설정으로만 다룬다.
 
-**조작 대상 물체는 넣지 않는다.** 이 노드는 `SceneObject.fixture` 가 `true` 인 것만 반영한다 — 탁자·펜스는 들어가고 블록은 들어가지 않는다. **기본값은 `false`, 즉 '조작 대상'** 이므로 아무도 채우지 않으면 planning scene 에는 아무것도 올라가지 않는다.
+### 자동 라벨링은 지지면을 데이터에서 볼 수 없다
 
-넣으면 **파지 자체가 충돌**이 되어, 관절공간 계획이 `INVALID_MOTION_PLAN`(-2)으로 거부된다. 손가락이 대상 물체에 닿아 있는 것이 시작 자세 충돌로 잡히기 때문이다.
-
-> **한때 `attach`/`detach` 로 이 문제를 풀었고, 2026-09-01 에 되돌렸다.** 물체를 그리퍼 링크에 붙이면 MoveIt 이 손과의 충돌을 무시하지만, **물체는 미끄러져 떨어질 수 있는데 `attach` 는 명시적으로 뗄 때까지 유지된다.** 떨어지면 planner 의 믿음이 두 군데에서 동시에 틀린다 — 손에는 없는 물체가 붙어 있고, 탁자 위의 실제 물체는 보이지 않는다(붙은 물체를 world 동기화에서 제외하므로). 물리 시뮬레이터에서는 성립하지 않는 전제였다.
-
-**파지 동작은 애초에 이 정보를 쓰지 않는다.** 접근·하강·상승이 전부 cartesian 이고, `GetCartesianPath` 는 `avoid_collisions` 기본값이 `False` 라 충돌을 검사하지 않는다. planning scene 을 실제로 쓰는 것은 `move_to_named_target` / `move_to_joints` 뿐이다.
-
-잃는 것은 관절공간 이동 중 물체를 쓸고 갈 수 있다는 것인데, 결과가 `/scene/objects` 에 그대로 기록되므로 데이터에서 보인다.
-
-**분류는 발행 노드가 채워 보낸다.** 여기에 이름 목록 파라미터를 두면 같은 사실이 두 곳에 적히고, 물체를 하나 더할 때 한쪽만 고쳐져 조용히 어긋난다. 그래서 소비자는 이름을 보지 않는다.
-
-| 백엔드 | `fixture` 의 출처 |
-|---|---|
-| Isaac | `isaac_scene.json` 의 `dynamic` 을 뒤집는다 (`dynamic: false` → `fixture: true`). 시뮬레이터 쪽 `setup_scene.py` 가 rigid body 여부로 쓰는 그 플래그이므로 단일 출처가 유지된다 |
-| mock | `/scene/reset` 요청에 실려 온 값을 기억한다. planning scene 을 왕복하면 분류가 사라지기 때문이다 — MoveIt 의 `CollisionObject` 에는 실을 자리가 없다 |
-
-#### 기본값을 '조작 대상' 으로 둔 이유
-
-두 방향의 실패가 대칭이 아니다. `fixture` 를 채우지 않는 발행자가 붙었을 때:
-
-| 기본값 | 무슨 일이 벌어지나 | 발견되는 방식 |
-|---|---|---|
-| **`false`** (현재) | planning scene 이 빈다 | 팔이 탁자를 향해 그대로 내려간다. 눈에 바로 보이고, **빈 planning scene 을 곧장 가리킨다** |
-| `true` 였다면 | 블록까지 장애물이 된다 | 파지 계획이 `INVALID_MOTION_PLAN` 으로 거부된다. 로그에 남는 것은 "계획 실패" 뿐이라 **플래그를 안 채웠다는 단서가 어디에도 없고**, 파지 자세나 IK 를 먼저 의심하게 된다 |
-
-즉 어느 쪽이든 고장 나지만, `false` 쪽은 원인을 찾는 데 몇 분이고 `true` 쪽은 엉뚱한 데를 뒤지게 된다.
-
-> 이 노드가 쓰는 토픽은 구독 `scene_topic`(기본 `/scene/objects`)과 발행 `planning_scene_topic`(기본 `/planning_scene`) 둘뿐이다. 걸러진 결과는 `moveit_msgs/PlanningScene` 의 `world.collision_objects` 필드에 실린다.
-
----
+`/scene/objects` 에 탁자가 없으므로, "블록이 탁자 위에 놓였는가"를 판정하려면 지지면의
+크기·위치를 **데이터 밖에서** 가져와야 한다. 그 출처가 바뀌면 라벨이 조용히 틀린다.
+필요해지면 에피소드 `metadata`(`sessions.metadata` jsonb)에 초기 배치와 함께 한 번
+남기는 방법이 있다 — 매 tick 필드를 두지 않으면서 근거를 데이터 안에 보존한다.
 
 ## 8. 트윈에서 보기
 
@@ -367,7 +367,6 @@ scenes:
 |---|---|---|---|
 | `enable_scene` | 전 스택 | 아래 참조 | 백엔드 scene 상태 노드 기동 여부 |
 | `scene_publish_rate` | 전 스택 | `2.0` | `/scene/objects` 발행 Hz |
-| `sync_planning_scene` | Isaac 계열만 | `true` | `planning_scene_sync`(§7) 기동 여부. `enable_scene` 과 **둘 다 true** 일 때만 뜬다 |
 
 `enable_scene` 의 기본값만 launch 마다 다르다:
 
@@ -417,8 +416,7 @@ ORDER BY s.stamp_ts DESC;
 | scene 이 조용히 얼어붙었다 | 주기 발행이므로 `staleness_ms` 로 감지된다 (이벤트 발행이면 구분 불가) |
 | mock 에서 파지 성패가 안 잡힌다 | 물리가 없어 pose 가 변하지 않는다. 배관 검증용이다 |
 | Isaac 인데 물체가 안 보인다 | TF 가 안 오거나 `isaac_scene.json` 에 없는 물체다 — 그 물체만 빠진다 (§6.3) |
-| MoveIt 이 테이블을 뚫는다 | `planning_scene_sync` 미기동 (§7). Isaac 은 `sync_planning_scene:=true` 가 필요하다 |
-| mock 인데 scene 이 이상하게 갱신된다 | `planning_scene_sync` 를 mock 에 띄웠다 — 읽은 것을 되쓰는 고리다 (§7) |
+| MoveIt 이 테이블을 뚫는다 | **설계상 그렇다** (§7). planning scene 에 아무것도 넣지 않기로 했다 — 단순성을 위해 감수한 위험이다 |
 | 곰 인형 같은 물체를 배치할 수 없다 | `reset_scene` 은 primitive 만 받는다. `mesh` 는 읽기 전용이며 기하를 실을 필드도 없다 (§6.1) |
 
 ---
@@ -431,7 +429,6 @@ ORDER BY s.stamp_ts DESC;
 | 서비스 정의 (정본) | `src/rdfp_msgs/srv/ResetScene.srv` |
 | 발행 노드 (mock) | [scene/mock_scene_state_node.py](../../src/robot_control/robot_control/scene/mock_scene_state_node.py) |
 | 발행 노드 (Isaac) | [isaac/scene_state_node.py](../../src/robot_control/robot_control/isaac/scene_state_node.py) + `config/isaac_scene.json` |
-| 역방향 동기화 | [scene/planning_scene_sync_node.py](../../src/robot_control/robot_control/scene/planning_scene_sync_node.py) |
 | pose 합성 (ROS 무의존) | [scene/pose_math.py](../../src/robot_control/robot_control/scene/pose_math.py) |
 | launch 헬퍼 | [launch_helpers/scene.py](../../src/robot_control/robot_control/launch_helpers/scene.py) |
 | 트윈 설정 | `src/robot_twin/config/robot_twin_panda01.yaml` (변수 2개 + `reset_scene`) |

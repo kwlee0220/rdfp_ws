@@ -392,7 +392,7 @@ recorder 가 mp4 를 만들 것, **VRAM 사용량 관측**.
 > ## ⛔ 이 단계는 되돌렸다
 >
 > `attach`/`detach` 를 제거하고, 대신 **조작 대상을 planning scene 에 넣지 않는다.**
-> `planning_scene_sync` 는 `SceneObject.fixture` 가 true 인 것만 넣는다.
+> (2026-09-01 재축소) `planning_scene_sync` 자체를 삭제했다 — Q8 참조.
 >
 > **무너진 전제 셋.**
 >
@@ -416,7 +416,7 @@ recorder 가 mp4 를 만들 것, **VRAM 사용량 관측**.
 | | |
 |---|---|
 | Isaac 쪽 | 없음 |
-| 우리 쪽 | `AttachedCollisionObject` attach/detach. `planning_scene_sync` 에 얹는다 |
+| 우리 쪽 | `AttachedCollisionObject` attach/detach. **채택하지 않았다** (Q9 철회) |
 | 검증 | `scripts/isaac/is_check_phase5.py` |
 
 **왜 필요한가** — Phase 3 에서 물체를 MoveIt 의 장애물로 올렸다(Q8). 그 상태로 물체를
@@ -658,7 +658,6 @@ Phase 0~7 의 검증은 전부 **수동 체크 스크립트**였다. 사람이 I
 >
 > | 새 스위트 | 수 | 무엇을 지키나 |
 > |---|--:|---|
-> | `scene/tests/test_planning_scene_sync_node.py` | 14 | diff 발행, attach/detach, 모르는 명령 무시 |
 > | `isaac/tests/test_scene_state_node.py` | 10 | TF→SceneObject, 쿼터니언 무변환, 누락 물체 |
 > | `isaac/tests/test_gripper_action_bridge_node.py` | 9 | **stalled 판정**, 목표 재발행 |
 > | `tests/test_isaac_sim_side_scripts.py` | 47 | 배포 구성 A~D 의 경로 해석 |
@@ -667,7 +666,7 @@ Phase 0~7 의 검증은 전부 **수동 체크 스크립트**였다. 사람이 I
 > `now - _logged.get(key, 0.0) >= interval` 형태라 **`now < interval` 인 동안 첫
 > 경고를 삼킨다.** Isaac 은 Stop 마다 sim time 이 0 으로 되돌아가므로 기동 직후
 > 5 초가 정확히 그 구간이고, 하필 "TF 가 안 온다"를 가장 보고 싶은 때다. 기본값을
-> `-inf` 로 바꿔 첫 번째는 반드시 남게 했다 (`planning_scene_sync_node`,
+> `-inf` 로 바꿔 첫 번째는 반드시 남게 했다 (`isaac_scene_state_node`,
 > `isaac/scene_state_node`).
 >
 > **대역을 만들다 배운 것 둘.**
@@ -845,7 +844,6 @@ src/robot_control/robot_control/isaac/
     gripper_action_bridge_node.py                         액션 → 관절 토픽 (Phase 2)
     scene_state_node.py                                   Isaac TF → /scene/objects (Phase 3)
 src/robot_control/robot_control/scene/
-    planning_scene_sync_node.py                           /scene/objects → MoveIt (Phase 3·5)
 src/robot_control/config/
     isaac_scene.json                                      **물체·카메라 단일 진실원본**
     fastdds_wsl_bridge.xml                                DDS 전송 프로파일 (구성 A 전용)
@@ -1430,9 +1428,7 @@ Isaac 을 Stop 하면 sim time 이 0 으로 리셋된다. 스택은 계속 떠 �
 계획하므로 팔이 테이블을 뚫는 궤적이 나온다 — Phase 2 에서 손가락이 상판 안에 박혀
 그리퍼가 물리적으로 막혔고, 이동량 0.0018 m 를 "그리퍼 고장"으로 오독했다.
 
-`planning_scene_sync` 가 `/scene/objects` 를 `moveit_msgs/CollisionObject` 로 바꿔
-`/planning_scene` 에 `is_diff=True` 로 발행한다. `mock_scene_state_node` 와 **방향이
-반대**다.
+(2026-09-01 삭제됨) 예전에는 `planning_scene_sync` 가 `/scene/objects` 를 planning scene 으로 옮겼다.
 
 ```
 mock 백엔드   : planning scene → /scene/objects   (읽는다)
@@ -1691,7 +1687,7 @@ USD 에서 마찰은 prim 의 속성이 아니라 **별도 Material prim** 이�
 | Q4 | Ubuntu 22.04 머신의 GPU 사양 | Phase 4 는 **이 PC 에서 완료**했다(640×480 @ 5 Hz). 고해상도·고주파가 필요해질 때 확인한다 |
 | ~~Q6~~ | **닫힘 (2026-08-29)** — **실제 Franka 스펙으로 좁혔다.** `config/panda_real_joint_limits.yaml` 을 `panda_isaac.launch.py` 가 넘긴다. 적용 범위는 Isaac 뿐이며, mock/Gazebo/펑션베이까지 넓힐지는 별도 결정 |  — |
 | ~~Q9~~ | **철회 (2026-09-01).** `attach`/`detach` 자체를 없앴다. (1) 근거였던 "rosbag 에 남는다"가 **거짓**이었다 — `/scene/commands` 는 `recording_topics.list` 에 없다. (2) `attach` 는 명시적 detach 까지 유지되는데 **물체는 미끄러져 떨어질 수 있어** 믿음이 조용히 틀린다. 떨어지면 planner 는 손에 있다고 믿으면서 탁자 위의 그것도 못 본다(붙은 물체는 world 동기화에서 제외되므로). (3) 애초에 파지 동작은 cartesian 이라 `avoid_collisions` 기본값 `False` 로 **planning scene 을 보지 않는다** | — |
-| ~~Q8~~ | **닫힘 (2026-08-29) → 2026-09-01 축소.** `planning_scene_sync` 가 scene 을 MoveIt 장애물로 밀어 넣되 **고정물(탁자)만** 넣는다 — 판단 근거는 `SceneObject.fixture` 이며, `isaac_scene_state_node` 가 `isaac_scene.json` 의 `dynamic` 을 뒤집어 채운다. 조작 대상까지 넣으면 파지 자체가 충돌이 되어 관절공간 계획이 `INVALID_MOTION_PLAN`(-2)로 거부된다. 원래 동기("팔이 탁자를 뚫는다")는 그대로 지킨다 — 드리프트로 `panda_link4`·`panda_link5` 가 상판을 파고든 것을 실측했다 | — |
+| ~~Q8~~ | **닫힘 (2026-08-29) → 축소 (2026-09-01) → 철회 (2026-09-01).** 최종: **planning scene 에 아무것도 넣지 않는다.** `planning_scene_sync` 노드와 `SceneObject.fixture` 필드를 삭제했다. 경위 — 조작 대상을 넣으면 파지가 시작 자세 충돌이 되어 `INVALID_MOTION_PLAN`(-2)이므로 고정물만 넣도록 축소했는데, 이어서 **환경 물체를 `/scene/objects` 에 아예 발행하지 않기로** 정하자 넣을 것이 남지 않았다. 원래 동기("팔이 탁자를 뚫는다", `panda_link4`·`panda_link5` 가 상판을 파고든 것을 실측)는 **단순성을 위해 감수한다**. 되살릴 때는 토픽→scene 노드가 아니라 탁자만 launch 시점에 상자 하나로 정적 등록하는 편이 맞다 | — |
 | ~~Q7~~ | **닫힘 (2026-08-29)** — `C:\isaacsim\scenes\panda_rdfp.usd` 에 저장 완료. ActionGraph 10개 prim · 타임라인 0..1e7 · drive gain 10000/400 이 모두 담긴 것을 `verify_saved_scene.py` 로 확인했다. 다음부터는 열고 Play 만 하면 된다 | — |
 | ~~Q10~~ | **닫힘 (2026-08-30)** — `moveit.arm_command_topic` / `arm_command_format` / `arm_command_joint_names` 를 설정에 추가하고 `config/robot_twin_panda_isaac.yaml` 을 만들었다. REST 로 팔·그리퍼·세션 제어를 실측했다(§2 Phase 9). `reset_scene` 은 원리적으로 불가능해 노출하지 않는다 | — |
 | Q5 | `PublishJointState.targetPrim` 이 deprecated — `IsaacReadJointState` 노드 출력을 연결하는 방식으로 교체할지 | Phase 0 통과 후 (동작에는 지장 없음) |

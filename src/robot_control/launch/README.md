@@ -85,8 +85,7 @@ Robotiq 2F-85 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다
 |---|---|---|
 | — | — | Phase 0·1: `/clock`·`/joint_states`·MoveIt·팔 명령 |
 | `enable_gripper` | false | `gripper_action_bridge` + `gripper_control_node` (Phase 2) |
-| `enable_scene` | false | `isaac_scene_state_node` + `planning_scene_sync` (Phase 3·5) |
-| `sync_planning_scene` | true | scene 물체를 MoveIt **장애물**로 반영. 끄면 팔이 테이블을 뚫는다 |
+| `enable_scene` | false | `isaac_scene_state_node` (Phase 3) |
 | `enable_servo` | false | `servo_node` + `servo_auto_start` + `isaac_servo_bridge`. **teleop 두 경로가 모두 여기로 수렴**한다 (Phase 10) |
 | `enable_rviz` | true | VRAM 이 빠듯한 호스트에서는 false 를 권한다 |
 
