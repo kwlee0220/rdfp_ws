@@ -117,6 +117,10 @@ Keyboard Twist Teleop (forgeflow)
 _DEFAULT_TASK_LIST = ["touch", "pick_and_place", "push", "stack", "wipe"]
 _SERVO_NODE_NAME = "/servo_node"  # Default name for the servo node to control
 _DELTA_TWIST_TOPIC = "/servo_node/delta_twist_cmds"  # Default topic for TwistStamped commands
+# JGPC 기본 명령 토픽. auto 판별도 이 토픽의 유무를 본다.
+_DEFAULT_ARM_COMMAND_TOPIC = "/panda_arm_controller/commands"
+# JTC 실행 경로의 액션. 서버 부재 확인에 쓴다.
+_JTC_ACTION_NAME = "/panda_arm_controller/follow_joint_trajectory"
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
 _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살표 매핑)
 
@@ -163,6 +167,10 @@ class TeleopKeyboard(Node):
         self.declare_parameter("angular_step", 0.50)
         self.declare_parameter("deadman_ttl_sec", _DEFAULT_DEADMAN_TTL_SEC)
         self.declare_parameter("tasks", _DEFAULT_TASK_LIST)
+        self.declare_parameter("arm_command_mode", "auto")
+        self.declare_parameter("arm_command_topic", _DEFAULT_ARM_COMMAND_TOPIC)
+        self.declare_parameter("arm_command_format", "float64_multi_array")
+        self.declare_parameter("arm_command_joint_names", [""])
 
         self.frame_id = get_parameter(self, "frame_id", parse_str, default="panda_link0")
         self.rate_hz = get_parameter(self, "rate_hz", parse_float, default=_DEFAULT_RATE_HZ)
@@ -171,6 +179,25 @@ class TeleopKeyboard(Node):
         self.deadman_ttl_sec = get_parameter(self, "deadman_ttl_sec", parse_float,
                                              default=_DEFAULT_DEADMAN_TTL_SEC)
         self.tasks = get_parameter(self, "tasks",  parse_str_list, default=_DEFAULT_TASK_LIST)
+
+        # --- arm 명령 채널 ('/' = ready 이동에 쓰인다) ---
+        # **기본 'auto' 는 mock 계열에서만 맞는다.** auto 판별은
+        # `/panda_arm_controller/commands` 토픽의 유무만 보므로, 그 토픽이 없는
+        # 펑션베이 스택을 JTC 로 오판한다. 그런데 그 스택에는 ros2_control 컨트롤러가
+        # 없어 `FollowJointTrajectory` 액션 서버도 없다 — 계획은 되고 **실행만 조용히
+        # 안 되는** 상태가 된다. 백엔드마다 아래 값을 넘긴다.
+        #
+        #   펑션베이: mode=jgpc topic=/input/panda_joint  format=joint_state
+        #   Isaac   : mode=jgpc topic=/isaac/arm_command  format=joint_state
+        #   jgpc mock: mode=auto (토픽이 있어 올바로 판별된다)
+        self.arm_command_mode = get_parameter(self, "arm_command_mode", parse_str,
+                                              default="auto")
+        self.arm_command_topic = get_parameter(self, "arm_command_topic", parse_str,
+                                               default=_DEFAULT_ARM_COMMAND_TOPIC)
+        self.arm_command_format = get_parameter(self, "arm_command_format", parse_str,
+                                                default="float64_multi_array")
+        self.arm_command_joint_names = get_parameter(
+            self, "arm_command_joint_names", parse_str_list, default=[])
 
         # --- Publishers ---
         self.twist_pub = self.create_publisher(TwistStamped, _DELTA_TWIST_TOPIC, 10)
@@ -203,7 +230,7 @@ class TeleopKeyboard(Node):
         self.servo_utils = ServoClient.create(self, _SERVO_NODE_NAME)
 
         # --- MoveGroup 클라이언트 (Home 키 → 'ready' named target 이동) ---
-        self._move_group = create_move_group_client(self)
+        self._move_group = self._create_move_group()
         # Home 이동 진행 중 플래그. True 이면 timer 가 twist/joint_jog 발행을
         # 건너뛰어 move_group trajectory 와 충돌하지 않게 한다.
         self._home_in_progress = False
@@ -407,6 +434,43 @@ class TeleopKeyboard(Node):
         self.get_logger().info(f"[gripper] {command} (position={position:.3f} m)")
 
     # ── Home helpers (MoveIt named target 'ready' 이동) ─────────────
+
+    def _create_move_group(self):
+        """arm 명령 채널 파라미터로 MoveGroup 클라이언트를 만든다.
+
+        서버가 없는 조합을 **기동 시점에 알린다.** JTC 로 결정됐는데
+        `FollowJointTrajectory` 액션 서버가 없으면 `/` 를 눌러도 계획만 되고 실행이
+        일어나지 않는데, 그 상태가 "키가 안 먹는다"로만 보여 원인을 찾기 어렵다.
+        """
+        kwargs = {"mode": self.arm_command_mode, "arm_command_topic": self.arm_command_topic}
+        if self.arm_command_joint_names:
+            kwargs["arm_command_joint_names"] = list(self.arm_command_joint_names)
+        # `arm_command_format` 은 JGPC 클라이언트 전용이다. auto 로 두면 JTC 로
+        # 결정될 수 있고 그 생성자는 이 인자를 모른다 — 명시적 jgpc 일 때만 넘긴다.
+        if self.arm_command_mode == "jgpc":
+            kwargs["arm_command_format"] = self.arm_command_format
+
+        client = create_move_group_client(self, **kwargs)
+
+        if type(client).__name__ == "MoveGroupJtcClient" and not self._jtc_server_present():
+            self.get_logger().error(
+                "arm command path resolved to JTC but no FollowJointTrajectory action "
+                f"server is running on '{_JTC_ACTION_NAME}' — "
+                f"'{KeyMapping.home}' (move to "
+                "'ready') will plan but never execute. Pass arm_command_mode/topic/format "
+                "for this backend (e.g. jgpc + /input/panda_joint + joint_state).")
+        return client
+
+    def _jtc_server_present(self) -> bool:
+        """`FollowJointTrajectory` 액션 서버의 존재를 그래프에서 확인한다.
+
+        액션 서버는 내부적으로 `<action>/_action/status` 토픽을 발행하므로 그것으로
+        판단한다. **`ros2 action list` 에 이름이 보이는 것만으로는 부족하다** — 클라이언트만
+        있어도 목록에 나온다(`moveit_simple_controller_manager` 가 그 경우다).
+        """
+        # `_action/status` 는 **숨김 토픽**이라 `get_topic_names_and_types()` 에
+        # 나오지 않는다. 이름을 직접 세는 편이 확실하다.
+        return self.count_publishers(f"{_JTC_ACTION_NAME}/_action/status") > 0
 
     def _call_home(self) -> None:
         """MoveIt SRDF 의 'ready' named target 으로 이동 요청을 보낸다.
