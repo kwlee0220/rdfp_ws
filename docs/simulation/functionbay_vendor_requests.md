@@ -350,6 +350,17 @@ JointState 의 세 배열로 분리됐다. 벤더의 내부 패킹 규약(`res[3
 package://panda_ftsensor_robotiq/meshes/collision/link0.obj ~ link7.obj
 ```
 
+**지금 무슨 일이 벌어지나 (2026-09-01 실측).** URDF+SRDF 를 MoveIt 에 로드하면
+모델 자체는 뜨지만 팔 링크 8개가 이렇게 처리된다.
+
+```
+[WARN] Link panda_link0 has visual geometry but no collision geometry.
+       Collision geometry will be left empty.
+```
+
+**팔의 충돌 형상이 비어 있다.** 그 상태로는 자기충돌·환경충돌 검사가 팔에 대해
+사실상 꺼지므로, 계획은 늘 성공하고 실행에서 부딪힌다.
+
 **왜 우리가 만들 수 없나** — 같은 부품의 메시가 `moveit_resources_panda_description`
 에 STL 로 있긴 하지만, **그것이 시뮬레이터가 쓰는 기하와 같다는 보장이 없다.** 다르면
 MoveIt 의 충돌 검사가 실물과 어긋나는데, 계획은 성공하고 실행에서만 부딪히므로

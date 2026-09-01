@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  대상 로봇(Panda + FT 센서 + Robotiq 2F-85)의 SRDF.
+
+  **손으로 작성했다 — MoveIt Setup Assistant 산출물이 아니다.** 근거는 세 가지다.
+    · 팔 링크(panda_link0~7)의 disable 쌍은 `moveit_resources_moveit_config` 의
+      검증된 값을 그대로 옮겼다. 링크 기하가 동일하다.
+    · 그리퍼 내부는 URDF 트리 인접 관계에서 뽑고 나머지를 Default 로 채웠다.
+    · 그리퍼↔팔은 참조 SRDF 의 hand↔link 패턴을 따랐다.
+  Setup Assistant 는 자세를 샘플링해 "Never" 를 통계로 판정하는데 여기서는 그
+  과정을 거치지 않았다. **과도하게 해제한 쌍이 있을 수 있다** — 즉 실제로는 충돌
+  하는데 검사에서 빠질 수 있다.
+
+  검증한 것 (2026-09-01, `moveit_print_planning_model_info`)
+    · URDF+SRDF 로드 성공 — 모델 'panda', 13 variables, base frame `panda_link0`
+    · `panda_arm` 7 variables (panda_joint1~7 + robotiq2panda fixed)
+    · `hand` 1 variable — `finger_joint` [0, 0.725]. mimic 5축은 그룹 밖에서
+      종속 변수로 인식된다 ("mimic 'finger_joint'")
+    · 링크·조인트 참조 전부 실재, group_state 값 전부 한계 내, 중복 쌍 없음
+
+  검증하지 못한 것 — **충돌 기하가 아직 없다.** `link0~7.obj` 8종이 없어 MoveIt 이
+  "Link pandaN has visual geometry but no collision geometry" 경고와 함께 **팔의
+  충돌 형상을 비운 채** 로드한다. 그 상태에서는 자기충돌·환경충돌 검사가 팔에
+  대해서는 사실상 꺼진다. 이 SRDF 의 disable 쌍이 맞는지는 메시가 들어온 뒤에야
+  판정할 수 있다 (벤더 요청 B-8).
+-->
+<robot name="panda">
+
+  <!-- ================= 그룹 ================= -->
+
+  <!--
+    팔 체인의 tip 을 `robotiq_85_base_link` 로 둔다. 시뮬레이터가 EE 로 보고하는
+    지점(body 9)과 같은 프레임이라, 계획 결과와 `/output/endeffector` 를 변환 없이
+    맞댈 수 있다. `panda_link8` 을 쓰는 표준 Panda SRDF 와 다른 점이다 — 이 URDF
+    에는 link8 이 없고, FT 센서도 별도 링크 없이 `robotiq2panda` 의 0.130 m
+    오프셋에 흡수되어 있다.
+  -->
+  <group name="panda_arm">
+    <chain base_link="panda_link0" tip_link="robotiq_85_base_link"/>
+  </group>
+
+  <!--
+    **구동축 하나만 넣는다.** 나머지 5축은 URDF 의 mimic 이라 MoveIt 이 종속
+    변수로 처리한다. 그룹에 넣으면 자유도가 중복 선언되어 계획이 어긋난다.
+
+    ⚠️ 단위가 Panda Hand 와 다르다 — prismatic 0~0.04 **m** 가 아니라 revolute
+    0~0.725 **rad** 다. `robot_twin` 의 `backend.targets` 를 미터 값 그대로 두면
+    에러 없이 엉뚱하게 벌어진다.
+  -->
+  <group name="hand">
+    <joint name="finger_joint"/>
+  </group>
+
+  <!-- ================= 이름 붙인 자세 ================= -->
+
+  <group_state group="panda_arm" name="ready">
+    <joint name="panda_joint1" value="0"/>
+    <joint name="panda_joint2" value="-0.785"/>
+    <joint name="panda_joint3" value="0"/>
+    <joint name="panda_joint4" value="-2.356"/>
+    <joint name="panda_joint5" value="0"/>
+    <joint name="panda_joint6" value="1.571"/>
+    <joint name="panda_joint7" value="0.785"/>
+  </group_state>
+
+  <group_state group="panda_arm" name="extended">
+    <joint name="panda_joint1" value="0"/>
+    <joint name="panda_joint2" value="0"/>
+    <joint name="panda_joint3" value="0"/>
+    <joint name="panda_joint4" value="0"/>
+    <joint name="panda_joint5" value="0"/>
+    <joint name="panda_joint6" value="1.571"/>
+    <joint name="panda_joint7" value="0.785"/>
+  </group_state>
+
+  <!--
+    `close` 값 0.725 는 URDF 의 `finger_joint` 상한이자, 시뮬레이터에서 실측한
+    완전 폐쇄 위치다 (`functionbay_backend_design.md` §6.1). 물체를 물면 그 앞에서
+    멈추며, 그 잔차와 effort 가 파지 성공 판정의 근거다.
+  -->
+  <group_state group="hand" name="open">
+    <joint name="finger_joint" value="0"/>
+  </group_state>
+  <group_state group="hand" name="close">
+    <joint name="finger_joint" value="0.725"/>
+  </group_state>
+
+  <!-- ================= 엔드이펙터 · 가상 조인트 ================= -->
+
+  <end_effector name="hand" parent_link="robotiq_85_base_link" group="hand" parent_group="panda_arm"/>
+
+  <virtual_joint name="virtual_joint" type="fixed" parent_frame="world" child_link="panda_link0"/>
+
+  <!-- ================= 충돌 검사 해제 ================= -->
+  <!--
+    그리퍼 내부는 **전 쌍을 해제**한다. 2F-85 는 닫힌 링키지인데 URDF 는 트리로만
+    표현할 수 있어 mimic 으로 흉내 낸 상태다. 그래서 링크들이 설계상 서로 닿고,
+    특히 완전 폐쇄 시 좌우 inner_finger 가 접촉한다 — 해제하지 않으면 `close`
+    자세 자체가 충돌로 판정되어 그 상태를 지나는 계획이 전부 거부된다.
+  -->
+  <disable_collisions link1="left_inner_finger" link2="left_inner_knuckle" reason="Adjacent"/>
+  <disable_collisions link1="left_inner_finger" link2="left_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="left_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="left_inner_finger" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="left_inner_finger" link2="panda_link5" reason="Never"/>
+  <disable_collisions link1="left_inner_finger" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="left_inner_finger" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="left_inner_finger" link2="right_inner_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="right_inner_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_finger" link2="robotiq_85_base_link" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="left_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="left_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="left_inner_knuckle" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="left_inner_knuckle" link2="panda_link5" reason="Never"/>
+  <disable_collisions link1="left_inner_knuckle" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="left_inner_knuckle" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="left_inner_knuckle" link2="right_inner_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="right_inner_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_inner_knuckle" link2="robotiq_85_base_link" reason="Adjacent"/>
+  <disable_collisions link1="left_outer_finger" link2="left_outer_knuckle" reason="Adjacent"/>
+  <disable_collisions link1="left_outer_finger" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="left_outer_finger" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="left_outer_finger" link2="panda_link5" reason="Never"/>
+  <disable_collisions link1="left_outer_finger" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="left_outer_finger" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="left_outer_finger" link2="right_inner_finger" reason="Default"/>
+  <disable_collisions link1="left_outer_finger" link2="right_inner_knuckle" reason="Default"/>
+  <disable_collisions link1="left_outer_finger" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_outer_finger" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_outer_finger" link2="robotiq_85_base_link" reason="Default"/>
+  <disable_collisions link1="left_outer_knuckle" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="left_outer_knuckle" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="left_outer_knuckle" link2="panda_link5" reason="Never"/>
+  <disable_collisions link1="left_outer_knuckle" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="left_outer_knuckle" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="left_outer_knuckle" link2="right_inner_finger" reason="Default"/>
+  <disable_collisions link1="left_outer_knuckle" link2="right_inner_knuckle" reason="Default"/>
+  <disable_collisions link1="left_outer_knuckle" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="left_outer_knuckle" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="left_outer_knuckle" link2="robotiq_85_base_link" reason="Adjacent"/>
+  <disable_collisions link1="panda_link0" link2="panda_link1" reason="Adjacent"/>
+  <disable_collisions link1="panda_link0" link2="panda_link2" reason="Never"/>
+  <disable_collisions link1="panda_link0" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="panda_link0" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="panda_link1" link2="panda_link2" reason="Adjacent"/>
+  <disable_collisions link1="panda_link1" link2="panda_link3" reason="Never"/>
+  <disable_collisions link1="panda_link1" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="panda_link2" link2="panda_link3" reason="Adjacent"/>
+  <disable_collisions link1="panda_link2" link2="panda_link4" reason="Never"/>
+  <disable_collisions link1="panda_link2" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="panda_link4" reason="Adjacent"/>
+  <disable_collisions link1="panda_link3" link2="panda_link5" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="right_inner_finger" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="right_inner_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="right_outer_finger" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="right_outer_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link3" link2="robotiq_85_base_link" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="panda_link5" reason="Adjacent"/>
+  <disable_collisions link1="panda_link4" link2="panda_link6" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="panda_link7" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="right_inner_finger" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="right_inner_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="right_outer_finger" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="right_outer_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link4" link2="robotiq_85_base_link" reason="Never"/>
+  <disable_collisions link1="panda_link5" link2="panda_link6" reason="Adjacent"/>
+  <disable_collisions link1="panda_link5" link2="right_inner_finger" reason="Never"/>
+  <disable_collisions link1="panda_link5" link2="right_inner_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link5" link2="right_outer_finger" reason="Never"/>
+  <disable_collisions link1="panda_link5" link2="right_outer_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link5" link2="robotiq_85_base_link" reason="Never"/>
+  <disable_collisions link1="panda_link6" link2="panda_link7" reason="Adjacent"/>
+  <disable_collisions link1="panda_link6" link2="right_inner_finger" reason="Never"/>
+  <disable_collisions link1="panda_link6" link2="right_inner_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link6" link2="right_outer_finger" reason="Never"/>
+  <disable_collisions link1="panda_link6" link2="right_outer_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link6" link2="robotiq_85_base_link" reason="Never"/>
+  <disable_collisions link1="panda_link7" link2="right_inner_finger" reason="Never"/>
+  <disable_collisions link1="panda_link7" link2="right_inner_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link7" link2="right_outer_finger" reason="Never"/>
+  <disable_collisions link1="panda_link7" link2="right_outer_knuckle" reason="Never"/>
+  <disable_collisions link1="panda_link7" link2="robotiq_85_base_link" reason="Adjacent"/>
+  <disable_collisions link1="right_inner_finger" link2="right_inner_knuckle" reason="Adjacent"/>
+  <disable_collisions link1="right_inner_finger" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="right_inner_finger" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="right_inner_finger" link2="robotiq_85_base_link" reason="Default"/>
+  <disable_collisions link1="right_inner_knuckle" link2="right_outer_finger" reason="Default"/>
+  <disable_collisions link1="right_inner_knuckle" link2="right_outer_knuckle" reason="Default"/>
+  <disable_collisions link1="right_inner_knuckle" link2="robotiq_85_base_link" reason="Adjacent"/>
+  <disable_collisions link1="right_outer_finger" link2="right_outer_knuckle" reason="Adjacent"/>
+  <disable_collisions link1="right_outer_finger" link2="robotiq_85_base_link" reason="Default"/>
+  <disable_collisions link1="right_outer_knuckle" link2="robotiq_85_base_link" reason="Adjacent"/>
+</robot>
