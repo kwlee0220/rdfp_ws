@@ -4,7 +4,7 @@
     0. 재생 상태     — Isaac 이 Play 중인가
     1. 이미지 수신   — 설정한 주파수로 오는가 (±20%)
     2. 형식         — 해상도·encoding 이 정의와 일치하는가
-    3. 내용         — **실제로 무언가 찍혔는가** (조명 없는 새까만 이미지를 잡는다)
+    3. 내용         — **실제로 무언가 찍혔는가** (검거나 날아간 평평한 화면을 잡는다)
     4. 스탬프       — `header.stamp` 이 채워지고 **sim time 으로 진행**하는가
     5. camera_info  — 함께 오고 해상도가 이미지와 일치하는가
 
@@ -36,11 +36,14 @@ DISCOVERY_TIMEOUT_SEC = 15.0
 RATE_TOLERANCE = 0.2
 # Isaac 의 rgb 헬퍼가 내보내는 encoding.
 EXPECTED_ENCODING = 'rgb8'
-# 내용 검사 임계. 새까만 이미지(전 픽셀 0)를 잡는 것이 목적이라 느슨하게 잡는다 —
-# 어두운 씬을 실패로 만들지 않으면서 '아무것도 안 찍혔다'는 확실히 가른다.
+# 내용 검사 임계. 목적은 **평평한 이미지**를 잡는 것이다 — 조명이 없어 새까맣거나,
+# 환경광이 세서 하얗게 날아간 경우 둘 다 화면에는 아무 정보가 없다. 어둡거나 밝은
+# '정상' 씬을 실패로 만들지 않도록 느슨하게 잡는다.
 CONTENT_MIN_VALUE = 10
 CONTENT_MIN_MEAN = 5.0
 CONTENT_MIN_LIT_RATIO = 0.05
+# 밝기 표준편차. 단색 평면이면 0 에 가깝다 — 물체가 하나라도 보이면 훨씬 크다.
+CONTENT_MIN_STDDEV = 5.0
 
 
 class Phase4Checker(Node):
@@ -136,12 +139,22 @@ def check_content(node: Phase4Checker) -> bool:
         return False
     mean = sum(data) / len(data)
     lit = sum(1 for b in data if b > CONTENT_MIN_VALUE) / len(data)
-    ok = mean >= CONTENT_MIN_MEAN and lit >= CONTENT_MIN_LIT_RATIO
-    print(f'  3. 내용               : {_fmt(ok)} — 평균 {mean:.1f}, '
-          f'{CONTENT_MIN_VALUE} 초과 픽셀 {100 * lit:.1f}% '
-          f'(기준 평균 ≥ {CONTENT_MIN_MEAN}, 비율 ≥ {100 * CONTENT_MIN_LIT_RATIO:.0f}%)')
+    # 표준편차 — **평평한 화면을 잡는 것이 이 검사의 핵심**이다. 밝기만 보면 하얗게
+    # 날아간 이미지가 통과한다 (실측: dome light 를 1000 으로 두니 배경이 백색이 되고
+    # 평균 207 로 '밝다'고 통과했다).
+    var = sum((b - mean) ** 2 for b in data) / len(data)
+    stddev = var ** 0.5
+    ok = (mean >= CONTENT_MIN_MEAN and lit >= CONTENT_MIN_LIT_RATIO
+          and stddev >= CONTENT_MIN_STDDEV)
+    print(f'  3. 내용               : {_fmt(ok)} — 평균 {mean:.1f}, 표준편차 {stddev:.1f}, '
+          f'{CONTENT_MIN_VALUE} 초과 {100 * lit:.1f}% '
+          f'(기준 평균 ≥ {CONTENT_MIN_MEAN}, 편차 ≥ {CONTENT_MIN_STDDEV}, '
+          f'비율 ≥ {100 * CONTENT_MIN_LIT_RATIO:.0f}%)')
     if not ok:
-        print('       → 씬에 조명이 있는지 본다. setup_scene.py 가 dome light 를 만든다')
+        if stddev < CONTENT_MIN_STDDEV:
+            print('       → 화면이 평평하다. 조명이 없어 검거나, 환경광이 세서 날아갔다')
+        print('       → setup_scene.py 의 DISTANT_LIGHT_INTENSITY / '
+              'DOME_LIGHT_INTENSITY 를 본다')
     return ok
 
 

@@ -93,11 +93,19 @@ def _bind_physics_material(prim, material) -> None:
     binding.Bind(material, UsdShade.Tokens.weakerThanDescendants, "physics")
 
 
-# 돔 라이트 세기. 렌더 결과만 좌우하고 물리에는 영향이 없다.
-DOME_LIGHT_INTENSITY = 1000.0
+# 조명 세기. 렌더 결과만 좌우하고 물리에는 영향이 없다.
+#
+# **`DistantLight` 를 주광으로 쓴다.** `DomeLight` 는 **배경 자체를 칠하므로** 세기를
+# 올리면 화면이 하얗게 날아간다 — 처음 1000 으로 넣었다가 배경이 완전히 백색이 됐다.
+# 평행광은 표면만 비추고 배경은 그대로 둔다. Isaac 기본 스테이지의
+# `/Environment/defaultLight` 도 이것이다.
+DISTANT_LIGHT_INTENSITY = 1500.0
+# 그림자 안쪽이 새까맣지 않도록 아주 약한 환경광을 얹는다. 배경을 칠하므로 **낮게**
+# 둔다 — 이 값이 곧 배경 밝기다.
+DOME_LIGHT_INTENSITY = 60.0
 
 
-def _make_light(stage, root_prim: str) -> str:
+def _make_light(stage, root_prim: str) -> list:
     """씬 조명을 만든다. **없으면 카메라가 새까만 이미지를 낸다.**
 
     Isaac 을 전체 편집기(`isaac-sim.sh`)로 띄우면 기본 스테이지에
@@ -108,14 +116,23 @@ def _make_light(stage, root_prim: str) -> str:
     **그 상태로도 Phase 4 검사는 통과했다** — 주파수·해상도·인코딩·스탬프만 보고
     내용을 안 봤기 때문이다(2026-09-02). 검사에 밝기 확인을 넣어 함께 막았다.
 
+    **평행광 + 약한 환경광**의 조합이다. 환경광만으로 밝기를 올리면 배경이 하얗게
+    날아가고(실측), 평행광만 쓰면 그림자 안쪽이 새까맣다.
+
     `root_prim` 아래에 두므로 `setup_scene` 을 다시 돌리면 물체와 함께 재생성된다.
     """
-    from pxr import UsdLux
+    from pxr import Gf, UsdGeom, UsdLux
 
-    path = f"{root_prim}/dome_light"
-    light = UsdLux.DomeLight.Define(stage, path)
-    light.CreateIntensityAttr(DOME_LIGHT_INTENSITY)
-    return path
+    key_path = f"{root_prim}/key_light"
+    key = UsdLux.DistantLight.Define(stage, key_path)
+    key.CreateIntensityAttr(DISTANT_LIGHT_INTENSITY)
+    # 위에서 비스듬히 — 물체에 그림자가 져야 깊이가 보인다.
+    UsdGeom.Xformable(key.GetPrim()).AddRotateXYZOp().Set(Gf.Vec3f(-45.0, 0.0, 45.0))
+
+    fill_path = f"{root_prim}/dome_light"
+    fill = UsdLux.DomeLight.Define(stage, fill_path)
+    fill.CreateIntensityAttr(DOME_LIGHT_INTENSITY)
+    return [key_path, fill_path]
 
 
 def _make_object(stage, root_prim: str, spec: dict) -> str:
@@ -234,8 +251,8 @@ def main() -> None:
              f"res={camera_spec['resolution']} fps={camera_spec['fps']} "
              f"pos={camera_spec['position']}")
 
-    _log(f"[scene] dome light @ {root_prim}/dome_light "
-         f"(intensity {DOME_LIGHT_INTENSITY}) - without it the camera renders black")
+    _log(f"[scene] lights: distant {DISTANT_LIGHT_INTENSITY} + dome {DOME_LIGHT_INTENSITY} "
+         f"- dome paints the background, so keep it low")
     _log(f"[scene] done - {len(config['objects'])} object(s) under {root_prim}")
     _log("[scene] next: rerun setup_graph.py with PHASE=3 so TF is published")
     _log("[scene] next: run tune_grasp.py so the fingers can actually hold a block")

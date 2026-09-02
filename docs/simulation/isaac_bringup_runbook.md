@@ -213,6 +213,38 @@ python3 scripts/isaac/is_check_phase4.py   # 3. 내용 항목이 잡는다
 > 인코딩·스탬프가 전부 맞았기 때문이다 — 배관은 멀쩡했고 조명만 없었다. 그 데이터로
 > 학습하면 아무 신호도 없는 영상이 쌓이고, 열어보기 전까지 드러나지 않는다.
 
+### 화면이 하얗게 날아간다
+
+`DomeLight` 는 **배경 자체를 칠한다.** 세기를 올리면 물체가 밝아지는 게 아니라 배경이
+백색이 된다. 주광은 `DistantLight`(배경을 칠하지 않는다)로 두고 돔은 그림자 안쪽을
+채울 만큼만 낮게 둔다 — `setup_scene.py` 의 `DISTANT_LIGHT_INTENSITY` /
+`DOME_LIGHT_INTENSITY`.
+
+검사의 「내용」 항목이 **표준편차**도 보므로 하얗게 날아간 평면도 잡힌다.
+
+### 카메라가 엉뚱한 곳을 본다
+
+**검사로는 못 잡는다.** 노출과 편차가 정상이어도 프레임에 작업 영역이 없을 수 있다 —
+실제로 그랬다(시선이 테이블을 지나쳐 빈 바닥을 봤고, 그다음엔 화면이 90° 돌아갔다).
+**눈으로 한 번 봐야 한다:**
+
+```bash
+python3 - <<'EOF'
+import rclpy, numpy as np, cv2
+from sensor_msgs.msg import Image
+rclpy.init(); n = rclpy.create_node('peek'); got = []
+n.create_subscription(Image, '/isaac/camera/image_raw', lambda m: got.append(m), 5)
+while not got: rclpy.spin_once(n, timeout_sec=0.2)
+m = got[-1]
+a = np.frombuffer(m.data, np.uint8).reshape(m.height, m.width, 3)
+cv2.imwrite('/tmp/isaac_cam.png', cv2.cvtColor(a, cv2.COLOR_RGB2BGR))
+print('/tmp/isaac_cam.png')
+EOF
+```
+
+자세를 고칠 때는 **look-at 으로 세 축을 다 잡는다** — 축 하나만 돌리면 시선은 맞아도
+화면이 돌아간다. 계산식은 `isaac_scene.json` 의 `_camera_comment` 에 있다.
+
 ### 로봇이 원점에 있어야 한다
 
 ROS 쪽 static TF 가 `world → panda_link0 = 항등변환`으로 못박혀 있다. 자산을 드래그해
