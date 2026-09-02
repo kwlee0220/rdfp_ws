@@ -1,6 +1,6 @@
 """`GripperNode` 설정.
 
-설계: `docs/moveit/GripperNode_Design.md`
+설계: `docs/gripper/GripperNode_Design.md`
 
 **구현이 둘이고 갈리는 축은 실행 수단이다** — 백엔드가 아니다.
 

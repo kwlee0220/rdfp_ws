@@ -326,7 +326,7 @@ Franka Hand 는 `ros2_control` 컨트롤러가 아니라 **별도 `franka_grippe
 
 | 안 | 내용 | 평가 |
 |---|---|---|
-| **A** | `GripperNode` 구현을 하나 더 만든다(`FrankaGripperNode`) — `GripperCommand` 심볼을 `franka_gripper` 액션으로 번역하고 `GripperState` 를 채운다 | **권장** — 계약이 유지되어 상위(트윈·MCP)가 무변경. 백엔드마다 노드 하나가 [GripperNode 설계](../moveit/GripperNode_Design.md) §3 의 구조다 |
+| **A** | `GripperNode` 구현을 하나 더 만든다(`FrankaGripperNode`) — `GripperCommand` 심볼을 `franka_gripper` 액션으로 번역하고 `GripperState` 를 채운다 | **권장** — 계약이 유지되어 상위(트윈·MCP)가 무변경. 백엔드마다 노드 하나가 [GripperNode 설계](../gripper/GripperNode_Design.md) §3 의 구조다 |
 | B | 트윈 설정에서 그리퍼 연산을 다시 매핑 | 계약이 백엔드마다 갈라진다 |
 
 "백엔드 차이는 어댑터가 흡수한다"는 [scene 계약](../scene/scene_objects_guide.md)과 같은 원칙이다.

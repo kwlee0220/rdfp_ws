@@ -6,7 +6,7 @@
 > 2. **`rdfp_msgs/GripperCommand` 가 숫자를 싣지 않게 됐다 (2026-09-01).** 지금은
 >    `goal` 심볼(`open`/`close`/`grasp`) 하나뿐이며 `position`/`max_effort` 필드는
 >    삭제됐다 — 숫자가 그리퍼에 종속이라 다른 기구로 옮기면 틀린 값이 되기 때문이다
->    ([GripperNode_Design.md](../moveit/GripperNode_Design.md) §2.1).
+>    ([GripperNode_Design.md](../gripper/GripperNode_Design.md) §2.1).
 >
 > 따라서 이 문서가 제안하는 **연속 `position` 매핑(3.1)은 현행 인터페이스로는 보낼 수
 > 없다.** 6장의 "이진(open/close) 부터 시작한다" 단계는 그대로 유효하다. 연속 매핑이
@@ -332,7 +332,7 @@ u:  0 ─────── 0.3 ─────── 0.7 ─────── 
 - [teleop_retarget_node_guide.md](teleop_retarget_node_guide.md) — 클러치 상태·자동 해제
 - [clutch_pedal_guide.md](clutch_pedal_guide.md) — 클러치 게이트(6.2)의 상대편
 - [omy_leader_teleop_guide.md](omy_leader_teleop_guide.md) — 전체 체인 기동 절차
-- [../moveit/GripperNode_Design.md](../moveit/GripperNode_Design.md) — open/close 서비스
-- [../moveit/gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) — 액션 서버의 feedback/result 성격
+- [../gripper/GripperNode_Design.md](../gripper/GripperNode_Design.md) — open/close 서비스
+- [../gripper/gripper_action_server_notes.md](../gripper/gripper_action_server_notes.md) — 액션 서버의 feedback/result 성격
 - [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) 4.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
 - 외부 저장소 `omy_leader_bridge` — `bridge_topics.json` 이 릴레이 토픽의 단일 출처

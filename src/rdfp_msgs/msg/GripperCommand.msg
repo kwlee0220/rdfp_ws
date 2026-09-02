@@ -44,5 +44,5 @@ std_msgs/Header header
 # 모르는 심볼은 **거부한다** — 조용히 무시하면 팔은 움직이는데 그리퍼만 안 움직이는
 # 상태가 되어 원인이 보이지 않는다.
 #
-# 설계 근거: docs/moveit/GripperNode_Design.md §2.1
+# 설계 근거: docs/gripper/GripperNode_Design.md §2.1
 string goal

@@ -69,7 +69,7 @@ panda_hand_controller:
 > **JGPC 스택에서도 그대로 동작한다.** `panda_jgpc_mock.launch.py` 는 arm
 > 컨트롤러 타입만 바꾸고 `panda_hand_controller` 는 건드리지 않으므로, arm 과
 > 달리 그리퍼는 `FollowJointTrajectory` 문제의 영향을 받지 않는다.
-> ([MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) 참고)
+> ([MoveGroupJgpcClient_UserGuide.md](../moveit/MoveGroupJgpcClient_UserGuide.md) 참고)
 
 ---
 
@@ -384,5 +384,5 @@ ros2 topic echo /panda_hand_controller/gripper_cmd/_action/feedback
 
 - [GripperNode_Design.md](GripperNode_Design.md) — 이 액션을 감싼 `GripperNode` 인터페이스 설계 (메시지 계약, `at_goal` 판정식, 백엔드별 실현 가능성)
 - [GripperActionNode_Guide.md](GripperActionNode_Guide.md) — 이 액션을 실제로 부르는 노드의 사용법·파라미터·트러블슈팅
-- [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) — JGPC 스택에서 arm 은 왜 다른가 (그리퍼는 영향 없음)
+- [MoveGroupJgpcClient_UserGuide.md](../moveit/MoveGroupJgpcClient_UserGuide.md) — JGPC 스택에서 arm 은 왜 다른가 (그리퍼는 영향 없음)
 - [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 컨트롤러 순차 기동 순서

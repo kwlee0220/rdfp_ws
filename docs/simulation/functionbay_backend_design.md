@@ -333,7 +333,7 @@ servo status 는 전 구간 `NO_WARNING` 이라 특이점·충돌·관절한계�
 | `GripperActionNode` 의 `targets` | `open: [0.035, 10]` / `close: [0.0, 10]` / `grasp: [0.0, 30]` — 관절값(m) + 힘(N) |
 | 그리퍼 실행 경로 | `control_msgs/GripperCommand` **액션 서버** 존재 |
 
-**마지막 두 줄은 해소됐다 (2026-09-02).** [`Robotiq2FGripperNode`](../moveit/Robotiq2FGripperNode_Guide.md)
+**마지막 두 줄은 해소됐다 (2026-09-02).** [`Robotiq2FGripperNode`](../gripper/Robotiq2FGripperNode_Guide.md)
 가 6축 목표각을 `/input/gripper_joint` 로 직접 쓰고, `targets` 는 2F-85 스칼라
 (`close: 0.725 rad`)를 갖는다. **계약(`GripperCommand`/`GripperState`)은 그대로**이므로
 상위(teleop·트윈·데이터셋)는 백엔드를 모른다.
@@ -463,7 +463,7 @@ URDF 대로면 mimic 으로 함께 움직여야 하므로, 그 상태는 링키�
    `robotiq_2f_gripper_node`). 예상대로 URDF/SRDF(1번)와 무관했다. `at_goal`/`stalled` 은
    관절 잔차와 `effort` **두 신호**로 판정하며, 임계값은 §6.1 실측 그대로다.
    `width` 는 링키지 기하가 없어 **NaN** 이다 — `at_goal` 은 잔차로 판정하므로
-   영향받지 않는다. [가이드](../moveit/Robotiq2FGripperNode_Guide.md).
+   영향받지 않는다. [가이드](../gripper/Robotiq2FGripperNode_Guide.md).
 3. ~~robot_twin 설정의 `backend.targets` 를 2F-85 스케일로 재작성.~~ **불필요해졌다** — 명령이 심볼만 싣게 되어(2026-09-01) 트윈은 `backend.labels` 만 갖고, 2F-85 수치는 `Robotiq2FGripperNode` 의 `targets` 파라미터에 있다. 다만 **펑션베이용 트윈 설정 자체가 아직 없다.**
 
 > **Humble apt 에 Robotiq description 이 없다** (`ros-humble-robotiq-description`

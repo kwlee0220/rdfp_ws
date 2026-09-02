@@ -49,7 +49,7 @@ setup(
             'target_joint_cmds_executor = robot_control.moveit.target_joint_cmds_executor:main',
             'target_joint_states_publisher = robot_control.moveit.target_joint_states_publisher:main',
             'target_joint_states_executor = robot_control.moveit.target_joint_states_executor:main',
-            # gripper — GripperNode 계약 구현 (docs/moveit/GripperNode_Design.md)
+            # gripper — GripperNode 계약 구현 (docs/gripper/GripperNode_Design.md)
             'gripper_action_node = robot_control.gripper.gripper_action_node:main',
             'robotiq_2f_gripper_node = robot_control.gripper.robotiq_2f_gripper_node:main',
             # scene

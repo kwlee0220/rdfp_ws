@@ -560,7 +560,7 @@ deg, 어떤 쪽은 rad), 변환 지점이 늘수록 오차와 버그가 끼어�
 판정식(`open`/`close` 는 목표 자세 도달 AND NOT `stalled`, `grasp` 는 `stalled`)은
 `GripperNode` 가 이미 적용했으므로 트윈은 다시 따지지 않는다. 클라이언트도 마찬가지로
 `at_goal` 하나만 보면 된다 — 상세는
-[GripperNode_Design.md](../moveit/GripperNode_Design.md) §2.3.
+[GripperNode_Design.md](../gripper/GripperNode_Design.md) §2.3.
 
 > ⚠️ **mock 에서 `grasp` 는 완료되지 않는다.** planning scene 물체에 물리가 없어
 > `stalled` 를 관측할 수단이 없고, 따라서 `at_goal` 이 서지 않아 `sync_timeout_sec`
@@ -1618,6 +1618,6 @@ extern_op 이 규정하지 않지만 REST API 에서 흔히 쓰이는 것 중 �
 
 - [extern_op 프로토콜](file:///home/kwlee/mdt/share/extern_op/extern_op_revised.md) — RESTful 기반 외부 시스템 연동 프로토콜
 - [moveit/MoveGroupClient_UserGuide.md](../moveit/MoveGroupClient_UserGuide.md) — `MoveGroupClient` API 및 Threading 주의사항
-- [moveit/GripperNode_Design.md](../moveit/GripperNode_Design.md) — 그리퍼 서비스/토픽 인터페이스
-- [moveit/gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) — `gripper_cmd` 액션 계층과 mock 환경 제약
+- [gripper/GripperNode_Design.md](../gripper/GripperNode_Design.md) — 그리퍼 서비스/토픽 인터페이스
+- [gripper/gripper_action_server_notes.md](../gripper/gripper_action_server_notes.md) — `gripper_cmd` 액션 계층과 mock 환경 제약
 - [session/session_control_guide.md](../session/session_control_guide.md) — TRANSIENT_LOCAL QoS 사례

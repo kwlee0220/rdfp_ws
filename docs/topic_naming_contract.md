@@ -65,7 +65,7 @@
 | `gripper_states` | `rdfp_msgs/GripperState` | 관측 |
 
 **규약이 아는 그리퍼 채널은 이 둘뿐이다.** 필드의 뜻(개구 폭 단위, `stalled` 와
-`at_goal` 의 차이, 판정 주체)은 [GripperNode_Design.md](moveit/GripperNode_Design.md)
+`at_goal` 의 차이, 판정 주체)은 [GripperNode_Design.md](gripper/GripperNode_Design.md)
 §2 가 정본이다 — 이름 규약 문서가 함께 설명하면 두 문서가 갈라진다. 아래는 **이름에
 관한 결정**만 적는다.
 
@@ -113,7 +113,7 @@
 **남은 부채: Isaac 의 파지 여부가 데이터에서 빠져 있다.** `GripperActionNode` 의
 `stalled` 가 미구현이라 `at_goal` 이 `grasp` 에서 늘 `false` 다. 파지 시 effort 를
 실측해 임계값을 잡는 것이 선행 작업이다
-([GripperNode_Design.md](moveit/GripperNode_Design.md) §4).
+([GripperNode_Design.md](gripper/GripperNode_Design.md) §4).
 
 > **학습 신호로서는 잃은 것이 없다.** action 은 `gripper_cmds`(의도)가, 관측은
 > `gripper_states` 가 담는다. 사라진 `reached_goal`/`status` 는 진단값이었다.

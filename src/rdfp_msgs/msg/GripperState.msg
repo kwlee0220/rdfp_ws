@@ -9,7 +9,7 @@
 # 펑션베이는 TF 성립용 **고정값**을 주입한다 — 없는 것보다 나쁘다. "항상 열려 있다"고
 # 거짓말을 하면서 데이터를 열어봐도 드러나지 않는다.
 #
-# 설계 근거: docs/moveit/GripperNode_Design.md
+# 설계 근거: docs/gripper/GripperNode_Design.md
 
 # header.stamp 는 발행 시각, frame_id 는 ''.
 #
@@ -69,7 +69,7 @@ bool stalled
 # **"목표 자세 도달"을 무엇으로 재는지는 구현이 정한다.** 이 필드는 `width` 에 묶여
 # 있지 않다 — `width` 가 NaN 이어도 판정될 수 있다. 손가락 관절 하나만 관측되는
 # 스택은 폭으로 재고, 지령과 보고가 같은 관절 공간인 스택은 관절 잔차로 재는 편이
-# 오히려 정확하다. 상세: docs/moveit/GripperNode_Design.md §2.3
+# 오히려 정확하다. 상세: docs/gripper/GripperNode_Design.md §2.3
 #
 # **매 주기 재평가한다.** "한 번 이뤘었나"가 아니라 "지금 그런가"이므로, 물체를 놓쳐
 # 손이 벌어지면 다시 false 가 된다.

@@ -17,17 +17,18 @@
 
 - [1. 시작하기 — 워크스페이스 전반](#1-시작하기--워크스페이스-전반)
 - [2. Launch / 실행 환경](#2-launch--실행-환경)
-- [3. MoveIt2 — 계획·실행·그리퍼](#3-moveit2--계획실행그리퍼)
-- [4. 카메라](#4-카메라)
-- [5. 녹화 (MP4 Recorder)](#5-녹화-mp4-recorder)
-- [6. 세션 / 에피소드 생명주기](#6-세션--에피소드-생명주기)
-- [7. rosbag2 → 데이터셋 후처리](#7-rosbag2--데이터셋-후처리)
-- [8. 재생 (Replay)](#8-재생-replay)
-- [9. Teleoperation](#9-teleoperation)
-- [10. 시뮬레이터 백엔드 / Scene](#10-시뮬레이터-백엔드--scene)
-- [11. 외부 로봇 (OMY-L100)](#11-외부-로봇-omy-l100)
-- [12. 로봇 트윈 (REST 게이트웨이)](#12-로봇-트윈-rest-게이트웨이)
-- [13. AI 어시스턴트용 지침 (CLAUDE.md)](#13-ai-어시스턴트용-지침-claudemd)
+- [3. MoveIt2 — 계획·실행·서보](#3-moveit2--계획실행서보)
+- [4. 그리퍼](#4-그리퍼)
+- [5. 카메라](#5-카메라)
+- [6. 녹화 (MP4 Recorder)](#6-녹화-mp4-recorder)
+- [7. 세션 / 에피소드 생명주기](#7-세션--에피소드-생명주기)
+- [8. rosbag2 → 데이터셋 후처리](#8-rosbag2--데이터셋-후처리)
+- [9. 재생 (Replay)](#9-재생-replay)
+- [10. Teleoperation](#10-teleoperation)
+- [11. 시뮬레이터 백엔드 / Scene](#11-시뮬레이터-백엔드--scene)
+- [12. 외부 로봇 (OMY-L100)](#12-외부-로봇-omy-l100)
+- [13. 로봇 트윈 (REST 게이트웨이)](#13-로봇-트윈-rest-게이트웨이)
+- [14. AI 어시스턴트용 지침 (CLAUDE.md)](#14-ai-어시스턴트용-지침-claudemd)
 - [주제별 빠른 찾기](#주제별-빠른-찾기)
 - [문서 정비가 필요한 항목](#문서-정비가-필요한-항목)
 
@@ -54,20 +55,28 @@
 | [src/rdfp/launch/README.md](../src/rdfp/launch/README.md) | **수집 계열(`rdfp_*`) launch**. `rdfp_panda_mock`/`rdfp_panda_jgpc_mock`/`replay_panda_mock`/`teleop_mirror`/`rdfp`/`rdfp_advanced`. **§3 "YAML ↔ 인자 대응표"** — 설정 YAML 4종의 키 ↔ argument 대응 (이 계열은 `OpaqueFunction` 때문에 `--show-args` 가 1~2개만 출력하므로 이 표가 유일한 목록), `replay_arm_path` 배타 선택, `pedal_timeout` 자동 보정 표. **§6.1 묶음 launch ↔ 분리 조합 대응** — `panda_mock` + `rdfp_collect` 가 `rdfp_panda_mock` 과 동등함(실측 검증), Gazebo 쌍만 인자를 맞춰야 하는 이유와 명령. helper 는 `robot_control` 문서로 위임 | 현행 |
 | [robot/franka_panda_bringup_prep.md](robot/franka_panda_bringup_prep.md) | **실기 Franka Panda bringup — 준비 사항 (미착수)**. `panda_mock`/`panda_gazebo` 처럼 실기용 로봇 스택 launch 를 만들기 위한 착수 조건. 사용자가 제공해야 할 정보(모델·**시스템 버전**이 libfranka→franka_ros2 버전을 연쇄 결정·FCI 라이선스·robot_ip·엔드이펙터 load·전용 NIC·충돌 임계·안전 절차), 설치 필요 SW(현재 `franka_description` 1.0.1 만 있고 **libfranka/franka_ros2 부재** — 다만 `~/ansible/roles/franka_ros2` role 이 준비되어 있고 **실행 전 수정 3건**(`.bashrc` 자동 source 가 옵트인 정책과 충돌 · `version:` 미고정으로 FER 지원 여부 불확실 · deb 빌더 경로 불일치)), **PREEMPT_RT 실시간 커널**(FCI 1 kHz 루프 · 최악 지연 상한)과 이 PC 실측 상태(`PREEMPT_DYNAMIC` 일반 커널 · rtprio/memlock 미설정) — 단 **RT 는 팔 실행에만 걸린다**: libfranka 의 비실시간 채널(상태 읽기 · 그리퍼 · 설정)과 실시간 채널(팔 제어)을 구분해 **배선 검증 · 녹화 · 적재는 RT 없이 가능**하고 가이딩 모드로 실기 데이터까지 받을 수 있음을 3단계로 정리, 코드 변경 4건(xacro `franka` 분기 + `robot_ip` · Franka Hand 는 액션 서버라 그리퍼 어댑터 필요 · servo 설정 교체 · 안전 기동 체인), scene 은 별도 과제(읽기는 인식 노드 필요 · `reset_scene` 은 원리적 불가) | 설계안 |
 
-## 3. MoveIt2 — 계획·실행·그리퍼
+## 3. MoveIt2 — 계획·실행·서보
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 세 진입점(`MoveGroupClient` / `ServoClient` / `GripperNode`)의 계층 그림 — **그리퍼만 계약과 구현이 나뉘고**, 액션 서버 유무가 구현을 가른다. 읽는 순서, `robot_control/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
+| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 두 진입점(`MoveGroupClient` / `ServoClient`)의 계층 그림, 읽는 순서, `robot_control/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
 | [moveit/MoveGroupClient_UserGuide.md](moveit/MoveGroupClient_UserGuide.md) | **공통 인터페이스 + JTC 구현**. 추상 base + `create_move_group_client()` 팩토리 + 구현별 API 가용성 대조표, Cartesian waypoint 경로 계획·실행, SRDF named target 이동, joint 목표값 이동(`move_to_joints`), 계획 전용 API(`plan_named_target`/`plan_joints`), 동작 중단(`cancel`), 동기/비동기 API, 파라미터 튜닝, Threading 주의사항, 실전 예제. JGPC 상세는 아래 문서로 위임 | 현행 |
 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) | **JGPC 구현 전담**. `FollowJointTrajectory` 가 없는 컨트롤러에서 계획(plan_only)과 실행(명령 토픽 스트리밍)을 분리하는 방법. `MoveGroupJgpcClient` 전체 API(`stream_trajectory`/`*_streamed`/JGPC `cancel`), `TrajectoryStreamer`, joint 순서 자동 조회, `publish_rate` 보간 실측치, `tolerance` 가 최종 자세를 결정하는 이유, `replay_gui` 연동 | 현행 |
 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) | `ServoClient` — `/servo_node` 시작/정지/상태 확인 유틸리티. **Node 가 아님**에 따른 사용 제약, `ServoStatus` 상태 전이, 무인 스택용 `servo_auto_start_node`, 실제 사용처 4곳 | 현행 |
-| [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) | **⭐ 그리퍼 인터페이스 설계 (2026-09-02)**. `GripperCommand`(심볼)/`GripperState`(물리량) 계약과 `GripperNode` 노드 계약. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적인 이유 — 숫자는 그리퍼에 종속이라 기구를 바꾸면 틀린 값이 된다. `width` 는 관절값이 아니라 **개구 폭(m)**(Panda 는 2배), 못 구하면 NaN. **`at_goal` 은 위치 도달이 아니라 "시킨 일을 이뤘는가"** — `open`/`close` 는 목표 자세 도달 AND NOT `stalled`, `grasp` 는 `stalled` 다(목표 자세에 닿으면 오히려 헛닫힘). 소비자는 `at_goal` 하나만 본다. **도달을 무엇으로 재는지는 구현이 정한다** — `width` 에 묶이지 않아 `NaN` 인 스택도 판정할 수 있고, 관절 잔차로 재는 쪽이 정확한 백엔드가 있다. `effort` 를 넣지 않은 근거, 백엔드별 실현 가능성(펑션베이 `width` 매핑 미결 · Isaac `stalled` 미구현 · **mock 은 `grasp` 를 영영 성공으로 기록하지 못한다**), 반영 범위와 미결 | 현행 |
-| [moveit/Robotiq2FGripperNode_Guide.md](moveit/Robotiq2FGripperNode_Guide.md) | **Robotiq 2F 계열(2F-85) 그리퍼 구동** (`robot_control`, 실행 파일 `robotiq_2f_gripper_node`) — 액션 서버가 없어 기구를 직접 구동하는 펑션베이용 `GripperNode` 구현. **이름이 인터페이스가 아니라 기구를 가리키는 이유**(가릴 표준 인터페이스가 없다)와 모델이 아니라 계열인 이유(2F-140 은 `targets` 로 흡수). 스칼라 하나를 `axis_signs` 로 **6축에 펼쳐** 보내는 이유(시뮬레이터가 mimic 을 강제하지 않아 한 축만 보내면 링키지가 어긋난 자세가 되고 거부되지도 않는다), **`at_goal` 을 개구 폭이 아니라 관절 잔차로 판정**(지령·보고가 같은 관절 공간이라 실측 잔차 0.0000), `stalled` 을 토크와 속도 **두 신호**로 보는 이유와 실측 임계(빈손 0.004 / 자유이동 0.845 / 파지 17.19 N·m → 임계 1.0), **`width` 는 NaN** 이고 근사를 넣지 않는 이유. 계약 5케이스 검증 표와 증상별 트러블슈팅 | 현행 |
-| [moveit/GripperActionNode_Guide.md](moveit/GripperActionNode_Guide.md) | **`GripperNode` 계약의 액션 기반 구현** (`robot_control`, 실행 파일 `gripper_action_node`, 노드 이름 `gripper`). 채널·QoS(`gripper_states` 는 **`TRANSIENT_LOCAL` 이 아니다**), 파라미터 7종과 기동 시 `ValueError` 로 죽는 조건, 심볼→액션 goal 변환과 **모르는 심볼 거부**(거부한 명령은 `goal` 에 싣지 않는다), 액션 결과를 상태로 쓰지 않는 이유(명령당 1건 · `at_goal` 은 매 주기 재평가), `targets`(관절값)와 `width`(개구 폭)의 **단위 변환**과 그것을 빠뜨려 `open` 판정이 뒤집혔던 회귀. **mock 은 `effort` state interface 자체가 없어 `grasp` 가 영영 성공으로 기록되지 않는다** — 트윈 타임아웃·데이터셋 공백으로 나타난다. Isaac 이 같은 노드를 쓰는 이유, 증상별 트러블슈팅 표 | 현행 |
-| [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) | **`/panda_hand_controller/gripper_cmd` 액션 서버 계층**. `GripperActionController` 파라미터, `position` 이 gap 이 아닌 이유(mimic 관절), 관절 한계 미검사, mock 환경에서 feedback 이 오지 않는 문제, 진단 명령. ⚠️ `status`(선점 vs 실패 구분)를 싣던 `GripperActionState` 토픽은 삭제됐다 | 현행 |
 
-## 4. 카메라
+## 4. 그리퍼
+
+> **2026-09-02 에 `moveit/` 에서 분리했다.** MoveIt 이 아니라 ros2_control·시뮬레이터 계층이고, 구현 둘 중 하나(`Robotiq2FGripperNode`)는 MoveIt 을 아예 쓰지 않는다.
+
+| 문서 | 내용 | 상태 |
+|---|---|:-:|
+| [gripper/README.md](gripper/README.md) | **그리퍼 문서 진입점**. "하려는 일 → 문서" 표, **계약 하나 · 구현 둘**의 계층 그림(액션 서버 유무가 구현을 가른다), 읽는 순서, 그리고 세 가지 요점 — 명령은 심볼/관측은 물리량, 성공 판정은 `at_goal` 하나, `/joint_states` 의 손가락으로 폭을 읽지 않는다 | 현행 |
+| [gripper/GripperNode_Design.md](gripper/GripperNode_Design.md) | **⭐ 그리퍼 인터페이스 설계 (2026-09-02)**. `GripperCommand`(심볼)/`GripperState`(물리량) 계약과 `GripperNode` 노드 계약. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적인 이유 — 숫자는 그리퍼에 종속이라 기구를 바꾸면 틀린 값이 된다. `width` 는 관절값이 아니라 **개구 폭(m)**(Panda 는 2배), 못 구하면 NaN. **`at_goal` 은 위치 도달이 아니라 "시킨 일을 이뤘는가"** — `open`/`close` 는 목표 자세 도달 AND NOT `stalled`, `grasp` 는 `stalled` 다(목표 자세에 닿으면 오히려 헛닫힘). 소비자는 `at_goal` 하나만 본다. **도달을 무엇으로 재는지는 구현이 정한다** — `width` 에 묶이지 않아 `NaN` 인 스택도 판정할 수 있고, 관절 잔차로 재는 쪽이 정확한 백엔드가 있다. `effort` 를 넣지 않은 근거, 백엔드별 실현 가능성(펑션베이 `width` 매핑 미결 · Isaac `stalled` 미구현 · **mock 은 `grasp` 를 영영 성공으로 기록하지 못한다**), 반영 범위와 미결 | 현행 |
+| [gripper/GripperActionNode_Guide.md](gripper/GripperActionNode_Guide.md) | **`GripperNode` 계약의 액션 기반 구현** (`robot_control`, 실행 파일 `gripper_action_node`, 노드 이름 `gripper`). 채널·QoS(`gripper_states` 는 **`TRANSIENT_LOCAL` 이 아니다**), 파라미터 7종과 기동 시 `ValueError` 로 죽는 조건, 심볼→액션 goal 변환과 **모르는 심볼 거부**(거부한 명령은 `goal` 에 싣지 않는다), 액션 결과를 상태로 쓰지 않는 이유(명령당 1건 · `at_goal` 은 매 주기 재평가), `targets`(관절값)와 `width`(개구 폭)의 **단위 변환**과 그것을 빠뜨려 `open` 판정이 뒤집혔던 회귀. **mock 은 `effort` state interface 자체가 없어 `grasp` 가 영영 성공으로 기록되지 않는다** — 트윈 타임아웃·데이터셋 공백으로 나타난다. Isaac 이 같은 노드를 쓰는 이유, 증상별 트러블슈팅 표 | 현행 |
+| [gripper/Robotiq2FGripperNode_Guide.md](gripper/Robotiq2FGripperNode_Guide.md) | **Robotiq 2F 계열(2F-85) 그리퍼 구동** (`robot_control`, 실행 파일 `robotiq_2f_gripper_node`) — 액션 서버가 없어 기구를 직접 구동하는 펑션베이용 `GripperNode` 구현. **이름이 인터페이스가 아니라 기구를 가리키는 이유**(가릴 표준 인터페이스가 없다)와 모델이 아니라 계열인 이유(2F-140 은 `targets` 로 흡수). 스칼라 하나를 `axis_signs` 로 **6축에 펼쳐** 보내는 이유(시뮬레이터가 mimic 을 강제하지 않아 한 축만 보내면 링키지가 어긋난 자세가 되고 거부되지도 않는다), **`at_goal` 을 개구 폭이 아니라 관절 잔차로 판정**(지령·보고가 같은 관절 공간이라 실측 잔차 0.0000), `stalled` 을 토크와 속도 **두 신호**로 보는 이유와 실측 임계(빈손 0.004 / 자유이동 0.845 / 파지 17.19 N·m → 임계 1.0), **`width` 는 NaN** 이고 근사를 넣지 않는 이유. 계약 5케이스 검증 표와 증상별 트러블슈팅 | 현행 |
+| [gripper/gripper_action_server_notes.md](gripper/gripper_action_server_notes.md) | **`/panda_hand_controller/gripper_cmd` 액션 서버 계층**. `GripperActionController` 파라미터, `position` 이 gap 이 아닌 이유(mimic 관절), 관절 한계 미검사, mock 환경에서 feedback 이 오지 않는 문제, 진단 명령. ⚠️ `status`(선점 vs 실패 구분)를 싣던 `GripperActionState` 토픽은 삭제됐다 | 현행 |
+
+## 5. 카메라
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
@@ -79,7 +88,7 @@
 | [camera/opencv_camera_guide.md](camera/opencv_camera_guide.md) | `OpenCvCamera` 클래스 — 웹캠·비디오 파일·네트워크 스트림을 통합 인터페이스로 다루는 `VideoCapture` 래퍼 | 현행 |
 | [camera/initial_requirements.md](camera/initial_requirements.md) | MP4 Recorder 노드 초기 요구사항 명세서. ⚠️ **내용은 카메라가 아니라 recorder** — 디렉터리가 어긋나 있다 | 이력 |
 
-## 5. 녹화 (MP4 Recorder)
+## 6. 녹화 (MP4 Recorder)
 
 > 이름이 비슷한 **두 개의 recorder 노드**가 있다. 서비스로 제어하는
 > `image_recorder_node` 와 `/session` 을 구독해 자동 녹화하는
@@ -92,14 +101,14 @@
 | [recorder/ffmpeg_mp4_recorder_guide.md](recorder/ffmpeg_mp4_recorder_guide.md) | `FFMpegMp4Recorder` 사용 가이드. ffmpeg subprocess 로 `numpy.ndarray` → MP4. ROS 비의존 코어 | 현행 |
 | [src/rdfp/rdfp/recorder/README.md](../src/rdfp/rdfp/recorder/README.md) | `FFMpegMp4Recorder` 모듈 요약. CFR passthrough, CPU/GPU 인코더(`libx264`/`h264_nvenc`/`h264_qsv`/`h264_vaapi`), 생성자 1회 GPU probe | 현행 |
 
-## 6. 세션 / 에피소드 생명주기
+## 7. 세션 / 에피소드 생명주기
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
 | [session/session_control_guide.md](session/session_control_guide.md) | `SessionControlNode` — IDLE → IN_SESSION → IN_EPISODE 상태머신, 서비스/토픽 인터페이스, `TRANSIENT_LOCAL` QoS 규약 | 현행 |
 | [session/session_control_client_guide.md](session/session_control_client_guide.md) | `SessionControlClient` — 세션 노드를 호출하는 클라이언트 측 사용법과 제약 | 현행 |
 
-## 7. rosbag2 → 데이터셋 후처리
+## 8. rosbag2 → 데이터셋 후처리
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
@@ -116,7 +125,7 @@
 > 정확한 현행 명령은 [src/rdfp/README.md](../src/rdfp/README.md) 또는
 > [CLAUDE.md](../CLAUDE.md) 의 Console Scripts 절을 참고한다.
 
-## 8. 재생 (Replay)
+## 9. 재생 (Replay)
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
@@ -127,7 +136,7 @@
 > [src/rdfp/README.md](../src/rdfp/README.md), "위치 초기화" 버튼의 컨트롤러별
 > 동작은 [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) 를 본다.
 
-## 9. Teleoperation
+## 10. Teleoperation
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
@@ -144,7 +153,7 @@
 > 있다 (ROS 2 Jazzy + `rmw_zenoh` 라 rdfp 와 런타임을 공유할 수 없다). 연결
 > 규약은 위 `external_input_adapters.md` 가 정의한다.
 
-## 10. 시뮬레이터 백엔드 / Scene
+## 11. 시뮬레이터 백엔드 / Scene
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
@@ -158,7 +167,7 @@
 | [simulation/isaac_windows_setup.md](simulation/isaac_windows_setup.md) | **새 Windows 11 머신 구축 절차 (구성 A: Windows Isaac + WSL2 스택)**. Isaac Sim 만 설치된 상태에서 처음부터 돌리기까지 8단계 — WSL2/Ubuntu-22.04, `.wslconfig`(메모리 캡·mirrored networking), ROS 2 Humble 의존 목록, 워크스페이스 빌드, **Isaac 쪽은 파일 2개 복사**(`run_isaac_humble.bat` + `fastdds_wsl_bridge.xml`), 환경변수 4개, **sim_side 스크립트 6개의 실행 순서와 각각이 없으면 생기는 증상**, 검증 순서. 자주 막히는 곳 7가지를 증상 → 원인 → 확인법 표로 정리 — **셋이 모두 '에러 없이 토픽이 안 보이는' 증상이라 눈으로 구별되지 않는다**. 근거·설계는 isaac_backend_skeleton.md 에 있고 이 문서는 재현 절차만 담는다 | 현행 |
 
 | [topic_naming_contract.md](topic_naming_contract.md) | **⭐ 토픽 이름 규약 (1단계 결정, 2026-09-01)**. 논리 채널마다 이름을 하나로 고정한다 — 기준은 `panda_mock` 이 쓰는 이름이며 `config/recording_topics.list` 11종이 그대로 정규 이름이다. **정규 이름은 상대 경로**로 적어 2단계(로봇별 네임스페이스)가 `PushRosNamespace` 한 줄로 끝나게 한다. 단수/복수는 **메시지 모양을 따른다**(`ee_pose` 단수 · `scene/objects` 복수). **`gripper_states` 는 `/joint_states` 로 대신할 수 없다** — 펑션베이가 TF 성립용 고정값을 주입해 거짓말을 하기 때문이며, 값은 관절값이 아니라 **개구 폭(m)** 이다(필드 의미는 `GripperNode_Design.md` 가 정본). 그리퍼 두 채널은 `~/` 가 아니라 **루트 상대**다 — `~/` 는 네임스페이스가 아니라 **노드 이름**을 붙여 채널이 구현에 묶이고 2단계 `PushRosNamespace` 도 타지 못한다. 폐기된 `gripper_action_states` 의 판단 기록과 그것이 남긴 Isaac `stalled` 부채도 여기 있다. **arm 명령은 규약이 아니다** — 스택마다 컨트롤러 유무와 타입이 달라 통일하지 않고, 그 위의 `target_joint_cmds` 를 정규 채널로 둔다. remap 은 **백엔드 경계에서만**. 지금 어긋난 곳(절대 기본값·검사 스크립트 11종·트윈 설정 8종)과 적용 순서 5단계, `/clock`·`/tf` 를 전역으로 두는 판단과 **다중 로봇에는 프레임 접두사가 필수**라는 점 | 현행 |
-## 11. 외부 로봇 (OMY-L100)
+## 12. 외부 로봇 (OMY-L100)
 
 > `rdfp` 패키지와 직접 관련 없는 별도 로봇(ROBOTIS OMY-L100) 자료다.
 > 컨테이너 내부는 **Ubuntu 24.04 + ROS 2 Jazzy** 기준이라 이 워크스페이스의
@@ -169,7 +178,7 @@
 | [OMY-L100_Docker_Setup_and_Usage.md](OMY-L100_Docker_Setup_and_Usage.md) | OMY-L100 소프트웨어 설치·활용. ROBOTIS Docker 컨테이너 기준 | 현행 |
 | [OMY-L100_Docker_Setup_and_Usage_with_Volumes.md](OMY-L100_Docker_Setup_and_Usage_with_Volumes.md) | 위 문서의 **볼륨 마운트 버전**. 호스트 작업물을 컨테이너에 연결하는 구성 추가 | 현행 |
 
-## 12. 로봇 트윈 (REST 게이트웨이)
+## 13. 로봇 트윈 (REST 게이트웨이)
 
 > ROS 2 를 직접 사용할 수 없는 외부 시스템(MDT Platform 등)이 REST 로 로봇 상태를
 > 조회하고 명령을 실행하기 위한 게이트웨이다. 트윈 자체는 Python + rclpy 로
@@ -182,7 +191,7 @@
 | [robot_twin/mcp_server_design.md](robot_twin/mcp_server_design.md) | **로봇 트윈 MCP 서버 설계서**. LLM 에이전트가 대화만으로 로봇 상태를 읽고 연산을 조합하게 하는 경로(`~/development/mdtpy/robot-twin` 의 `mcp_server.py`). **트윈이 자기 능력을 알리기 위한 변경**(`config.py`/`api.py` 에 `description` 필드 + 카탈로그 노출, 설정 YAML 19건 작성)과 그 필요성(`extra='forbid'` 라 YAML 만으로는 기동 실패), 도구 18개의 생성 규칙(카탈로그 자동 생성 5 + 검증 래퍼 교체 2 + 추가 11, 감춤 4), 결정 13건(상태 변수를 resource 가 아닌 tool 로 노출한 이유, 여는 연산만 감춘 비대칭, 작업 상태를 서버가 소유하고 metadata 자동 병합, SDK 2.0 에서 low-level API 를 쓴 경위), 이슈(인증 없는 경로 위임·카탈로그 캐시·동시 호출 무보호·타임아웃 2층) | 현행 |
 | [robot_twin/auto_episode_collection_draft.md](robot_twin/auto_episode_collection_draft.md) | **자동 에피소드 수집을 위한 트윈 확장 (임시 초안)**. 물체 위치를 랜덤화하며 스크립트 pick-and-place 를 반복해 학습 데이터를 양산하는 경로. mock/Gazebo/Isaac 은 인터페이스는 통일 가능하나 **mock 은 물체가 움직이지 않아 자동 라벨링이 불가능**하다는 구분, 백엔드별 발행 노드 → `/scene/objects` 단일 토픽 → 트윈(코드 변경 0) 배선, `rdfp_msgs/SceneObjects` 제안(stamp 필수·frame `panda_link0` 고정), 저수준 spawn API 대신 `reset_scene(scene, seed)` + 레시피 config(그리퍼 `targets` 패턴 재사용)와 **실제 배치 pose 를 outputs 로 남겨야 재현된다**는 근거, 최대 구멍인 **트윈의 에피소드 경계 부재**(`start_episode`/`stop_episode` 우선)와 `sessions` 스키마 확장 필요성, 작업 순서·미결정 체크리스트. **§6 작업 1~5b 완료(2026-08-17) — 남은 것은 Gazebo(6)·Isaac(7) 연동뿐이며, 완료 표시가 붙은 절은 이미 코드에 반영됨.** 작업 후 정식 문서로 옮기고 삭제 예정 | 설계안 |
 
-## 13. AI 어시스턴트용 지침 (CLAUDE.md)
+## 14. AI 어시스턴트용 지침 (CLAUDE.md)
 
 사람이 읽는 문서가 아니라 Claude Code 에 주입되는 지침이지만, **비자명한 동작
 (non-obvious behaviors)** 이 정리되어 있어 디버깅 시 유용하다.
@@ -213,10 +222,10 @@
 | scene 에 물체를 놓거나 물체 좌표를 읽는다 | [scene/scene_objects_guide.md](scene/scene_objects_guide.md) |
 | JGPC(비-JTC) 환경에서 움직인다 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) |
 | servo 로 실시간 제어한다 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) |
-| 그리퍼를 코드에서 쓴다 (명령 발행·상태 구독·성공 판정) | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) §5 |
-| 그리퍼가 안 움직인다 / 상태가 안 온다 | [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) |
-| 그리퍼 메시지 필드의 뜻을 안다 (`width`/`stalled`/`at_goal`) | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) |
-| 그리퍼 노드를 띄우고 파라미터를 조정한다 | [moveit/GripperActionNode_Guide.md](moveit/GripperActionNode_Guide.md) (mock·Isaac) / [moveit/Robotiq2FGripperNode_Guide.md](moveit/Robotiq2FGripperNode_Guide.md) (펑션베이) |
+| 그리퍼를 코드에서 쓴다 (명령 발행·상태 구독·성공 판정) | [gripper/GripperNode_Design.md](gripper/GripperNode_Design.md) §5 |
+| 그리퍼가 안 움직인다 / 상태가 안 온다 | [gripper/gripper_action_server_notes.md](gripper/gripper_action_server_notes.md) |
+| 그리퍼 메시지 필드의 뜻을 안다 (`width`/`stalled`/`at_goal`) | [gripper/GripperNode_Design.md](gripper/GripperNode_Design.md) |
+| 그리퍼 노드를 띄우고 파라미터를 조정한다 | [gripper/GripperActionNode_Guide.md](gripper/GripperActionNode_Guide.md) (mock·Isaac) / [gripper/Robotiq2FGripperNode_Guide.md](gripper/Robotiq2FGripperNode_Guide.md) (펑션베이) |
 | 카메라 영상을 토픽으로 낸다 | [camera/camera_node_guide.md](camera/camera_node_guide.md) |
 | 카메라 영상을 JPEG 압축으로만 낸다 | [camera/image_capture_node_guide.md](camera/image_capture_node_guide.md) |
 | 영상을 MP4 로 녹화한다 | 서비스 제어 → [recorder/image_recorder_node_guide.md](recorder/image_recorder_node_guide.md) / 세션 자동 → [recorder/rdfp_image_recorder_node_guide.md](recorder/rdfp_image_recorder_node_guide.md) |
@@ -232,7 +241,7 @@
 | 펑션베이 작업을 이어서 한다 (남은 작업·블로커) | [simulation/functionbay_open_work.md](simulation/functionbay_open_work.md) |
 | 펑션베이 시뮬레이터 제작사에 수정을 요청한다 | [simulation/functionbay_vendor_requests.md](simulation/functionbay_vendor_requests.md) |
 | 토픽 이름을 정하거나 바꾼다 | [topic_naming_contract.md](topic_naming_contract.md) |
-| 그리퍼 명령·상태 채널을 다룬다 | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) |
+| 그리퍼 명령·상태 채널을 다룬다 | [gripper/GripperNode_Design.md](gripper/GripperNode_Design.md) |
 | Isaac Sim 백엔드를 개발한다 | [simulation/isaac_backend_skeleton.md](simulation/isaac_backend_skeleton.md) |
 | 새 Windows 머신에 Isaac 환경을 구축한다 | [simulation/isaac_windows_setup.md](simulation/isaac_windows_setup.md) |
 | Gazebo 로 돌린다 | [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md) |
