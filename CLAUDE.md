@@ -69,7 +69,7 @@ Entry points are split across the three Python packages — **`ros2 run <pkg> <s
 
 | package | scripts |
 |---|---|
-| `robot_control` | `camera_node`, `image_capture_node`, `image_viewer_node`, `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `gripper_action_node`, `mock_scene_state_node`, `isaac_gripper_bridge`, `isaac_scene_state_node`, `isaac_servo_bridge`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `target_joint_states_publisher`, `target_joint_states_executor` |
+| `robot_control` | `camera_node`, `image_capture_node`, `image_viewer_node`, `ee_pose_node`, `ee_twist_node`, `servo_auto_start_node`, `gripper_action_node`, `gripper_joint_node`, `mock_scene_state_node`, `isaac_gripper_bridge`, `isaac_scene_state_node`, `isaac_servo_bridge`, `target_joint_cmds_publisher`, `target_joint_cmds_executor`, `target_joint_states_publisher`, `target_joint_states_executor` |
 | `robot_twin` | `robot_twin` |
 | `rdfp` | `rdfp_camera_node`, `rdfp_image_viewer_node`, `session_control_node`, `image_recorder_node`, `rdfp_image_recorder`, `teleop_keyboard`, `session_teleop`, `teleop_retarget`, `clutch_pedal` (USB 풋페달 → 클러치; `python3-evdev` 필요), `import`, `replay`, `stats`, `list`, `init-db`, `rosbag`, `replay_gui` |
 

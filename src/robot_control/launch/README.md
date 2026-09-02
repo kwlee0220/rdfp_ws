@@ -355,7 +355,7 @@ from robot_control.launch_helpers.common import build_moveit_config
 | `camera.py` | 카메라 argument 선언 + `camera_node` 생성 |
 | `image_pipeline.py` | **`config/image_pipeline.yaml` 로더 + camera / image_viewer / image_recorder argument 선언.** 카메라를 띄우는 launch 가 여섯이라 기본값을 한 곳에 모은 모듈 |
 | `ee_pose.py` | EE pose argument 선언 + `ee_pose_node` 생성 |
-| `gripper.py` | `gripper_action_node` 생성 (argument 없음). **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [GripperNode_Design.md](../../../docs/moveit/GripperNode_Design.md) |
+| `gripper.py` | `create_gripper_node()` → `gripper_action_node` (액션 서버가 있는 스택), `create_gripper_joint_node()` → `gripper_joint_node` (펑션베이 — 관절 목표각 토픽). **갈리는 축은 백엔드가 아니라 실행 수단이다.** **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [GripperNode_Design.md](../../../docs/moveit/GripperNode_Design.md) |
 | `scene.py` | `enable_scene` / `scene_publish_rate` 선언 + `create_mock_scene_node()`. **팩토리는 아직 mock 용 하나뿐이다** — Isaac 은 launch 안에서 직접 만든다 |
 | `gazebo.py` | Gazebo 백엔드 전용 — gz-sim 기동, 스폰, 브리지 |
 

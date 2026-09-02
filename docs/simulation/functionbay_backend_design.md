@@ -330,8 +330,17 @@ servo status 는 전 구간 `NO_WARNING` 이라 특이점·충돌·관절한계�
 |---|---|
 | URDF | `panda_finger_joint1` prismatic **0 ~ 0.04 m** |
 | SRDF `hand` 그룹 | `open` = 0.035 / `close` = 0 |
-| `GripperNode` 목표표 (`targets` 파라미터) | `open: [0.035, 10]` / `close: [0.0, 10]` / `grasp: [0.0, 30]` |
-| `GripperActionNode` | `control_msgs/GripperCommand` **액션** 클라이언트 — 펑션베이엔 액션 서버가 없어 **쓸 수 없다.** 토픽 기반 `GripperNode` 구현이 따로 필요하다 (미구현) |
+| `GripperActionNode` 의 `targets` | `open: [0.035, 10]` / `close: [0.0, 10]` / `grasp: [0.0, 30]` — 관절값(m) + 힘(N) |
+| 그리퍼 실행 경로 | `control_msgs/GripperCommand` **액션 서버** 존재 |
+
+**마지막 두 줄은 해소됐다 (2026-09-02).** [`GripperJointNode`](../moveit/GripperJointNode_Guide.md)
+가 6축 목표각을 `/input/gripper_joint` 로 직접 쓰고, `targets` 는 2F-85 스칼라
+(`close: 0.725 rad`)를 갖는다. **계약(`GripperCommand`/`GripperState`)은 그대로**이므로
+상위(teleop·트윈·데이터셋)는 백엔드를 모른다.
+
+**남은 것은 URDF/SRDF 다.** 위 표의 첫 두 줄이며, TF 와 충돌검사가 여기에 걸린다 —
+그래서 launch 가 `panda_finger_joint1` 에 고정값을 주입해 TF 만 성립시키고, **실제
+그리퍼 상태는 `/gripper_states` 로 따로 낸다.**
 
 2F-85 는 **스트로크 85 mm 의 링크 구동식**이라 기구학 자체가 다르다. 손가락 개폐가
 직동(prismatic)이 아니라 **회전 관절**이며, 제공된 URDF 기준 `finger_joint` 가
@@ -449,13 +458,13 @@ URDF 대로면 mimic 으로 함께 움직여야 하므로, 그 상태는 링키�
 
 1. `panda_arm` + `robotiq_2f_85` xacro 조합으로 URDF 재구성, SRDF `hand` 그룹
    재정의.
-2. `rdfp_msgs/GripperCommand` ↔ `/input,/output/gripper_joint` 브리지 노드.
-   **URDF/SRDF(1번)와 무관하므로 지금 착수할 수 있다** — 토픽↔액션 변환이고
-   필요한 상수는 §6.1 에 전부 있다. `reached_goal`/`stalled` 은 위치 잔차와
-   `effort` **두 신호**로 판정한다 (한때 위치만으로 재구성해야 한다고 보았으나,
-   `effort` 가 함께 발행되므로 그럴 필요가 없다). robot_twin 의 파지 성공 판정
-   근거가 여기에 걸려 있다.
-3. robot_twin 설정의 `backend.targets` 를 2F-85 스케일로 재작성.
+2. ~~`rdfp_msgs/GripperCommand` ↔ `/input,/output/gripper_joint` 브리지 노드.~~
+   **✅ 완료 (2026-09-02)** — `GripperJointNode` (`robot_control`, 실행 파일
+   `gripper_joint_node`). 예상대로 URDF/SRDF(1번)와 무관했다. `at_goal`/`stalled` 은
+   관절 잔차와 `effort` **두 신호**로 판정하며, 임계값은 §6.1 실측 그대로다.
+   `width` 는 링키지 기하가 없어 **NaN** 이다 — `at_goal` 은 잔차로 판정하므로
+   영향받지 않는다. [가이드](../moveit/GripperJointNode_Guide.md).
+3. ~~robot_twin 설정의 `backend.targets` 를 2F-85 스케일로 재작성.~~ **불필요해졌다** — 명령이 심볼만 싣게 되어(2026-09-01) 트윈은 `backend.labels` 만 갖고, 2F-85 수치는 `GripperJointNode` 의 `targets` 파라미터에 있다. 다만 **펑션베이용 트윈 설정 자체가 아직 없다.**
 
 > **Humble apt 에 Robotiq description 이 없다** (`ros-humble-robotiq-description`
 > 미제공). 서드파티 저장소를 vcs 로 가져오거나 직접 작성해야 한다.

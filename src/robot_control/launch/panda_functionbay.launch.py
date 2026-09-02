@@ -48,6 +48,7 @@ from typing import Any, List
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -71,6 +72,7 @@ from robot_control.launch_helpers.common import (
     declare_ros2_control_hardware_type_argument,
 )
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node, declare_ee_pose_arguments
+from robot_control.launch_helpers.gripper import create_gripper_joint_node
 
 # 펑션베이가 제공하는 토픽. 시뮬레이터 쪽 고정값이라 상수로 둔다.
 FB_JOINT_REPORT_TOPIC = '/output/panda_joint'
@@ -82,7 +84,16 @@ ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
 SERVO_COMMAND_TOPIC = '/servo_node/commands'
 # 시뮬레이터가 관절 명령을 받는 토픽.
 ARM_COMMAND_TOPIC = '/input/panda_joint'
-# 그리퍼 미연동 구간 동안 TF 를 성립시키기 위한 고정값 (열림, m).
+# 시뮬레이터의 그리퍼 채널 (2F-85, 6축). 실측 확정 — 설계서 §6.1.
+FB_GRIPPER_COMMAND_TOPIC = '/input/gripper_joint'
+FB_GRIPPER_REPORT_TOPIC = '/output/gripper_joint'
+
+# `/joint_states` 의 손가락에 채우는 **고정값** (열림, m).
+#
+# ⚠️ **그리퍼 상태가 아니다 — TF 성립용이다.** URDF 는 Panda Hand 인데 시뮬레이터는
+# 2F-85 라 관절이 대응하지 않는다. 그리퍼 노드가 떠 있어도 이 값은 여전히 고정이며,
+# 실제 그리퍼 상태는 `/gripper_states` 에서 읽는다. 여기서 읽으면 "항상 열려 있다"는
+# 거짓말을 받는다 (docs/topic_naming_contract.md §2.2).
 FINGER_JOINT_NAME = 'panda_finger_joint1'
 FINGER_FIXED_POSITION = 0.04
 
@@ -104,6 +115,18 @@ def declare_functionbay_arguments() -> list[DeclareLaunchArgument]:
         DeclareLaunchArgument(
             "fb_ready_timeout", default_value="60.0",
             description="시뮬레이터 첫 보고 대기 한도(초). 초과하면 launch 가 실패한다",
+        ),
+        DeclareLaunchArgument(
+            "enable_gripper", default_value="true",
+            description="그리퍼 노드(GripperJointNode) 기동 여부",
+        ),
+        DeclareLaunchArgument(
+            "fb_gripper_command_topic", default_value=FB_GRIPPER_COMMAND_TOPIC,
+            description="시뮬레이터의 그리퍼 목표각 토픽 (std_msgs/Float64MultiArray, 6축)",
+        ),
+        DeclareLaunchArgument(
+            "fb_gripper_report_topic", default_value=FB_GRIPPER_REPORT_TOPIC,
+            description="시뮬레이터의 그리퍼 보고 토픽 (sensor_msgs/JointState, 6축 q/v/f)",
         ),
     ]
 
@@ -179,6 +202,23 @@ def create_joint_state_fusion_node() -> Node:
     )
 
 
+def create_gripper_node_for_functionbay() -> Node:
+    """그리퍼 — **액션이 아니라 관절 지령** 구현을 쓴다.
+
+    이 스택에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 존재하지
+    않는다. mock·Isaac 이 쓰는 `GripperActionNode` 는 그래서 쓸 수 없고, 6축 목표각을
+    토픽으로 직접 쓰는 `GripperJointNode` 가 대신한다.
+
+    파라미터 기본값이 이미 2F-85 실측치라 여기서 재정의할 것이 없다 (부호 벡터,
+    `close` 0.725 rad, 파지 임계 1.0 N·m — 설계서 §6.1).
+    """
+    return create_gripper_joint_node(
+        command_topic=LaunchConfiguration("fb_gripper_command_topic"),
+        report_topic=LaunchConfiguration("fb_gripper_report_topic"),
+        condition=IfCondition(LaunchConfiguration("enable_gripper")),
+    )
+
+
 def create_readiness_gate_node() -> Node:
     """첫 관절 보고를 기다렸다 종료하는 게이트 (spawner 대체)."""
     return Node(
@@ -212,6 +252,8 @@ def generate_launch_description() -> LaunchDescription:
         create_rviz_node(moveit_config),
         create_camera_node(load_config()),
         create_ee_pose_node(),
+        # 그리퍼도 시뮬레이터 준비 후에 띄운다 — 관절 보고를 받아야 판정이 선다.
+        create_gripper_node_for_functionbay(),
     ]
 
     # spawner 가 없으므로 게이트 노드의 종료를 기동 신호로 쓴다. mock/Gazebo 가
