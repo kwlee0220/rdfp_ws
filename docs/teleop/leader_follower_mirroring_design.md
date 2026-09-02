@@ -181,7 +181,7 @@ leader `/tf` 가 50Hz(주기 20ms)로 확인되었다. 사람 팔 동작의 유�
 - leader 가 follower 보다 도달범위가 넓으면 follower 가 못 따라가는 영역이
   생긴다 → 클러치 + 스케일로 운용상 회피한다.
 - 그리퍼는 별도 채널로 매핑한다 (leader 그리퍼 상태 →
-  `/gripper_control/gripper_cmds`).
+  `/gripper_cmds`).
 
 ## 7. 통합 전 확인 사항
 

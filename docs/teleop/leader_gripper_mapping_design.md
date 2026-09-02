@@ -1,9 +1,17 @@
 # 리더 트리거 → 그리퍼 명령 매핑 설계
 
-> **상태: 설계안 — 코드 미반영.**
+> **상태: 설계안 — 코드 미반영. 전제가 두 개 흔들린다.**
 >
-> 전제인 "OMY-L100 에 그리퍼 역할의 관절이 있다"가 **아직 확인되지 않았다** (1.2).
-> 확인 결과에 따라 3장 이후가 그대로 쓰이거나 폐기된다.
+> 1. "OMY-L100 에 그리퍼 역할의 관절이 있다"가 **아직 확인되지 않았다** (1.2).
+> 2. **`rdfp_msgs/GripperCommand` 가 숫자를 싣지 않게 됐다 (2026-09-01).** 지금은
+>    `goal` 심볼(`open`/`close`/`grasp`) 하나뿐이며 `position`/`max_effort` 필드는
+>    삭제됐다 — 숫자가 그리퍼에 종속이라 다른 기구로 옮기면 틀린 값이 되기 때문이다
+>    ([GripperNode_Design.md](../moveit/GripperNode_Design.md) §2.1).
+>
+> 따라서 이 문서가 제안하는 **연속 `position` 매핑(3.1)은 현행 인터페이스로는 보낼 수
+> 없다.** 6장의 "이진(open/close) 부터 시작한다" 단계는 그대로 유효하다. 연속 매핑이
+> 실제로 필요해지면 (a) 라벨을 잘게 추가하거나 (b) 숫자 필드를 되살릴지 —
+> 인터페이스 결정이 먼저다. 아래 3~5장은 **그 결정 이전에 쓰인 원안**으로 남긴다.
 
 리더 장치의 트리거 관절 위치값을 팔로워 그리퍼의 `control_msgs/GripperCommand`
 goal 로 바꾸는 방법을 정한다. 팔 미러링은
@@ -62,7 +70,7 @@ omy_leader_bridge  (UDP relay)                 ← bridge_topics.json 에 토픽
 [신규] 그리퍼 매핑 노드                          ← 캘리브레이션·deadband·전송률·게이트
     │  open/close 서비스 또는 gripper_cmd goal
     ▼
-gripper_control_node → panda_hand_controller
+GripperNode → panda_hand_controller
 ```
 
 ---
@@ -154,7 +162,7 @@ position = (1 - u) × POSITION_OPEN
 | **최소 간격** | 10~20 Hz 상한 | 기구 속도가 못 따라가는 무의미한 명령 |
 | **선점 result 무시** | — | 정상 동작 중에 에러 로그가 계속 찍히는 것 |
 
-세 번째는 "마지막 goal 만 유효"로 두고 취소된 이전 goal 의 result 는 로그도 남기지 않는다는 뜻이다. `gripper_control_node` 가 result 를 `~/gripper_action_states` 로 재발행하는 구조이므로, 그 경로를 쓸 때 특히 주의한다.
+세 번째는 "마지막 goal 만 유효"로 두고 취소된 이전 goal 의 result 는 로그도 남기지 않는다는 뜻이다. **현행 `GripperNode` 는 액션 result 를 로그로만 남기므로** 선점된 goal 은 데이터에 흔적이 없다 — `at_goal` 은 매 주기 재평가되는 현재 상태일 뿐이다.
 
 ---
 
@@ -165,9 +173,9 @@ position = (1 - u) × POSITION_OPEN
 | | `GripperCommand` 액션 (유지) | `JointGroupPositionController` |
 |---|---|---|
 | 고주기 스트리밍 | 선점 처리 필요 (4장) | 자연스럽다 |
-| 파지 성공 판정 | `stalled` / `reached_goal` | **불가** |
+| 파지 성공 판정 | `stalled` → `at_goal` | **불가** |
 | 파지력 제어 | `max_effort` | **불가** |
-| MoveIt·트윈·`gripper_control_node` | 그대로 동작 | **전부 깨진다** |
+| MoveIt·트윈·`GripperNode` | 그대로 동작 | **전부 깨진다** |
 | 실기 franka | 액션만 노출된다 | 적용 불가 |
 
 **텔레오퍼레이션 하나 때문에 나머지를 잃는 교환이다.** 액션을 유지하고 4장의 전송률 제어로 대응한다.
@@ -210,7 +218,7 @@ position = (1 - u) × POSITION_OPEN
 
 임계값 + **hysteresis**(부록 A.4)로 open/close 만 판정한다. 예를 들어 `u > 0.7` 에서 close, `u < 0.3` 에서 open 으로 벌려 잡아 채터링을 막는다.
 
-- `gripper_control_node` 가 구독하는 명령 토픽에 `position` 두 값 중 하나를 발행하면 되므로 새로 만들 것이 거의 없다.
+- `GripperNode` 가 구독하는 명령 토픽(`/gripper_cmds`)에 `open`/`close` 심볼을 발행하면 되므로 새로 만들 것이 거의 없다. **현행 인터페이스로 바로 가능한 단계는 이것뿐이다.**
 - 상태가 둘뿐이라 전송 빈도 문제가 사실상 사라진다 (상태 전이에서만 보낸다).
 - 파지 성공/실패 판정도 명확하다.
 
@@ -229,9 +237,9 @@ position = (1 - u) × POSITION_OPEN
 | 확인 | 방법 | 기대 |
 |---|---|---|
 | deadband·전송률이 먹는가 | 트리거를 천천히 끝에서 끝까지 움직이며 goal 전송 횟수를 센다 | 50 Hz 가 아니라 10~20 Hz 상한 |
-| 파지가 성립하는가 | 물체를 쥔 상태에서 액션 result 확인 | `stalled: true` / `reached_goal: false` |
+| 파지가 성립하는가 | 물체를 쥔 상태에서 `/gripper_states` 확인 | `stalled: true` → `at_goal: true` |
 
-두 번째의 판정 규칙은 그리퍼 연산과 동일하다 — **`reached_goal: false` 는 실패가 아니다.** 물체를 물면 목표까지 갈 수 없으므로 당연한 결과이며, 파지 판정의 축은 `stalled` 다.
+두 번째의 판정 규칙은 그리퍼 연산과 동일하다 — **`grasp` 는 목표 폭에 닿으면 오히려 실패(헛닫힘)다.** 그래서 판정의 축이 위치가 아니라 `stalled` 이고, 그 결론이 `at_goal` 에 담긴다.
 
 ---
 

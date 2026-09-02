@@ -22,15 +22,29 @@ class _Stub:
         self._goal = goal
         self._width = width
         self._width_tolerance = tolerance
+        # `targets` 는 액션 goal 에 실을 **관절값**이다. 관측되는 width 는 그 2배다.
         self._targets = {'open': (0.035, 10.0), 'close': (0.0, 10.0), 'grasp': (0.0, 30.0)}
+        self._width_scale = 2.0
 
     _at_goal = MockGripperNode._at_goal
     _stalled = MockGripperNode._stalled
+    _target_width = MockGripperNode._target_width
 
 
 def test_open_reaches_goal_at_target_width():
-    assert _Stub('open', 0.035)._at_goal() is True
-    assert _Stub('open', 0.020)._at_goal() is False
+    """비교 기준은 **개구 폭**이다 — 관절값 0.035 의 목표는 폭 0.070 이다."""
+    assert _Stub('open', 0.070)._at_goal() is True
+    assert _Stub('open', 0.040)._at_goal() is False
+
+
+def test_open_does_not_match_the_raw_joint_value():
+    """관절값과 폭을 그대로 견주면 `open` 은 영영 도달하지 못한다 (회귀).
+
+    `targets['open']` 은 0.035(관절값)이고 손이 다 열렸을 때 `width` 는 0.070 이다.
+    두 단위를 직접 비교하던 구현에서는 이 값이 `True` 였고, 실제로 열린 손은
+    `False` 였다 — 판정이 정확히 뒤집혀 있었다.
+    """
+    assert _Stub('open', 0.035)._at_goal() is False
 
 
 def test_close_reaches_goal_when_fully_closed():

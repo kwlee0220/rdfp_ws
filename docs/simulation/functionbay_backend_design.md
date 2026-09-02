@@ -330,8 +330,8 @@ servo status 는 전 구간 `NO_WARNING` 이라 특이점·충돌·관절한계�
 |---|---|
 | URDF | `panda_finger_joint1` prismatic **0 ~ 0.04 m** |
 | SRDF `hand` 그룹 | `open` = 0.035 / `close` = 0 |
-| robot_twin 목표표 | `open: 0.04` / `close: 0.0` / `grasp: 0.0 + 30 N` |
-| `gripper_control_node` | `control_msgs/GripperCommand` **액션** 클라이언트 |
+| `GripperNode` 목표표 (`targets` 파라미터) | `open: [0.035, 10]` / `close: [0.0, 10]` / `grasp: [0.0, 30]` |
+| `MockGripperNode` | `control_msgs/GripperCommand` **액션** 클라이언트 — 펑션베이엔 액션 서버가 없어 `FunctionBayGripperNode` 가 따로 필요하다 (미구현) |
 
 2F-85 는 **스트로크 85 mm 의 링크 구동식**이라 기구학 자체가 다르다. 손가락 개폐가
 직동(prismatic)이 아니라 **회전 관절**이며, 제공된 URDF 기준 `finger_joint` 가

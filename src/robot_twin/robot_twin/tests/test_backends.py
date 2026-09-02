@@ -73,7 +73,7 @@ def test_gripper_operations_are_not_split_per_target() -> None:
 
 def test_gripper_labels_come_from_config() -> None:
     """**숫자가 아니라 심볼 목록이다.** position/max_effort 는 그리퍼에 종속이라
-    `gripper_control_node` 의 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼 수 있는지만
+    `GripperNode` 의 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼 수 있는지만
     안다. 목록을 설정에 두는 이유는 `/operations` 카탈로그의 enum 이 여기서 파생돼
     에이전트가 그것을 보고 값을 고르기 때문이다.
     """
@@ -140,7 +140,7 @@ def test_gripper_operation_without_wiring_is_rejected(missing: str) -> None:
                                     ['open', None], [{'open': {'position': 0.04}}]])
 def test_labels_must_be_non_empty_symbols(labels: Any) -> None:
     """**심볼 목록이다.** 예전처럼 `{position, max_effort}` 를 적으면 거부한다 —
-    숫자는 그리퍼에 종속이라 `gripper_control_node` 의 파라미터가 갖는다.
+    숫자는 그리퍼에 종속이라 `GripperNode` 의 파라미터가 갖는다.
     """
     op = OperationConfig(name='move_gripper_to_target', kind='sync',
                          backend={**GRIPPER_BACKEND, 'labels': labels})

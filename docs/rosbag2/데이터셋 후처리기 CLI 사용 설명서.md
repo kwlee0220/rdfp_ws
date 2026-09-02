@@ -283,7 +283,7 @@ ros2 run rdfp rosbag list-episodes \
 
 ```
 gripper_cmds         24
-gripper_action_states       180
+gripper_states       180
 joint_states         900
 joint_trajectories   12
 pose_stampeds        540
@@ -296,7 +296,7 @@ twist_stampeds       270
 ```json
 {
   "gripper_cmds": 24,
-  "gripper_action_states": 180,
+  "gripper_states": 180,
   "joint_states": 900,
   "joint_trajectories": 12,
   "pose_stampeds": 540,

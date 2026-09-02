@@ -23,7 +23,7 @@ ARM_OP = OperationConfig(name='move_to_named_target', kind='async', resource='ar
                          backend={'method': 'move_to_named_target_async'})
 GRIPPER_OP = OperationConfig(
     name='move_gripper_to_target', kind='sync', resource='gripper',
-    backend={'topic': '/gripper_control/gripper_cmds',
+    backend={'topic': '/gripper_cmds',
              'topic_type': 'rdfp_msgs/msg/GripperCommand',
              'result_variable': 'gripper_last_command_result',
              'labels': ['open']}

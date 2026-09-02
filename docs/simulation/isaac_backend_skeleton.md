@@ -278,7 +278,7 @@ articulation drive 의 `stiffness`/`damping` 을 **우리가 직접 조정할 �
 | | |
 |---|---|
 | 켜는 것 | `enable_gripper:=true` |
-| 우리 쪽 | `isaac_gripper_bridge` (신규) — `panda_hand_controller/gripper_cmd` **액션 서버**를 열어 `/isaac/gripper_command` 로 바꾼다. `enable_gripper:=true` 로 `gripper_control_node` 와 함께 뜬다 |
+| 우리 쪽 | `isaac_gripper_bridge` (신규) — `panda_hand_controller/gripper_cmd` **액션 서버**를 열어 `/isaac/gripper_command` 로 바꾼다. `enable_gripper:=true` 로 `GripperNode` 와 함께 뜬다 |
 
 > ## ✅ Phase 2 완료 — 2026-08-29
 >
@@ -296,7 +296,7 @@ articulation drive 의 `stiffness`/`damping` 을 **우리가 직접 조정할 �
 > 나와 "그리퍼 고장"으로 오독했다. `ready` 로 올리자 0.0400 m 가 정확히 나왔다.
 > Phase 1 에서 배운 자세 앵커 원칙이 여기에도 그대로 적용된다.
 >
-> **액션 이름을 그대로 쓴 덕에 상위 경로는 변경이 없다** — `gripper_control_node` 는
+> **액션 이름을 그대로 쓴 덕에 상위 경로는 변경이 없다** — `GripperNode` 는
 > mock 에서와 똑같이 동작하고, 그 아래가 ros2_control 인지 `isaac_gripper_bridge`
 > 인지 모른다.
 
@@ -305,7 +305,7 @@ articulation drive 의 `stiffness`/`damping` 을 **우리가 직접 조정할 �
 두 finger 값 일치.
 
 > **왜 액션 서버가 필요한가** — 상위 경로(teleop · robot twin · 데이터셋 재생)는
-> 모두 `gripper_control_node` 를 거치고, 그 노드는 `/panda_hand_controller/gripper_cmd`
+> 모두 `GripperNode` 를 거치고, 그 노드는 `/panda_hand_controller/gripper_cmd`
 > **액션**을 부른다. mock 에서는 ros2_control 의 `GripperActionController` 가 그 서버지만
 > Isaac 에는 ros2_control 이 없어 **서버가 아예 없다** — 호출이 응답 없이 멈춘다.
 > `isaac_gripper_bridge` 가 **같은 이름으로** 서버를 열어 그 자리를 채운다. 그래서

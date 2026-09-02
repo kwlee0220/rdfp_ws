@@ -268,10 +268,10 @@ POST /api/v1/robot_twins/panda01/operations/move_gripper_to_target
 200 OK
 { "status": "COMPLETED",
   "outputs": { "target": "open",
-               "position": 0.0399,     // 액션 result — 실제 도달 위치 [m]
-               "effort": 0.0,
-               "stalled": false,       // 물체를 물어 멈췄는가
-               "reached_goal": true }} // 목표 위치에 도달했는가
+               "goal": "open",         // 상태가 들고 있는 마지막 명령
+               "width": 0.0799,        // 개구 폭 [m] — 관절값이 아니다
+               "stalled": false,       // 힘을 내는데 안 움직이는가 (관측)
+               "at_goal": true }}      // 시킨 일을 이뤘는가 (판정)
 ```
 
 **비동기 연산** — `202` + `session_endpoint` 를 받고 폴링한다.
@@ -382,8 +382,7 @@ HTTP 상태 코드는 **프로토콜 처리 결과**, 본문의 `status` 는 **�
 |---|:-:|---|:-:|---|
 | `joint_states` | 제어 | `/joint_states` | ✅ | 관절 위치·속도·토크. `{관절이름: 값}` map 으로 정규화된다 |
 | `ee_pose` | 제어 | `/ee_pose` | ✅ | 엔드이펙터 pose. `ee_pose_publisher` 가 TF 에서 만들어 발행한다 |
-| `gripper_position` | 제어 | `joint_states` 파생 | ⛔ 미배선 | 연속적인 그리퍼 위치. `NO_DATA` 로 응답한다 |
-| `gripper_last_command_result` | 제어 | `/gripper_control/gripper_action_states` | ✅ | `move_gripper_to_target` 의 결과 채널. **이벤트성**이며 보통 직접 조회하지 않는다 (아래 참조) |
+| `gripper_state` | 제어 | `/gripper_states` | ✅ | 그리퍼의 **연속 상태**. `width`(개구 폭 m), `stalled`, `at_goal`. 성공 판정은 `at_goal` 하나로 한다 (아래 참조) |
 | `session_state` | **수집** | `/session` | ✅ | 세션/에피소드 상태 (`IDLE`/`IN_SESSION`/`IN_EPISODE`)와 task label |
 | `scene_objects` | 제어 | `/scene/objects` | ✅ | scene 안 물체들의 종류·크기·pose. **물체 이름으로 접근하는 map** 이다 |
 | `named_targets` | 제어 | SRDF 조회 (`static`) | ✅ | 그룹별 named target 목록. **최초 조회 시 lazy 하게 가져와 캐시**한다 |
@@ -492,16 +491,23 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 **미배선 변수** — 정의는 있으나 값이 없다. `404` 가 아니다.
 
 ```jsonc
-{ "name": "gripper_position", "quality": "NO_DATA", "schema_version": 1, "value": null }
+{ "name": "some_derived_variable", "quality": "NO_DATA", "schema_version": 1, "value": null }
 ```
 
-#### 그리퍼 명령 결과는 변수가 아니다
+#### 그리퍼는 변수 하나로 본다
 
-명령의 결과(`reached_goal` / `stalled` / `effort`)는 **연산 `outputs` 로 온다** (5.7). 트윈이 명령을 보낸 뒤 `gripper_last_command_result` 변수가 갱신될 때까지 기다렸다가 그 값을 옮기므로, "지금 읽은 값이 방금 보낸 명령의 결과인가"를 클라이언트가 따질 필요가 없다.
+`gripper_state` 가 연속 상태이자 명령 결과다. 예전에는 둘로 나뉘어 있었는데
+(`gripper_position` + 이벤트성 `gripper_last_command_result`), `GripperState.at_goal`
+이 **판정을 값 안에 담으면서** 하나로 합쳐졌다.
 
-`/gripper_control/gripper_action_states` 토픽은 여전히 존재하지만 **`gripper_control_node` 를 거치는 경로(teleop 등)에서만** 갱신되므로 트윈의 상태원으로 쓰지 않는다.
+연산의 `outputs` 도 이 변수에서 온다 — 트윈이 명령을 보낸 뒤 `goal` 이 그 명령과 같고
+`at_goal` 이 참인 스냅샷을 기다렸다가 옮기므로, "지금 읽은 값이 방금 보낸 명령의
+결과인가"를 클라이언트가 따질 필요가 없다 (5.7).
 
-연속적인 그리퍼 위치가 필요하면 `joint_states` 의 `panda_finger_joint1` 을 직접 읽는다.
+⚠️ **연속 그리퍼 폭을 `joint_states` 의 손가락 관절에서 읽지 않는다.** 백엔드마다
+믿을 수 없다 — 펑션베이는 TF 성립용 고정값을 주입해 "항상 열려 있다"고 거짓말한다.
+`gripper_state.width` 를 쓴다 (**개구 폭 m 이며 관절값이 아니다** — Panda 는 관절값의
+2배). 못 구하는 스택은 `NaN` 이다.
 
 ### 4.2 연산
 
@@ -515,18 +521,18 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 | `move_to_named_target` | 제어 | arm | async | ✅ | SRDF named target(`ready`, `extended` 등)으로 이동 |
 | `move_to_joints` | 제어 | arm | async | ✅ | **관절값 지정** 이동 (joint-space) |
 | `move_linear` | 제어 | arm | async | ✅ | 목표 pose 까지 **직선(Cartesian)** 이동 |
-| `move_gripper_to_target` | 제어 | gripper | sync | ✅ | **이름 붙은 그리퍼 목표**로 이동 (`open` / `close` / `grasp`). `GripperCommand` 액션 result 까지 기다린다 |
+| `move_gripper_to_target` | 제어 | gripper | sync | ✅ | **이름 붙은 그리퍼 목표**로 이동 (`open` / `close` / `grasp`). `gripper_state.at_goal` 이 설 때까지 기다린다 |
 | `reset_scene` | 제어 | scene + arm | sync | ✅ | scene 을 **레시피대로 새로 만든다**. 물체 위치를 seed 로 랜덤화한다 |
 | `start_session` | **수집** | — | sync | ✅ | 수집 세션을 연다. `task_label` 을 함께 설정한다 |
 | `stop_session` | **수집** | — | sync | ✅ | 세션을 닫는다. 에피소드가 열려 있으면 **함께 닫힌다** |
 | `start_episode` | **수집** | — | sync | ✅ | 에피소드를 연다 (`IN_SESSION` 에서만) |
 | `stop_episode` | **수집** | — | sync | ✅ | 에피소드를 닫으며 **성패·부가정보를 기록에 남긴다** |
 | `move_to_pose` | 제어 | arm | async | ⛔ 미구현 | 목표 pose 로 **자유 계획** 이동 |
-| `move_gripper` | 제어 | gripper | async | ⛔ 미구현 | 폭을 **요청 인자로** 지정. 쓸 수 있는 폭은 설정이 정한다는 원칙이라 열지 않았다 — 필요한 폭은 `backend.targets` 에 이름을 붙여 추가한다 |
+| `move_gripper` | 제어 | gripper | async | ⛔ 미구현 | 폭을 **요청 인자로** 지정. 명령에 숫자를 싣지 않는다는 원칙이라 열지 않았다 — 필요한 목표는 `backend.labels` 에 심볼을 추가하고 `GripperNode` 의 `targets` 에 폭을 준다 |
 
 **갈리는 지점은 백엔드 노드가 어느 패키지에 있느냐 하나다.** 세션/에피소드 연산 넷은
 `rdfp` 의 `session_control_node` 에 중계되고, 그 노드는 `rdfp_panda_mock` 만 띄운다.
-나머지는 `robot_control` 의 노드(`gripper_control_node`, `mock_scene_state_node`)나
+나머지는 `robot_control` 의 노드(`mock_gripper_node`, `mock_scene_state_node`)나
 MoveIt 을 직접 쓰므로 제어 스택만으로 충분하다.
 
 `reset_scene` 이 "제어" 인 것이 헷갈릴 수 있다 — **수집을 위한 연산이지만 구현은 제어
@@ -751,24 +757,24 @@ curl -s $B/operations | jq '.operations[]
 # ["close", "grasp", "open"]
 ```
 
-이 `enum` 은 설정에 손으로 적는 값이 아니라 **`backend.targets` 에서 기동 시 파생**된다
+이 `enum` 은 설정에 손으로 적는 값이 아니라 **`backend.labels` 에서 기동 시 파생**된다
 (그래서 이름순으로 정렬되어 온다). 목표를 늘릴 때 두 곳을 고칠 일이 없고, 둘이 어긋난
 설정은 트윈이 아예 뜨지 않는다.
 
 정의되지 않은 목표는 `400 INVALID_INPUT` 으로 거절되며, 메시지에 사용 가능한 목표 목록이 담긴다.
 
-목표에 대응하는 폭과 힘은 **설정이 정한다.** 기본 제공은 셋이다.
+**요청에는 심볼만 실린다.** 기본 제공은 셋이다.
 
-| 목표 | `position` | `max_effort` | 의미 |
-|---|---|---|---|
-| `open` | `0.04` | (없음) | 열기 |
-| `close` | `0.0` | (없음) | **빈손으로** 닫기 |
-| `grasp` | `0.0` | `30.0` | **물체 파지.** 목표는 `close` 와 같고 힘만 다르다 |
+| 심볼 | 의미 |
+|---|---|
+| `open` | 손을 편다 |
+| `close` | **빈손으로** 닫는다 (힘을 주지 않으므로 파지 용도가 아니다) |
+| `grasp` | **물체를 쥔다.** 자세는 `close` 와 같고 힘이 다르다 |
 
-두 값은 `control_msgs/GripperCommand` goal 의 `position` / `max_effort` 로 그대로 들어간다.
-`position` 은 **손가락 사이 거리가 아니라 관절 하나(`panda_finger_joint1`)의 목표값**이라
-실기 franka 의 `move`/`grasp` 가 쓰는 `width` 와 2배 차이가 난다. `max_effort` 를 적지
-않으면 `0` = 드라이버 기본 효과치다.
+숫자(목표 폭·파지력)를 요청에 싣지 않는 이유는 **그리퍼에 종속**이기 때문이다 — 다른
+기구로 옮기면 틀린 값이 되고, Robotiq 2F-85 처럼 관절이 각도인 기구에서는 단위조차
+m 가 아니다. 그 숫자는 **로봇 쪽 설정**인 `GripperNode` 의 `targets` 파라미터에 있다
+(2026-09-01 결정).
 
 **`close` 로 물건을 쥐려 하지 않는다.** 힘이 없어 실기에서는 파지 없는 이동으로
 해석될 수 있다 — 쥘 때는 `grasp` 다.
@@ -776,39 +782,41 @@ curl -s $B/operations | jq '.operations[]
 **출력**
 
 ```jsonc
-{ "target": "close", "position": 0.0182, "effort": 0.0,
-  "stalled": true, "reached_goal": false }
+{ "target": "grasp", "goal": "grasp", "width": 0.0364,
+  "stalled": true, "at_goal": true }
 ```
 
 **이동 연산의 공통 `outputs` (4.3) 은 오지 않는다** — `closed_loop` / `final_pose` /
-`final_joints` 가 없고, 대신 그리퍼 액션 result 가 그대로 실린다. 각 키를 어떻게
+`final_joints` 가 없고, 대신 `GripperState` 의 필드가 그대로 실린다. 각 키를 어떻게
 읽는지는 바로 아래에 있다.
 
-**`COMPLETED` 는 "액션이 끝났다"는 뜻이다**
+**`COMPLETED` 는 "시킨 일을 이뤘다"는 뜻이다**
 
-트윈은 명령을 `/gripper_control/gripper_cmds` 에 발행하고 **결과가 돌아올 때까지
-기다린다.** 액션을 직접 부르지 않는 이유는 **액션 goal 전송이 서비스라 rosbag2 가
-기록하지 못하기** 때문이다 — 명령이 토픽으로 흘러야 학습 데이터의 action 채널이 남는다.
-따라서 응답이 왔다는 것은 동작이 끝났다는 뜻이며, 무엇으로 끝났는지는 위 `outputs` 가
-말한다.
+트윈은 명령을 `/gripper_cmds` 에 발행하고 **`at_goal` 이 설 때까지 기다린다.**
+하드웨어를 직접 부르지 않는 이유는 **액션 goal 전송이 서비스라 rosbag2 가 기록하지
+못하기** 때문이다 — 명령이 토픽으로 흘러야 학습 데이터의 action 채널이 남는다.
 
-| 조합 | 해석 |
+**성공 판정은 `at_goal` 하나로 한다.** `goal` 마다 다른 판정식을 `GripperNode` 가 이미
+적용했으므로, 표를 외울 필요 없이 이 값만 보면 된다.
+
+| `goal` | `at_goal` 이 서는 조건 |
 |---|---|
-| `reached_goal: true` | 목표 폭에 도달했다 (빈손으로 열림/닫힘) |
-| `stalled: true` | 힘을 내는데 움직이지 않는다 = **물체를 물었다** |
-| 둘 다 `false` | 중단되었거나 목표에 못 미쳤다 |
+| `open` / `close` | 목표 폭 도달 **AND NOT** `stalled` (막혀 멈춘 것은 성공이 아니다) |
+| `grasp` | `stalled` — 물체에 막혀 멈춘 것이 곧 성공이다 |
 
-**`reached_goal: false` 를 실패로 읽지 않는다 ⚠️** 물체를 쥐면 목표까지 갈 수 없으므로
-당연히 `false` 가 된다. 파지 판정의 축은 `stalled` 다. 트윈은 오차를 근거로 성패를
-뒤집지 않고 result 를 그대로 보고한다 (설계서 6.7). 코드는 5.7 에 있다.
+**`grasp` 는 목표 폭에 닿으면 오히려 실패다** (헛닫힘). 그래서 위치가 아니라 `stalled`
+가 판정 기준이며, 이름도 `reached_goal` 이 아니라 `at_goal` 이다.
+
+⚠️ **mock 스택에서 `grasp` 는 타임아웃한다.** planning scene 물체에 물리가 없어
+`stalled` 를 관측할 수단이 없기 때문이다. mock 에서는 `open`/`close` 만 쓴다.
 
 **흔한 실패**
 
 | 응답 | 원인 |
 |---|---|
 | `FAILED` + 메시지 `no publisher for topic` | 기동 시 퍼블리셔가 만들어지지 않았다 — `backend.topic` / `topic_type` 설정 확인 |
-| `FAILED` + `TIMEOUT` (결과 없음) | `gripper_control_node` 또는 컨트롤러(`panda_hand_controller`) 미기동 |
-| `FAILED` + `TIMEOUT` | `sync_timeout_sec`(기본 5초) 안에 결과가 오지 않았다. **명령은 이미 나갔으므로 결과를 모른다** — `joint_states` 로 확인한다 |
+| `FAILED` + `TIMEOUT` (결과 없음) | `GripperNode`(`mock_gripper_node`) 또는 컨트롤러(`panda_hand_controller`) 미기동. **mock 의 `grasp` 는 정상 동작에서도 타임아웃한다** |
+| `FAILED` + `TIMEOUT` | `sync_timeout_sec`(기본 5초) 안에 `at_goal` 이 서지 않았다. **명령은 이미 나갔으므로 결과를 모른다** — `gripper_state.width` 로 확인한다 |
 | `409 RESOURCE_BUSY` | `gripper` 자원 점유 중 (`arm` 과는 독립이다 — 4.4) |
 
 #### `reset_scene` — 물체를 레시피대로 랜덤 배치
@@ -1234,41 +1242,45 @@ if not check['reached']:
 **목표는 세 가지다.** `close` 와 `grasp` 는 목표 폭이 같고 **힘만 다르다** — 물건을
 쥘 때는 `grasp` 를 쓴다.
 
-| 목표 | 폭 | 힘 | 쓰임 |
-|---|---|---|---|
-| `open` | `0.04` | — | 열기 |
-| `close` | `0.0` | 없음 | **빈손으로** 닫기 |
-| `grasp` | `0.0` | `30 N` | **물체를 쥔다.** 닿으면 그 힘으로 버티며 멈춘다 |
+| 심볼 | 쓰임 |
+|---|---|
+| `open` | 손을 편다 |
+| `close` | **빈손으로** 닫는다 (힘을 주지 않으므로 파지 용도가 아니다) |
+| `grasp` | **물체를 쥔다.** 닿으면 그 힘으로 버티며 멈춘다 |
+
+**요청에 숫자는 없다.** 목표 폭과 파지력은 그리퍼에 종속이라 다른 기구로 옮기면 틀린
+값이 된다 — 그 숫자는 `GripperNode` 의 `targets` 파라미터가 갖는다.
 
 ```python
 def set_gripper(twin: RobotTwin, target: str) -> dict:
-    """그리퍼를 조작하고 액션 결과를 그대로 돌려준다.
+    """그리퍼를 조작하고 상태를 그대로 돌려준다.
 
-    반환 dict 의 판정 규칙:
-      reached_goal=True            목표 폭에 도달했다 (빈손으로 닫힘/열림)
-      stalled=True                 힘을 내는데 움직이지 않는다 = 물체를 물었다
-      둘 다 False                  중단되었거나 목표에 못 미쳤다
+    **성패는 at_goal 하나로 읽는다.** goal 별 판정식은 GripperNode 가 이미 적용했다
+    (open/close 는 목표 폭 도달, grasp 는 물체에 막혀 멈춤).
     """
     return twin.run('move_gripper_to_target', {'target': target})['outputs']
 
 
 out = set_gripper(twin, 'grasp')
-if out['stalled']:
-    print(f"파지 성공 — 폭 {out['position']:.4f} m, 힘 {out['effort']:.1f} N")
-elif out['reached_goal']:
-    print('끝까지 닫혔다 — 잡은 것이 없다')
+if out['at_goal']:
+    print(f"파지 성공 — 개구 폭 {out['width']:.4f} m")
+else:
+    print('잡은 것이 없다 (끝까지 닫혔거나 가는 중이다)')
 ```
 
-**`stalled` 이 파지 판정의 축이다.** 물체를 물면 목표까지 못 가므로 `reached_goal` 은
-`False` 가 된다 — 이걸 실패로 읽으면 안 된다. 트윈은 오차를 근거로 성패를 뒤집지
-않고 result 를 그대로 넘긴다. `grasp` 로 보냈는데 `reached_goal: true` 가 왔다면
-**손가락이 끝까지 닫혔다는 뜻이므로 잡은 것이 없다.**
+**`at_goal` 만 보면 된다.** 예전 인터페이스는 `reached_goal`(위치 도달)과 `stalled`
+(물림)를 각각 내보내 호출자가 `goal` 마다 다른 규칙으로 조합해야 했다. 지금은 노드가
+판정을 마치고 결론만 싣는다 — 이름이 `reached_goal` 이 아니라 `at_goal` 인 것이 그
+차이의 표시다.
 
-> **mock 에서는 `effort` 가 의미 없다.** `GripperActionController` 는 feedback 을
-> 발행하지 않으므로 완료 판정이 result 에만 의존하고, 힘 값도 시뮬레이션되지 않는다.
-> 목표의 `max_effort` 가 실제로 의미를 갖는 것은 실기 franka 에서다 — 거기서는
-> `max_effort = 0`(= `close`)이 파지 없는 이동으로 해석될 수 있어, 쥐려면 반드시
-> 힘이 붙은 목표(`grasp`)를 써야 한다.
+> ⚠️ **`at_goal: false` 는 "실패"와 "진행 중"을 구분하지 못한다.** 가르려면 `width` 를
+> 함께 본다 — `grasp` 인데 최소 폭에서 멈췄으면 헛닫힘이고, 폭이 변하는 중이면 아직
+> 가는 중이다. 다만 트윈 연산은 `at_goal` 이 설 때까지 기다렸다가 반환하므로,
+> `COMPLETED` 로 돌아온 `outputs` 의 `at_goal` 은 항상 `true` 다.
+
+> ⚠️ **mock 에서 `grasp` 는 타임아웃한다.** planning scene 물체에 물리가 없어
+> `stalled` 를 관측할 수단이 없고, `grasp` 의 판정식이 곧 `stalled` 이기 때문이다.
+> mock 에서는 `open`/`close` 만 쓴다.
 
 연속적인 폭 자체가 필요하면 `joint_states` 의 `panda_finger_joint1` 을 읽는다 (그 값은
 손가락 사이 거리의 **절반**이다).
@@ -1328,7 +1340,7 @@ twin.run('move_to_joints', {'joints': {'panda_joint1': 0.5}})   # 1번 축만 �
 ```python
 def pick(twin: RobotTwin, above: dict, grasp: dict) -> bool:
     """접근 → 하강 → 파지 → 상승. 각 단계의 결과를 확인하고 진행한다."""
-    if not set_gripper(twin, 'open')['reached_goal']:
+    if not set_gripper(twin, 'open')['at_goal']:
         print('그리퍼를 열지 못했다'); return False
 
     # 접근 지점까지는 자유 계획이 맞지만 move_to_pose 가 미구현이라 직선으로 간다.
@@ -1337,8 +1349,9 @@ def pick(twin: RobotTwin, above: dict, grasp: dict) -> bool:
     if not move_linear_verified(twin, grasp)['reached']:
         print('하강 실패'); return False
 
-    # 힘을 주며 닫는다. 물체를 물면 stalled 로 끝나고, 끝까지 닫혔다면 빈손이다 (5.7).
-    if not set_gripper(twin, 'grasp')['stalled']:
+    # 힘을 주며 닫는다. at_goal 이 곧 '물었다'이다 — grasp 의 판정식이 stalled 라서다 (5.7).
+    # ⚠️ mock 은 stalled 관측 수단이 없어 여기서 타임아웃한다.
+    if not set_gripper(twin, 'grasp')['at_goal']:
         print('아무것도 잡지 못했다'); return False
 
     return move_linear_verified(twin, above)['reached']
@@ -1531,12 +1544,11 @@ moveit.move_group_mode
 ```
 
 검증 항목에는 **연산 정의가 백엔드를 구동할 수 있는지**도 들어간다. `move_gripper_to_target`
-에 `backend.targets` 가 없거나(키 오타 포함) 어떤 목표에 `service`/`position` 이 모두
-빠져 있으면 트윈은 뜨지 않는다.
+에 `backend.labels` 가 없거나(키 오타 포함) 심볼이 아닌 것이 섞여 있으면 트윈은 뜨지 않는다.
 
 ```
 twin config error: 1 validation error for TwinConfig
-  Value error, operation 'move_gripper_to_target' requires a non-empty 'backend.targets' mapping, got None
+  Value error, operation 'move_gripper_to_target' requires a non-empty 'backend.labels' list, got None
 ```
 
 이 검사가 없으면 트윈은 정상 기동하고 `/health` 도 정상이며 카탈로그에도 연산이 보이는데
@@ -1551,7 +1563,7 @@ Panda 가 아닌 로봇이면 다음을 바꾼다.
 | `moveit.planning_group` | 해당 로봇의 MoveIt planning group |
 | `variables[].source.topic` | 로봇의 상태 토픽 |
 | 컨트롤러 액션 이름 | `MoveGroupJtcClient(controller_action=...)` — 기본값은 `/panda_arm_controller/follow_joint_trajectory` |
-| 그리퍼 액션·목표 폭 | `move_gripper_to_target` 의 `backend.action` 과 `backend.targets` — 설정만 고치면 되고 코드 변경은 없다 |
+| 그리퍼 심볼 | `move_gripper_to_target` 의 `backend.labels` — 설정만 고치면 되고 코드 변경은 없다. 심볼에 대응하는 **폭은 `GripperNode` 의 `targets` 파라미터**에 있다 (로봇 쪽 설정이다) |
 
 > 컨트롤러 액션 이름은 현재 코드 기본값으로 박혀 있다. 다른 로봇을 붙이려면
 > `rdfp/twin/runtime.py` 의 `create_move_group_client()` 호출에
@@ -1632,7 +1644,7 @@ variable 'named_targets': static source (get_all_named_targets) will be fetched 
 않았다.** 설정해도 `NO_DATA` 로 응답하며, 기동 로그에 다음이 남는다.
 
 ```
-variable 'gripper_position': source type 'derived' is not wired yet; it will report NO_DATA
+variable 'some_derived_variable': source type 'derived' is not wired yet; it will report NO_DATA
 ```
 
 ### 8.2 새 연산 추가
@@ -1702,17 +1714,18 @@ JSON Schema 로 표현하기 어려운 것(quaternion 정규화, 관절 한계 �
 
 #### 그리퍼 목표를 늘릴 때는 연산을 만들지 않는다
 
-`move_gripper_to_target` 의 `backend.targets` 에 한 줄 추가하면 끝이다 — 코드도, 새 연산도 필요 없다.
+`move_gripper_to_target` 의 `backend.labels` 에 심볼을 추가하면 끝이다 — 코드도, 새 연산도 필요 없다.
 
 ```yaml
-targets:
-  open:  { position: 0.04 }
-  close: { position: 0.0 }
-  grasp: { position: 0.0, max_effort: 30.0 }
-  pinch: { position: 0.015, max_effort: 10.0 }   # 추가
+labels: [open, close, grasp, pinch]   # pinch 추가
 ```
 
-`inputs_schema` 의 `enum` 은 기동 시 `targets` 에서 파생되므로 **손대지 않는다.** `max_effort` 는 생략하면 `0` = 드라이버 기본 효과치이며, 실기 franka 에서는 `0` 이 파지 없는 이동으로 해석될 수 있어 물체를 쥐려면 명시한다.
+`inputs_schema` 의 `enum` 은 기동 시 `labels` 에서 파생되므로 **손대지 않는다.**
+
+**두 곳을 고쳐야 한다.** 트윈은 "어떤 의도를 보낼 수 있는가"만 알고, 그 심볼이 실제로
+몇 미터인지는 로봇 쪽이 안다 — `GripperNode` 의 `targets` 파라미터에 같은 이름의
+항목이 없으면 노드가 명령을 **거부한다**(조용히 무시하면 팔만 움직이고 원인이 보이지
+않기 때문이다).
 
 ### 8.3 복합 연산 (순차 실행)
 

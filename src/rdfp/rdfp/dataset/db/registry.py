@@ -99,7 +99,7 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
         writer_cls=SceneObjectsWriter,
         reader_cls=SceneObjectsReader,
     ),
-    # 관련 토픽: /gripper_control/gripper_cmds
+    # 관련 토픽: /gripper_cmds
     #   - 그리퍼 제어 명령. (open/close)
     'rdfp_msgs/msg/GripperCommand': TypeBinding(
         table='gripper_cmds',

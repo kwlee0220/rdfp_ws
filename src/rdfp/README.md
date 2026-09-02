@@ -108,7 +108,7 @@ watch rdfp_list_topics.sh
 ```bash
 ros2 launch rdfp rdfp_panda_mock.launch.py
 ```
-실행 후 RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control,
+실행 후 RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper,
 mock_scene_state 노드가 모두 실행되어야 합니다 (scene 노드는 `enable_scene:=false` 로 끌 수 있습니다).
 
 #### 3.2.3 키보드기반 teleop 으로 학습 데이터 생성 (별도 터미널)
@@ -142,8 +142,8 @@ ros2 run rdfp record_rosbag
 |                         | `/`       | MoveIt SRDF 의 `ready` named target 으로 이동 |
 |                         | `?`       | 명령 키 도움말 출력 |
 |                         | `Ctrl-C`  | 종료 |
-| 그리퍼                  | `=`       | open — `/gripper_control/gripper_cmds` 에 `label='open'` 발행 |
-|                         | `-`       | close — 같은 토픽에 `position=0.0` 발행 |
+| 그리퍼                  | `=`       | open — `/gripper_cmds` 에 `goal='open'` 발행 |
+|                         | `-`       | close — 같은 토픽에 `goal='close'` 발행 |
 | 세션                    | `<` 또는 `,` | `start_session` |
 |                         | `>` 또는 `.` | `stop_session` |
 | 에피소드                | `[`       | `start_episode` |
@@ -283,7 +283,7 @@ source install/setup.bash
 
 ### 7.2 데모 실행
 
-먼저 별도의 터미널에서 Panda MoveIt 환경(RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper_control, mock_scene_state)을 실행합니다.
+먼저 별도의 터미널에서 Panda MoveIt 환경(RViz, ros2_control, move_group, servo, camera, ee_pose_publisher, gripper, mock_scene_state)을 실행합니다.
 
 ```bash
 ros2 launch robot_control panda_mock.launch.py
@@ -686,7 +686,7 @@ ros2 run rdfp replay 42 --config /etc/rdfp/dataset_config.yaml
   (`IN_EPISODE → IN_SESSION`) 를 기준으로 자동 분할합니다.
 - **DB 적재**: 에피소드 단위 트랜잭션으로 `sessions` + 토픽별 테이블 (`pose_stampeds`,
   `twist_stampeds`, `joint_states`, `target_joint_states`, `gripper_cmds`,
-  `gripper_action_states`, `gripper_states`) 에 INSERT 합니다.
+  `gripper_states`) 에 INSERT 합니다.
 - **MP4 생성**: 카메라 토픽(`sensor_msgs/Image` 의 8-bit raw 인코딩) 은 에피소드
   × 카메라마다 별도 mp4 로 인코딩되고 (CFR-passthrough), 글로벌 메타
   (mp4_path / 코덱 / 해상도 / fps / frame_id / frame_count) 는 `image_streams`

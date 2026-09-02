@@ -19,7 +19,7 @@ MINIMAL: dict[str, Any] = {
 }
 
 # 배포 설정(`config/robot_twin_panda01.yaml`)의 그리퍼 연산과 같은 모양이다.
-GRIPPER_BACKEND: dict[str, Any] = {'topic': '/gripper_control/gripper_cmds',
+GRIPPER_BACKEND: dict[str, Any] = {'topic': '/gripper_cmds',
                                    'topic_type': 'rdfp_msgs/msg/GripperCommand',
                                    'result_variable': 'gripper_last_command_result'}
 GRIPPER_LABELS: list = ['open', 'close']
@@ -209,7 +209,7 @@ def test_shipped_config_derives_gripper_labels() -> None:
 
     assert sorted(op.backend['labels']) == ['close', 'grasp', 'open']
     assert op.inputs_schema['properties']['target']['enum'] == ['close', 'grasp', 'open']
-    # **숫자는 설정에 없다.** 그리퍼 종속이라 gripper_control_node 가 갖는다.
+    # **숫자는 설정에 없다.** 그리퍼 종속이라 GripperNode 가 갖는다.
     assert not any(isinstance(v, dict) for v in op.backend['labels'])
 
 

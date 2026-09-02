@@ -70,7 +70,7 @@ JGPC 판의 arm plan & execute 제약은 제어 계층 README 의 `panda_jgpc_mo
 재생 도구가 공급하는 토픽을 그대로 쓰기 위해 `camera`, `ee_pose`,
 `session_control`, `image_recorder`, `target_joint_cmds_publisher` 를 **기동하지
 않는다.** `joint_state_broadcaster` 는 재생 결과 관측값이므로 유지한다.
-`gripper_control_node` 도 유지되어 재생된 gripper 명령을 액션으로 전달한다.
+`mock_gripper_node` 도 유지되어 재생된 gripper 명령을 액션으로 전달한다.
 
 **scene 노드는 의도적으로 제외한다** — 재생 중 물체 상태는 데이터셋에서 나와야 하고,
 scene 노드를 띄우면 라이브 planning scene 이 두 번째 출처로 섞인다.
@@ -458,7 +458,7 @@ rdfp_panda_mock.launch.py
 replay_panda_mock.launch.py
  ├─ ros2_control 스택 (joint_state_broadcaster 포함 — 재생 결과 관측용)
  ├─ move_group / servo_node / rviz2
- ├─ gripper_control_node              (항상)
+ ├─ mock_gripper_node              (항상)
  ├─ rdfp_image_viewer_node            (enable_image_viewer_node)
  └─ arm 어댑터 — replay_arm_path 로 택일
      ├─ ee_twist_publisher + servo_auto_start (ee_twist, 기본)
@@ -475,7 +475,7 @@ replay_panda_mock.launch.py
 |---|---|
 | `rdfp_panda_mock` | 제어 7종 + `session_control_node`, `rdfp_image_viewer_node`, `image_recorder_node`, `target_joint_cmds_publisher` |
 | `rdfp_panda_jgpc_mock` | 제어 7종 + `session_control_node`, `rdfp_image_viewer_node`, `image_recorder_node` |
-| `replay_panda_mock` | `move_group`, `servo_node`, `rviz2`, `rdfp_image_viewer_node`, `gripper_control_node`, arm 어댑터 |
+| `replay_panda_mock` | `move_group`, `servo_node`, `rviz2`, `rdfp_image_viewer_node`, `mock_gripper_node`, arm 어댑터 |
 
 ---
 
@@ -578,7 +578,7 @@ ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
   패키지 경계를 넘는 import 가 다시 불가능해진다.
 - **`Node(package=...)` 를 정확히 적는다.** 이 계열 launch 는 `robot_control` 의
   실행파일(`rdfp_image_viewer_node`, `target_joint_cmds_publisher`,
-  `ee_twist_node`, `gripper_control_node`, `servo_auto_start_node` …)을 자주
+  `ee_twist_node`, `mock_gripper_node`, `servo_auto_start_node` …)을 자주
   띄운다. 패키지를 틀리면 `--show-args` 는 통과하고 **실제 기동 때만**
   `executable not found` 로 죽는다.
 - YAML 계열은 argument 기본값을 손대려면 YAML 을 먼저 확인한다. CLI 에서

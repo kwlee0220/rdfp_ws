@@ -4,9 +4,9 @@
 `ament_cmake` + `rosidl_default_generators` 기반의 순수 IDL 패키지이며 런타임
 코드는 포함하지 않는다.
 
-`rdfp` 의 노드 (`session_control_node`, `image_recorder_node`,
-`gripper_control_node`, `target_joint_states_publisher` 등) 와 데이터셋
-파이프라인이 본 패키지를 참조하므로 함께 빌드해야 한다.
+`rdfp` 와 `robot_control` 의 노드 (`session_control_node`, `image_recorder_node`,
+`MockGripperNode`, `target_joint_cmds_publisher` 등) 와 데이터셋 파이프라인이 본
+패키지를 참조하므로 함께 빌드해야 한다.
 
 ## 빌드
 
@@ -32,12 +32,16 @@ source install/setup.bash
 | 타입 | 사용처 | 요약 |
 |---|---|---|
 | `SessionCommand` | `session_control_node` 의 `session` 토픽 | 세션 상태 머신 (`IDLE` / `IN_SESSION` / `IN_EPISODE`) 와 `task_label` 을 발행. `header.stamp` 는 발행 시각. `outcome` / `metadata` 는 **에피소드 종료 전이에서만** 채워지며 (`stop_episode` 가 준 값), 그 외 전이에서는 `''` 다. 후처리 시 `sessions` 테이블의 `success` / `metadata` 가 된다. |
-| `GripperCommand` | 호출자(teleop / robot twin / 재생) → `gripper_control_node` 의 `~/gripper_cmds` | `position`(m) + `max_effort`(N) 로 그리퍼 목표를 지정. **심볼이 아니라 숫자**이며 `label` 은 사람이 읽기 위한 선택 필드로 **제어에 쓰이지 않는다**. `header.stamp` 필수 — 비우면 epoch 0 에 적재된다. |
-| `GripperActionState` | `gripper_control_node` 가 액션 result(및 feedback) 를 토픽으로 재발행 | `position`, `effort`, `stalled`, `reached_goal` (`control_msgs/action/GripperCommand` Feedback·Result 와 동일) + `status`. `status` 는 `action_msgs/msg/GoalStatus` 와 같은 값의 `int8` 이며 `STATUS_*` 상수를 내장한다 (4=SUCCEEDED, 5=CANCELED, 6=ABORTED, 2=EXECUTING). `reached_goal=false` 라도 `status=5` 면 실패가 아니라 후속 명령에 의한 선점이다. |
+| `GripperCommand` | 호출자(teleop / robot twin / 재생) → `GripperNode` 의 `gripper_cmds` | **심볼만 싣는다** — `goal` 이 `'open'`/`'close'`/`'grasp'` 중 하나다. 숫자(목표 폭·파지력)는 그리퍼에 종속이라 `GripperNode` 의 `targets` 파라미터가 갖는다 (2026-09-01 결정). `header.stamp` 필수 — 비우면 epoch 0 에 적재된다. |
+| `GripperState` | `GripperNode` → `gripper_states` (주기 발행) | 그리퍼의 **연속 상태**. `goal`(마지막 명령), `width`(**개구 폭 m — 관절값이 아니다**, 못 구하면 NaN), `stalled`(관측), `at_goal`(**판정** — 목표 위치 도달이 아니라 "시킨 일을 이뤘는가"). 소비자는 `at_goal` 하나만 보면 된다. |
 | `TargetJointStates` | `target_joint_states_publisher` / `target_joint_states_executor` | 단일 `trajectory_msgs/JointTrajectoryPoint` 에 `Header` 를 부여한 timestamped joint setpoint. |
 | `ClutchState` | `teleop_retarget` | teleop 클러치 상태(`engaged`) 와 해제 사유(`reason`). 상태 변경 시에만 발행하며 QoS 는 `TRANSIENT_LOCAL`. |
 | `SceneObject` | `SceneObjects` 의 원소 | 물체 하나 — `name`, `type`(`'box'`/`'sphere'`/`'cylinder'`/`'mesh'` **문자열**), `dimensions`(종류마다 길이가 다르다), `pose`. `orientation` 은 **ROS xyzw** 이며 Isaac(wxyz)은 발행 노드가 변환해야 한다. |
 | `SceneObjects` | 백엔드별 `scene_state_node` → `/scene/objects` | 한 시점의 scene 물체 전체. mock / Gazebo / Isaac 이 각자 이 타입으로 변환해 발행하므로 트윈·후처리기가 환경 구현을 모른다. `frame_id` 는 로봇 베이스(`panda_link0`) 고정, QoS 는 `TRANSIENT_LOCAL`. |
+
+> 그리퍼 계열(`GripperCommand` / `GripperState`)의 필드 판정식·백엔드별 실현
+> 가능성·데이터셋 사용법은 [docs/moveit/GripperNode_Design.md](../../docs/moveit/GripperNode_Design.md)
+> 에 있다. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적이다.
 
 > scene 계열(`SceneObject` / `SceneObjects` 와 서비스 `ResetScene`)의
 > 필드 계약·발행 노드·트윈 연산·함정은 [docs/scene/scene_objects_guide.md](../../docs/scene/scene_objects_guide.md)

@@ -538,35 +538,33 @@ deg, 어떤 쪽은 rad), 변환 지점이 늘수록 오차와 버그가 끼어�
 |---|---|---|
 | `joint_states` | `topic` — `/joint_states` (`sensor_msgs/JointState`) | 재생 경로에서 `name` 이 비어 오는 케이스가 존재한다. `name` 이 비면 `ERROR` 로 처리하고 인덱스 순서에 의존하지 않는다 |
 | `ee_pose` | `topic` — `/ee_pose` (`geometry_msgs/PoseStamped`) | **ROS 표준 상태가 아니라 TF 파생값**이다. rdfp 는 `ee_pose_publisher` 가 토픽으로 발행하지만, 일반 로봇에는 없으므로 `source.type: tf` 대안을 지원해야 한다 |
-| `gripper_action_states` | ⚠️ **아래 참조 — 두 변수로 분리** | |
+| `gripper_state` | `topic` — `/gripper_states` (`rdfp_msgs/GripperState`) | 연속 상태. `staleness_ms: 500`. 아래 참조 |
 | `named_targets` | `static` — `get_all_named_targets()` | SRDF 정적 데이터. 아래 참조 |
 
-**`gripper_action_states` 는 그대로 쓸 수 없다.**
+**그리퍼 변수는 하나다 (2026-09-02).**
 
-`rdfp_msgs/GripperActionState` 는 gripper 액션의 feedback/result 를 재발행하는 **이벤트성**
-메시지다. 연산이 없는 동안에는 갱신되지 않으므로, polling 하면 "마지막 연산 시점의
-값"이 계속 반환된다. 연속적인 현재 상태가 아니다.
+예전에는 둘로 나뉘어 있었다 — 연속 상태는 `/joint_states` 의 finger joint 에서 파생한
+`gripper_position`, 명령 결과는 이벤트성 `gripper_last_command_result`
+(`rdfp_msgs/GripperActionState`) 였다. `GripperNode` 도입으로 둘 다 사라졌다.
 
-→ **변수로 두지 않는다.** 연속 상태만 변수로 남긴다.
+| 없앤 것 | 왜 |
+|---|---|
+| `gripper_position` | `/joint_states` 의 손가락은 **백엔드마다 믿을 수 없다** — 펑션베이는 TF 성립용 고정값을 주입해 "항상 열려 있다"고 거짓말한다. `GripperState.width` 가 개구 폭(m)을 직접 싣는다 |
+| `gripper_last_command_result` | `GripperState.at_goal` 이 **판정을 값 안에 담는다.** 이벤트 채널을 따로 둘 이유가 없어졌다 |
 
-| 변수 | 소스 | 성격 |
-|---|---|---|
-| `gripper_position` | `/joint_states` 의 `panda_finger_joint1/2` (derived) | 연속 상태. staleness 검사 적용 |
+**완료 판정이 세대에서 `at_goal` 로 바뀌었다.** 전에는 결과 변수의 세대가 올라가는 것을
+완료로 삼았는데, `/gripper_states` 는 **주기 발행**이라 그 규칙이 성립하지 않는다 —
+명령과 무관하게 다음 틱에 세대가 올라 그리퍼가 움직이기도 전에 성공을 돌려준다.
+지금은 `goal` 이 이번 명령과 같고 `at_goal` 이 참인 스냅샷을 기다린다.
 
-명령 결과(`reached_goal` / `stalled` / `effort`)는 **연산 `outputs`** 로 돌려준다.
-→ **결과는 변수로 두되, 연산이 그것을 대신 기다린다.**
+판정식(`open`/`close` 는 목표 폭 도달 AND NOT `stalled`, `grasp` 는 `stalled`)은
+`GripperNode` 가 이미 적용했으므로 트윈은 다시 따지지 않는다. 클라이언트도 마찬가지로
+`at_goal` 하나만 보면 된다 — 상세는
+[GripperNode_Design.md](../moveit/GripperNode_Design.md) §2.3.
 
-| 변수 | 소스 | 성격 |
-|---|---|---|
-| `gripper_position` | `/joint_states` 의 finger joint (derived) | 연속 상태 |
-| `gripper_last_command_result` | `/gripper_control/gripper_action_states` | 이벤트성. `staleness_ms: null` |
-
-트윈은 명령을 토픽으로 보내고(6.14) **결과 변수의 세대가 올라갈 때까지 기다린 뒤**
-그 값을 `outputs` 로 옮긴다. 따라서 클라이언트는 "지금 읽은 값이 방금 보낸 명령의
-것인가"를 판별하지 않아도 된다 — 그 책임을 트윈이 진다.
-
-이 변수를 **연속 상태로 폴링하지는 않는다.** 명령이 없는 동안 갱신되지 않으므로 현재
-그리퍼 폭은 `gripper_position` 에서 읽는다.
+> ⚠️ **mock 에서 `grasp` 는 완료되지 않는다.** planning scene 물체에 물리가 없어
+> `stalled` 를 관측할 수단이 없고, 따라서 `at_goal` 이 서지 않아 `sync_timeout_sec`
+> 까지 기다린 뒤 타임아웃한다. 정직한 판정의 대가이며 처리 방침은 미결이다.
 
 **`named_targets` 는 연산이 아니라 상태 변수다.**
 
@@ -1162,7 +1160,7 @@ extern_op 에는 세션 목록 조회 수단이 없다. 다중 세션 모델(6.1
 | `move_to_joints` | arm | **async** | ✔ | `move_to_joints_async` |
 | `move_to_named_target` | arm | **async** | ✔ | `move_to_named_target_async` |
 | `move_gripper` | gripper | **async** | ✔ | `control_msgs/GripperCommand` 액션 |
-| `move_gripper_to_target` | gripper | **sync** | ✔ | `backend.targets` 가 목표 이름 → `{position, max_effort}` 로 매핑되고, `backend.topic`(`rdfp_msgs/GripperCommand`) 으로 발행된다. 액션 호출은 `gripper_control_node` 가 한다 |
+| `move_gripper_to_target` | gripper | **sync** | ✔ | `backend.labels` 가 보낼 수 있는 **심볼 목록**이고, `backend.topic`(`rdfp_msgs/GripperCommand`) 으로 발행된다. 숫자는 `GripperNode` 의 `targets` 파라미터가 갖는다 |
 
 **현재 모든 연산이 `idempotent: true`** 다 — 전부 절대 목표를 지정하기 때문이다 (6.11).
 새 연산 추가 시 이 값을 반드시 판정한다.
@@ -1202,18 +1200,19 @@ CHOMP 세 개를 로드한다 ([launch_helper.py:56](../../src/robot_control/rob
 연산은 비동기)에 대한 명시적 예외다. 그리퍼 동작은 짧게 끝나고, 중간 취소의 실익이
 없으며, 실패해도 위험이 낮다.
 
-이 연산은 명령 토픽에 발행하고 **결과가 돌아올 때까지 기다린 뒤** 응답한다.
-액션을 직접 부르지 않는 이유는 액션 goal 전송이 서비스라 **rosbag2 가 기록하지 못하기**
-때문이다 — 명령이 토픽으로 흘러야 학습 데이터의 action 채널이 남는다.
+이 연산은 명령 토픽에 발행하고 **`at_goal` 이 설 때까지 기다린 뒤** 응답한다.
+하드웨어 접점을 직접 부르지 않는 이유는 액션 goal 전송이 서비스라 **rosbag2 가 기록하지
+못하기** 때문이다 — 명령이 토픽으로 흘러야 학습 데이터의 action 채널이 남는다.
 따라서 `sync_timeout_sec` 은 goal 왕복이 아니라 **실제 동작 시간**을 덮어야 하며,
-그만큼 HTTP 요청이 블록된다 (기본 5초). 예산을 넘기면 `TIMEOUT` 인데, 이때 goal 은
+그만큼 HTTP 요청이 블록된다 (기본 5초). 예산을 넘기면 `TIMEOUT` 인데, 이때 명령은
 이미 나간 뒤이므로 **"결과를 모른다"는 뜻**이지 "동작하지 않았다"가 아니다.
 
-result 를 기다리는 대가로 `reached_goal` / `stalled` 로 **파지 여부를 판정할 수
-있다.** 물체를 물면 목표 폭까지 갈 수 없어 `reached_goal` 이 `false` 가 되므로,
-파지 판정의 축은 `stalled` 다. mock 환경에서는 액션 feedback 이 오지 않아 완료 판정이
-result 에만 의존한다
-([gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) 참조).
+**세대 변화를 완료로 삼지 않는다** — `/gripper_states` 는 주기 발행이라 명령과 무관하게
+세대가 오른다. `goal` 이 이번 명령과 같고 `at_goal` 이 참인 스냅샷만 결과로 인정한다.
+
+파지 여부는 `at_goal` 이 이미 답한다 — `grasp` 의 판정식이 `stalled` 이기 때문이다
+(물체에 막혀 멈추는 것이 곧 성공이고, 목표 폭에 닿으면 오히려 헛닫힘이다).
+⚠️ **mock 은 `stalled` 관측 수단이 없어 `grasp` 가 타임아웃한다** (5.7 참조).
 
 **취소·E-stop 은 진행 중인 그리퍼 goal 을 멈추지 않는다.** 동기라 취소 창 자체가
 없고, `_stop_backend()` 는 `MoveGroupClient` 만 안다. 위 "실패해도 위험이 낮다"는
@@ -1389,12 +1388,12 @@ VLAN 등), 물리적 접근 통제. 트윈은 **신뢰된 폐쇄망 안에 있�
 |---|---|
 | `move_to_named_target` | `move_to_named_target_async()` — **사용 가능** |
 | `named_targets` 변수 | `get_all_named_targets()` (그룹별 `dict[str, list[str]]`) — **사용 가능** |
-| `move_gripper_to_target` | `rdfp_msgs/GripperCommand` 토픽 발행 → `gripper_control_node` 가 액션으로 중계 — **사용 가능**. 액션 직접 호출은 rosbag2 가 기록하지 못해 채택하지 않았다 |
-| `move_gripper` (임의 폭) | **의도적 미개방.** 액션 경로는 이미 있으나 폭을 요청 인자로 받지 않는다 — 쓸 수 있는 폭은 설정(`backend.targets`)이 정한다 |
+| `move_gripper_to_target` | `rdfp_msgs/GripperCommand` 토픽 발행 → `GripperNode` 가 자기 백엔드 방식으로 실행 — **사용 가능**. 하드웨어 직접 호출은 rosbag2 가 기록하지 못해 채택하지 않았다 |
+| `move_gripper` (임의 폭) | **의도적 미개방.** 명령은 심볼만 싣는다 — 숫자는 그리퍼에 종속이라 다른 기구로 옮기면 틀린 값이 된다. 쓸 수 있는 심볼은 설정(`backend.labels`)이 정한다 |
 | `move_linear` (Cartesian) | `follow_trajectory_async()` — **사용 가능**. `fraction` 을 `outputs` 로 노출하도록 반환값 확인 필요 |
 | **`move_to_pose`** (자유 계획) | **공개 API 없음.** `_build_move_group_goal()` 이 `JointConstraint` 만 만들므로([move_group_client.py:953](../../src/robot_control/robot_control/moveit/move_group_client.py#L953)), pose 목표는 `PositionConstraint` + `OrientationConstraint` 를 추가하거나 IK(`GetPositionIK`)로 joint 값을 구해 기존 경로에 태워야 한다 |
 | ~~`move_to_joints`~~ | **해소됨.** `MoveGroupClient` 에 `plan_joints()` / `plan_joints_async()` 를 두고, 실행은 구현별로 `move_to_joints()` / `move_to_joints_async()` (JTC=MoveGroup 액션, JGPC=command 스트리밍). 관절 이름이 planning group 에 속하는지는 검사하지 않으므로 그룹 밖 관절은 계획 단계에서 실패한다 |
-| `gripper_position` 연속 상태 | `/joint_states` 에서 파생 추출 필요 (5.7) |
+| ~~`gripper_position` 연속 상태~~ | **해소됨.** `/joint_states` 파생을 버리고 `GripperState.width`(개구 폭 m)를 직접 받는다 (5.7) |
 | 상태 스냅샷 캐시 계층 | 신규 구현 |
 | 도달 검증 (`goal_error`) | 신규 구현. 상태 캐시의 `joint_states` / `ee_pose` 와 목표값을 비교한다 (6.7) |
 | 진행 중 동작의 정지 | `MoveGroupClient.cancel()` — **구현 완료**. 아래 참조 |

@@ -77,6 +77,10 @@ _JOINT_STATES_TOPIC = '/joint_states'
 
 # 심볼 → (position[m], max_effort[N]).
 #
+# **`position` 은 액션 goal 이 받는 관절값이며 개구 폭이 아니다.** 폭과 견주려면
+# `width_scale` 을 곱해야 한다 (`_target_width`) — 두 단위를 그대로 비교하면 `open`
+# 의 `at_goal` 이 영영 서지 않는다. 명령 경로는 관절값을, 관측 경로는 폭을 쓴다.
+#
 #   open   최대 개구
 #   close  빈손으로 닫는다 — 힘을 주지 않으므로 파지 용도가 아니다
 #   grasp  close 와 자세는 같고 **힘이 다르다**
@@ -213,6 +217,16 @@ class MockGripperNode(Node):
             return
         self._width = float(msg.position[idx]) * self._width_scale
 
+    def _target_width(self, goal: str) -> float:
+        """심볼의 목표를 **개구 폭**으로 돌려준다. 모르는 심볼이면 NaN.
+
+        `targets` 가 갖는 것은 액션 goal 에 실을 **관절값**이라 `width` 와 직접 비교
+        하면 안 된다 — Panda 는 폭이 관절값의 2배라 `open` 이 0.035 vs 0.070 으로
+        어긋나 판정이 영영 서지 않는다.
+        """
+        target = self._targets.get(goal)
+        return math.nan if target is None else target[0] * self._width_scale
+
     def _at_goal(self) -> bool:
         """§2.3 판정식. **의도의 달성 여부**이지 위치 도달이 아니다.
 
@@ -224,10 +238,10 @@ class MockGripperNode(Node):
             return False
         if self._goal == 'grasp':
             return self._stalled()
-        target = self._targets.get(self._goal)
-        if target is None:
+        target_width = self._target_width(self._goal)
+        if math.isnan(target_width):
             return False
-        return abs(self._width - target[0]) <= self._width_tolerance and not self._stalled()
+        return abs(self._width - target_width) <= self._width_tolerance and not self._stalled()
 
     def _stalled(self) -> bool:
         """mock 은 힘을 관측할 수 없다.

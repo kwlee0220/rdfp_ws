@@ -51,7 +51,7 @@ RAW: dict[str, Any] = {
         {'name': 'move_to_pose', 'kind': 'async', 'resource': 'arm'},
         # 목표 표와 액션은 생략할 수 없다 — 없으면 설정 검증이 기동을 막는다.
         {'name': 'move_gripper_to_target', 'kind': 'sync', 'resource': 'gripper',
-         'backend': {'topic': '/gripper_control/gripper_cmds',
+         'backend': {'topic': '/gripper_cmds',
                      'topic_type': 'rdfp_msgs/msg/GripperCommand',
                      'result_variable': 'gripper_last_command_result',
                      'labels': ['open', 'close']}}

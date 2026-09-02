@@ -26,7 +26,7 @@
 |---|:---:|:---:|---|
 | `camera_node` | O | **X** | 이미지가 MP4 에서 재생됨 |
 | `ee_pose_publisher` | O | **X** | `/ee_pose` 가 DB 에서 재생됨 |
-| `gripper_control_node` | O | **X** | 그리퍼 명령이 재생 쪽에서 발행됨 |
+| `mock_gripper_node` | O | **X** | 그리퍼 명령이 재생 쪽에서 발행됨 |
 | `session_control_node` | O | **X** | 재생 중에는 세션 상태머신이 불필요 |
 | `image_recorder_node` | O | **X** | 재생을 다시 녹화하지 않음 |
 | `target_joint_cmds_publisher` | O | **X** | 재생 쪽이 발행자 |
@@ -65,13 +65,13 @@ robot_control   /rdfp_image_viewer_node       (enable_image_viewer_node)
 | 노드 | 입력 | 출력 | 역할 |
 |---|---|---|---|
 | `rdfp_image_viewer_node` | `/camera/image_raw` | (화면) | 재생 프레임에 상태 오버레이 표시 |
-| `gripper_control_node` | `/gripper_control/gripper_cmds` | `gripper_cmd` action | 재생된 그리퍼 명령을 action goal 로 중계 (수집 때와 같은 노드) |
+| `mock_gripper_node` | `/gripper_cmds` | `gripper_cmd` action | 재생된 그리퍼 명령을 action goal 로 중계 (수집 때와 같은 노드) |
 | `target_joint_cmds_executor` | `/target_joint_cmds` | `/panda_arm_controller/joint_trajectory` | 길이 1 `JointTrajectory` 로 래핑 |
 | `ee_twist_publisher` | `/ee_pose` | `/servo_node/delta_twist_cmds` | pose 유한 차분 → twist |
 | `servo_auto_start` | — | `start_servo` 서비스 | servo 를 한 번 기동시키고 종료 |
 
-`gripper_control_node` 는 녹화 당시와 **같은 노드**이며, 다른 점은 명령 토픽의 퍼블리셔가
-그대로 구독한다 (`~/gripper_cmds` → `/gripper_control/gripper_cmds` remap). 재생
+`mock_gripper_node` 는 녹화 당시와 **같은 노드**이며, 다른 점은 명령 토픽의 퍼블리셔가
+그대로 구독한다 (`~/gripper_cmds` → `/gripper_cmds` remap). 재생
 시에는 발행자만 재생 도구로 바뀌고 토픽 이름은 동일하다.
 
 ### 1-4. arm 재생 경로 — `replay_arm_path`

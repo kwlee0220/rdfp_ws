@@ -278,7 +278,7 @@ franka::ControlException: communication constraints violation
 |---|:-:|
 | `robot_state_publisher` · TF · RViz | ✅ |
 | `ee_pose_node` (`/joint_states` → FK) | ✅ |
-| `gripper_control_node` ↔ **franka_gripper 어댑터** (§5.2) | ✅ **핵심 작업인데 RT 무관** |
+| `FrankaGripperNode` — **franka_gripper 어댑터** (§5.2) | ✅ **핵심 작업인데 RT 무관** |
 | `session_control_node` · `image_recorder` · rosbag2 녹화 | ✅ |
 | dataset import → DB 적재 → replay | ✅ |
 | robot twin 변수 조회 · MCP 도구 | ✅ (이동 연산 제외) |
@@ -326,7 +326,7 @@ Franka Hand 는 `ros2_control` 컨트롤러가 아니라 **별도 `franka_grippe
 
 | 안 | 내용 | 평가 |
 |---|---|---|
-| **A** | `gripper_control_node` 에 franka 백엔드를 추가해 `GripperCommand` → `franka_gripper` 액션으로 번역 | **권장** — 계약이 유지되어 상위(트윈·MCP)가 무변경 |
+| **A** | `GripperNode` 구현을 하나 더 만든다(`FrankaGripperNode`) — `GripperCommand` 심볼을 `franka_gripper` 액션으로 번역하고 `GripperState` 를 채운다 | **권장** — 계약이 유지되어 상위(트윈·MCP)가 무변경. 백엔드마다 노드 하나가 [GripperNode 설계](../moveit/GripperNode_Design.md) §3 의 구조다 |
 | B | 트윈 설정에서 그리퍼 연산을 다시 매핑 | 계약이 백엔드마다 갈라진다 |
 
 "백엔드 차이는 어댑터가 흡수한다"는 [scene 계약](../scene/scene_objects_guide.md)과 같은 원칙이다.

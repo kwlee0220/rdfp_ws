@@ -100,10 +100,10 @@ flowchart LR
 |:-:|---|---|---|
 | **입력** | 팔 제어 (속도) | `/servo_node/delta_twist_cmds` | `geometry_msgs/TwistStamped` |
 | 입력 | 팔 제어 (관절 위치) | `/target_joint_cmds` | `sensor_msgs/JointState` |
-| 입력 | 그리퍼 제어 | `/gripper_control/gripper_cmds` | `rdfp_msgs/GripperCommand` (`position`/`max_effort`) |
+| 입력 | 그리퍼 제어 | `/gripper_cmds` | `rdfp_msgs/GripperCommand` (`goal` — 심볼) |
 | **출력** | 팔·그리퍼 관절 상태 | `/joint_states` | `sensor_msgs/JointState` |
 | 출력 | 엔드이펙터 자세 | `/ee_pose` | `geometry_msgs/PoseStamped` |
-| 출력 | 그리퍼 명령 결과 | `/gripper_control/gripper_action_states` | `rdfp_msgs/GripperActionState` |
+| 출력 | 그리퍼 상태 | `/gripper_states` | `rdfp_msgs/GripperState` (`width`/`stalled`/`at_goal`) |
 | 출력 | 카메라 RGB | `/camera/image_raw` | `sensor_msgs/Image` |
 | **제어** | 에피소드 경계 | `/session` | `rdfp_msgs/SessionCommand` (TRANSIENT_LOCAL) |
 
@@ -121,17 +121,27 @@ imitation learning 데이터의 핵심은 **(관측, 행동) 쌍**이다. 그래
 | | 토픽 | 의미 |
 |---|---|---|
 | action (팔) | `/target_joint_cmds` | 컨트롤러로 **나간 명령값** |
-| action (그리퍼) | `/gripper_control/gripper_cmds` | 보낸 **폭·힘** |
-| observation | `/joint_states` | 실제 **도달값** (팔 + 손가락) |
+| action (그리퍼) | `/gripper_cmds` | 보낸 **의도** (심볼) |
+| observation (팔) | `/joint_states` | 실제 **도달값** |
+| observation (그리퍼) | `/gripper_states` | 실제 **개구 폭** + 파지 여부 |
 
-**두 action 채널 모두 숫자다.** 그리퍼 명령에 `"open"` 같은 심볼을 실으면 그 의미(몇
-m 인가)가 노드 상수에 남아 데이터셋이 자기 완결적이지 않게 된다 — 상수를 바꾸는 순간
-과거 에피소드의 의미가 조용히 바뀐다. 사람이 읽을 이름은 `label` 필드에 병행해 싣되
-제어에는 쓰지 않는다.
+**팔은 숫자, 그리퍼는 심볼이다 — 비대칭이 의도적이다 (2026-09-01 결정).**
+
+원래는 그리퍼 명령도 숫자(`position`/`max_effort`)였고, 근거는 "심볼을 쓰면 그 의미가
+노드 상수에 남아 데이터셋이 자기 완결적이지 않게 된다"였다. 다시 따져 보니 그 숫자가
+**그리퍼에 종속**이라는 대가가 더 컸다 — `position` 은 관절값이라 ROS 표준(개구 폭)과
+뜻이 달랐고, Robotiq 2F-85 처럼 관절이 각도인 기구에서는 단위조차 m 가 아니다. 다른
+그리퍼로 옮기면 그 숫자는 **틀린 값**이 되지만, 심볼은 "그 그리퍼에 맞게 쥐어라"로
+남아 이식된다.
+
+**자기 완결성은 관측 쪽이 맡는다.** `/gripper_states` 가 개구 폭(m)을 주기 발행하므로
+"그때 실제로 얼마나 벌어져 있었나"는 데이터 안에 있다. 명령은 "무엇을 원했는가",
+관측은 "무엇이었는가" — 팔에서 `/target_joint_cmds` 와 `/joint_states` 가 나뉘는 것과
+같은 구조이며, 그리퍼는 그 명령 쪽 표현이 심볼일 뿐이다.
 
 > **왜 액션이 아니라 토픽인가** — 액션 goal 전송은 서비스라 **rosbag2(Humble)가
-> 기록하지 못한다.** 명령을 토픽으로 흘리고 `gripper_control_node` 가 액션으로 중계하는
-> 구조를 택한 이유가 이것이다.
+> 기록하지 못한다.** 명령을 토픽으로 흘리고 `GripperNode` 가 자기 백엔드 방식으로
+> 실행하는 구조를 택한 이유가 이것이다.
 
 둘 다 `sensor_msgs/JointState` 라 DB 에서는 같은 테이블에 들어가고 `topic_id` 로만
 구분된다. 이 구분이 사라지면 학습 데이터로서의 가치가 크게 떨어지므로, 녹화 목록에서
@@ -158,7 +168,7 @@ Isaac Sim 을 바꾸는 데는 이것으로 충분하다 — **다만 "Panda 가
 | 지금 이름 | 드러난 구현 |
 |---|---|
 | `/servo_node/delta_twist_cmds` | MoveIt Servo 노드 |
-| `/gripper_control/gripper_cmds` | `gripper_control_node` |
+| ~~`/gripper_control/gripper_cmds`~~ | **해소됨 (2026-09-02)** — `/gripper_cmds` 로 노드 이름을 뗐다 |
 
 이건 컨트롤러 이름(위 표의 아래쪽 계약)이 아니라 **중간 어댑터 노드의 이름**이다. 로봇
 환경이 servo 를 쓰지 않는 방식(예: 시뮬레이터가 자체 IK 를 제공)으로 바뀌면 이름이
@@ -173,7 +183,7 @@ flowchart LR
 
     C1 -->|remap| M1["/servo_node/delta_twist_cmds"]
     C1 -->|remap| I1["시뮬레이터 고유 토픽"]
-    C2 -->|remap| M2["/gripper_control/gripper_cmds"]
+    C2 -->|remap| M2["/gripper_cmds"]
     C2 -->|remap| I2["시뮬레이터 고유 토픽"]
 
     subgraph MOCK["mock Panda 백엔드"]
@@ -263,7 +273,7 @@ stateDiagram-v2
 ### 4.2 키보드 teleop `현행`
 
 `teleop_keyboard` 가 키 입력을 twist 로 바꿔 servo 에 직접 넣는다. 그리퍼는 `=`/`-`
-키가 `gripper_control_node` 의 서비스를 호출한다.
+키가 `/gripper_cmds` 에 심볼을 발행한다.
 
 가장 단순하고 의존성이 없어 **다른 두 경로를 검증하는 기준선** 역할을 한다.
 
@@ -307,7 +317,7 @@ flowchart LR
 
 | 제공 | 내용 |
 |---|---|
-| 상태 변수 | `joint_states` / `ee_pose` / `gripper_position` / `named_targets` |
+| 상태 변수 | `joint_states` / `ee_pose` / `gripper_state` / `scene_objects` / `named_targets` |
 | 연산 (arm) | `move_to_named_target` / `move_to_joints` / `move_linear` |
 | 연산 (gripper) | `move_gripper_to_target` (`open`/`close`/`grasp`) |
 | 안전 | 자원 배타 락, E-stop, 세션 수명주기 |
@@ -389,7 +399,7 @@ flowchart LR
 | `topics` | 토픽 이름·타입 등록부. action/observation 구분의 근거 |
 | `joint_states` | 관절 position/velocity/effort. **관절 이름은 저장하지 않는다** |
 | `pose_stampeds` / `twist_stampeds` | EE 자세 / 속도 명령 |
-| `gripper_cmds` / `gripper_action_states` | 그리퍼 명령과 결과 |
+| `gripper_cmds` / `gripper_states` | 그리퍼 명령(심볼)과 연속 상태 |
 | `image_streams` / `image_frames` | MP4 파일 1행 + 프레임 N행 |
 
 > **`joint_states` 에 관절 이름이 없다 ⚠️** 재생 시 `name` 이 빈 메시지가 나가므로,

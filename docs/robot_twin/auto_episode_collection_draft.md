@@ -278,7 +278,7 @@ HTTP 응답에 그대로 반영됐다.
 |---|---|
 | `spawn_object` / `remove_object` / `set_object_pose` | **반대.** scene 구성 로직이 클라이언트로 새어 나가고, "어떤 배치였는지"가 데이터셋 밖에 남는다. 그리퍼에서 심볼을 버리고 숫자를 실은 것과 같은 문제다 |
 | `randomize_scene(seed)` | 인자가 늘수록 파라미터 괴물이 된다 |
-| **`reset_scene(scene, seed)` + 레시피를 config 에** | **채택.** `move_gripper_to_target` 의 `backend.targets` 와 같은 패턴이다 |
+| **`reset_scene(scene, seed)` + 레시피를 config 에** | **채택.** `move_gripper_to_target` 의 `backend.labels` 와 같은 패턴이다 |
 
 ### 3.2 배선은 그리퍼와 동일하다
 
@@ -457,7 +457,7 @@ arm 이동 중 reset_scene → 409 RESOURCE_BUSY  ← §3.4 의 양방향 배타
 트윈의 비동기 연산 배선에 그대로 맞는다.
 
 결과적으로 트윈의 역할은 **HTTP → ROS 서비스 어댑터**로 정리된다. 그리퍼에서 내린
-결정과 같은 형태다 — 트윈은 액션을 직접 부르지 않고 `gripper_control_node` 를 거친다.
+결정과 같은 형태다 — 트윈은 액션을 직접 부르지 않고 `GripperNode` 를 거친다.
 
 ### 4.2 `episode` 는 자원으로 만들지 않는다 (결정, 2026-08-17)
 

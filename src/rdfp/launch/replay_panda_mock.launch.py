@@ -11,7 +11,7 @@
 - ``/ee_pose`` — 데이터셋에서 재생되므로 ``ee_pose_publisher`` 를 띄우지 않는다.
 - 이미지 (``/camera/...``) — 데이터셋에서 재생되므로 ``camera`` 노드를 띄우지
   않는다. 재생된 이미지 토픽을 구독하는 ``rdfp_image_viewer_node`` 는 유지한다.
-- ``/gripper_control/gripper_cmds`` — 데이터셋 재생 쪽에서 발행한다. 본 런치의
+- ``/gripper_cmds`` — 데이터셋 재생 쪽에서 발행한다. 본 런치의
   ``GripperNode`` 가 이를 받아 gripper action 으로 중계한다.
 - ``/target_joint_cmds`` — 데이터셋에서 재생되므로
   ``target_joint_cmds_publisher`` 를 띄우지 않는다.

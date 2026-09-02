@@ -1,6 +1,6 @@
 # `/panda_hand_controller/gripper_cmd` 액션 서버 — 동작 노트
 
-Panda gripper 를 실제로 구동하는 **ros2_control 액션 서버** 계층의 동작 정리. 그 위에 얹힌 `GripperControlNode` 사용법은 [GripperControlNode_Guide.md](GripperControlNode_Guide.md) 를 본다.
+Panda gripper 를 실제로 구동하는 **ros2_control 액션 서버** 계층의 동작 정리. 그 위에 얹힌 인터페이스(`GripperCommand`/`GripperState`)와 노드 계약은 [GripperNode_Design.md](GripperNode_Design.md) 를 본다.
 
 > 본 문서의 실측값은 `panda_mock.launch.py` (hardware_type = `mock_components`)
 > 환경에서 확인한 것이다. 실물 하드웨어에서 달라질 수 있는 항목은 그때그때
@@ -28,9 +28,9 @@ Panda gripper 를 실제로 구동하는 **ros2_control 액션 서버** 계층�
 그리퍼 명령은 세 계층을 거친다. 문제가 생겼을 때 어느 계층인지부터 가른다.
 
 ```text
-[응용]  명령 토픽      /gripper_control/gripper_cmds (rdfp_msgs/GripperCommand)
-          │                          ← GripperControlNode (rdfp)
-          │  open→0.04 / close→0.0 로 고정 변환
+[응용]  명령 토픽      /gripper_cmds (rdfp_msgs/GripperCommand — 심볼)
+          │                          ← MockGripperNode (robot_control)
+          │  targets 파라미터로 심볼 → (관절값, 힘) 변환
           ▼
 [액션]  /panda_hand_controller/gripper_cmd    (control_msgs/GripperCommand)
           │                          ← panda_hand_controller
@@ -89,8 +89,12 @@ bool    stalled       # max_effort 를 내면서도 움직이지 못하는 중
 bool    reached_goal  # 목표 도달
 ```
 
-`GripperControlNode` 는 이 중 `position` 만 Panda 관례값으로 채워 보낸다
-(`open = 0.04`, `close = 0.0`, `max_effort = 0.0`).
+`MockGripperNode` 는 `targets.<심볼>` 파라미터가 주는 `[position, max_effort]` 를 그대로
+싣는다 (기본 `open = [0.035, 10.0]`, `close = [0.0, 10.0]`, `grasp = [0.0, 30.0]`).
+
+⚠️ **여기의 `position` 은 관절값이지 개구 폭이 아니다.** 관측 채널
+(`GripperState.width`)은 폭이라 Panda 에서 **2배** 차이가 난다 — 두 단위를 직접
+비교하면 `at_goal` 이 어긋난다.
 
 ---
 
@@ -101,7 +105,7 @@ $ ros2 action info /panda_hand_controller/gripper_cmd
 Action: /panda_hand_controller/gripper_cmd
 Action clients: 2
     /moveit_simple_controller_manager     ← MoveIt
-    /gripper_control                      ← GripperControlNode (rdfp)
+    /gripper                              ← MockGripperNode (robot_control)
 Action servers: 1
     /panda_hand_controller
 ```
@@ -116,7 +120,7 @@ moveit_simple_controller_manager:
     joints: [panda_finger_joint1]
 ```
 
-즉 RViz 의 MotionPlanning 패널에서 `hand` 그룹을 `open`/`close` 로 움직여도, `GripperControlNode` 의 서비스를 호출해도 **결국 같은 액션 서버로 들어간다**. 두 경로에서 동시에 goal 을 보내면 나중 goal 이 앞의 것을 선점(preempt)한다.
+즉 RViz 의 MotionPlanning 패널에서 `hand` 그룹을 `open`/`close` 로 움직여도, `/gripper_cmds` 에 심볼을 발행해도 **결국 같은 액션 서버로 들어간다**. 두 경로에서 동시에 goal 을 보내면 나중 goal 이 앞의 것을 선점(preempt)한다.
 
 ---
 
@@ -195,7 +199,13 @@ if (fabs(error_position) < params_.goal_tolerance) {
 
 따라서 `reached_goal` 과 `stalled` 는 **항상 배타적**이다. 둘 다 `true` 인 Result 는 나오지 않는다.
 
-`GripperControlNode` 는 Result 를 받아 `~/gripper_action_states` 로 발행하며, `status` 도 `rdfp_msgs/msg/GripperActionState.status` 에 그대로 담는다 (같은 int8 값, `STATUS_*` 상수 내장). 따라서 액션을 직접 호출하지 않아도 토픽만으로 성공/취소를 구분할 수 있다. feedback 기반 메시지는 `STATUS_EXECUTING` 으로 채운다.
+> **⚠️ `status` 는 더 이상 토픽으로 나가지 않는다 (2026-09-02).** 예전에는
+> `GripperControlNode` 가 Result 를 `~/gripper_action_states`
+> (`rdfp_msgs/GripperActionState`) 로 재발행하며 `status` 를 그대로 실었다. 그 메시지와
+> 토픽은 삭제됐고, 지금 `MockGripperNode` 는 **status 를 로그로만 남긴다.**
+> `/gripper_states` 가 싣는 것은 `at_goal` 이며, `CANCELED`(선점)와 `ABORTED`(실패)는
+> 둘 다 `at_goal=false` 로 뭉개진다 — 구분이 필요해지면 되살릴 방법을 정해야 한다
+> ([GripperNode_Design.md](GripperNode_Design.md) §7 미결).
 
 ---
 
@@ -263,26 +273,30 @@ $ grep -rn "setFeedback" /opt/ros/humble/include/gripper_action_controller/
 [open]  position=0.04  status=4(SUCCEEDED)  feedback수=0
 [close] position=0.0   status=4(SUCCEEDED)  feedback수=0
 
-/gripper_control/gripper_cmds   수신: ['open', 'close']   ← 의도 토픽은 정상
-/gripper_control/gripper_action_states 수신: 0 건                ← feedback 재발행분
+/gripper_cmds  수신: ['open', 'close']   ← 의도 토픽은 정상
 ```
+
+> 측정 당시 토픽 이름은 `/gripper_control/gripper_cmds` 였다. 액션 계층의 관찰은
+> 그대로 유효하다.
 
 **파급 효과**
 
 | 대상 | 상태 |
 |---|---|
 | `/panda_hand_controller/gripper_cmd/_action/feedback` | 항상 비어 있음 |
-| `GripperControlNode._on_feedback` | 호출되지 않음 |
-| `/gripper_control/gripper_action_states` | **result 기반으로 발행됨** (명령당 1 건) |
-| 데이터셋 `gripper_action_states` 테이블 | result 기록이 적재됨 (`status` 컬럼 포함) |
+| `/gripper_states` | **액션과 무관하게 주기 발행** (기본 10 Hz) |
 
-`GripperControlNode` 는 feedback 대신 **result** 를 받아 `gripper_action_states` 를 발행한다 (`_on_goal_response` → `_on_result`). Result 는 Feedback 과 필드 구성이 같아 그대로 매핑된다. 따라서 이 토픽은 **동작 중 추적용이 아니라 완료 통보용** 이다.
+**이것이 `MockGripperNode` 가 액션 결과로 상태를 만들지 않는 이유다.** 결과는 명령당
+1 건이라 "지금 어떤 상태인가"에 답할 수 없고, `at_goal` 은 매 주기 재평가여야 한다
+(물체를 놓쳐 손이 벌어지면 다시 `false` 가 되어야 한다). 그래서 노드는 액션 결과를
+**로그로만** 남기고, 상태는 `/joint_states` 의 손가락 관절에서 만든다.
 
-→ 진행 중 위치가 필요하면 `/joint_states` 의 `panda_finger_joint1` 을 본다.
+→ 진행 중 폭이 필요하면 `/gripper_states` 의 `width` 를 본다. **`/joint_states` 를
+직접 읽지 않는다** — 백엔드마다 믿을 수 없고(펑션베이는 고정값을 주입한다), 관절값은
+개구 폭의 절반이다.
 
-→ 성공/취소까지 구분해야 해도 액션을 직접 호출할 필요는 없다. Result 의 `status` 가 `GripperActionState.status` 에 그대로 담기므로 토픽만 구독하면 된다 ([Result 와 Feedback 의 관계](#result-와-feedback-의-관계) 참고).
-
-→ feedback 이 꼭 필요하면 gripper 컨트롤러를 feedback 지원 구현으로 교체한다. `GripperControlNode` 는 `getattr(source, ..., default)` 로 방어되어 있어 수정없이 동작한다.
+→ feedback 이 꼭 필요하면 gripper 컨트롤러를 feedback 지원 구현으로 교체한다. 지금
+구현은 feedback 을 구독조차 하지 않으므로 그 자체로는 아무 영향이 없다.
 
 ### 3. 연속 명령은 서로를 선점(preempt)한다
 
@@ -296,25 +310,31 @@ status 분포:  CANCELED 9 건 / SUCCEEDED 3 건   (총 12 건)
 [gripper] close result: status=SUCCEEDED position=0.0000  reached_goal=True
 ```
 
-`reached_goal=False` 만 보고 "실패" 로 판정하면 안 된다. 선점은 정상적인 취소다. 명령을 겹쳐 보내지 않는 것이 원칙이고, 겹칠 수밖에 없다면 `GripperActionState.status`로 판정한다 (`STATUS_SUCCEEDED` 만 성공, `STATUS_CANCELED` 는 선점, `STATUS_ABORTED` 가 실제 실패).
+`reached_goal=False` 만 보고 "실패" 로 판정하면 안 된다. 선점은 정상적인 취소다.
+**명령을 겹쳐 보내지 않는 것이 원칙**이며, 지금은 그 원칙에 기대는 수밖에 없다 —
+`status` 를 싣던 토픽이 사라져 `at_goal=false` 만으로는 선점과 실패를 가릴 수 없다
+(위 경고 상자 참조).
 
-MoveIt 과 `GripperControlNode` 가 동시에 goal 을 보내는 경우도 마찬가지다 ([클라이언트가 둘이다](#클라이언트가-둘이다) 참고).
+MoveIt 과 `MockGripperNode` 가 동시에 goal 을 보내는 경우도 마찬가지다 ([클라이언트가 둘이다](#클라이언트가-둘이다) 참고).
 
-### 4. Trigger 응답은 Result 를 기다리지 않는다
+### 4. 명령 발행은 완료를 뜻하지 않는다
 
-[gripper_control_node.py](../../src/robot_control/robot_control/moveit/gripper_control_node.py) 의 `_dispatch` 는 goal 전송 직후 응답을 반환하고, Result 는 별도 콜백 체인에서 받는다.
+[mock_gripper_node.py](../../src/robot_control/robot_control/gripper/mock_gripper_node.py) 의 `_on_cmd` 는 goal 전송 직후 반환하고, Result 는 별도 콜백 체인에서 받는다.
 
 ```python
-send_future = self._action.send_goal_async(goal, feedback_callback=self._on_feedback)
-send_future.add_done_callback(lambda fut: self._on_goal_response(fut, command))
-response.success = True
-response.message = f"{command} dispatched"   # ← Result 를 기다리지 않는다
+send_future = self._action.send_goal_async(action_goal)
+send_future.add_done_callback(lambda fut: self._on_goal_response(fut, goal))
+
+self._goal = goal      # ← 상태에 목표만 실린다; 결과를 기다리지 않는다
 ```
 
-즉 Trigger 서비스가 `success=True` 로 돌아와도 **"goal 을 보냈다"** 는 뜻이지 **"그리퍼가 다 움직였다"** 는 뜻이 아니다. goal 이 거절되거나 abort 되어도 서비스 응답은 이미 성공으로 반환된 뒤다.
+즉 `/gripper_cmds` 에 발행이 끝났다는 것은 **"의도를 보냈다"** 는 뜻이지 **"그리퍼가 다
+움직였다"** 는 뜻이 아니다. goal 이 거절되거나 abort 되어도 발행 쪽은 이미 돌아온 뒤다.
 
-→ 완료를 확인하려면 `~/gripper_action_states` 를 구독한다 (Result 도착 시 1 건 발행).
-→ 성공/취소 구분도 같은 메시지의 `status` 로 한다 (`STATUS_SUCCEEDED` 만 성공).
+→ 완료를 확인하려면 `/gripper_states` 의 `at_goal` 을 본다. 판정식은 `goal` 마다 다르며
+노드가 이미 적용했으므로 **이 값 하나만 보면 된다**
+([GripperNode_Design.md](GripperNode_Design.md) §2.3).
+→ ⚠️ mock 은 `stalled` 관측 수단이 없어 **`grasp` 의 `at_goal` 이 영영 서지 않는다.**
 
 > **로거 주의** — Result 처리에서 status 에 따라 로그 severity 를 바꿀 때, 삼항 연산자로 `self.get_logger().info` / `.warning` 을 골라 **같은 줄에서** 호출하면 안 된다. rclpy 로거는 호출 지점 단위로 severity 를 캐시하며 `ValueError: Logger severity cannot be changed between calls.` 를 던져 **노드가 죽는다**. `if/else` 로 호출 지점을 분리해야 한다.
 
@@ -342,11 +362,14 @@ ros2 param get /panda_hand_controller joint
 ros2 param get /panda_hand_controller goal_tolerance
 ros2 param get /panda_hand_controller allow_stalling
 
-# 액션 직접 호출 (GripperControlNode 우회 — 임의 위치 지정 가능)
+# 액션 직접 호출 (GripperNode 우회 — 임의 위치 지정 가능)
 ros2 action send_goal -f /panda_hand_controller/gripper_cmd \
     control_msgs/action/GripperCommand "{command: {position: 0.02, max_effort: 0.0}}"
 
-# 실제 손가락 위치 (mock 에서 신뢰할 수 있는 유일한 상태 소스)
+# 그리퍼 상태 (개구 폭 + 판정) — 이것이 정규 채널이다
+ros2 topic echo /gripper_states --once
+
+# 액션 계층을 의심할 때만 원천을 본다 (관절값이며 폭의 절반이다)
 ros2 topic echo /joint_states --once | grep -A2 panda_finger
 
 # feedback 이 실제로 오는지 (mock 에서는 조용한 것이 정상)
@@ -359,6 +382,6 @@ ros2 topic echo /panda_hand_controller/gripper_cmd/_action/feedback
 
 ## 관련 문서
 
-- [GripperControlNode_Guide.md](GripperControlNode_Guide.md) — 이 액션을 감싼 `GripperControlNode` 사용법
+- [GripperNode_Design.md](GripperNode_Design.md) — 이 액션을 감싼 `GripperNode` 인터페이스 설계 (메시지 계약, `at_goal` 판정식, 백엔드별 실현 가능성)
 - [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) — JGPC 스택에서 arm 은 왜 다른가 (그리퍼는 영향 없음)
 - [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 컨트롤러 순차 기동 순서
