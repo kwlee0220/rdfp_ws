@@ -95,7 +95,7 @@ for _s in ("load_robot", "setup_scene", "setup_graph", "place_robot",
 | 순서 | 스크립트 | 하는 일 | **빠뜨리면** |
 |:-:|---|---|---|
 | 1 | `load_robot` | Franka 를 `/World/franka` 에 올린다 | `setup_graph` 가 `no articulation root` 로 멈춘다 |
-| 2 | `setup_scene` | 테이블 · 블록 3개 · 카메라 prim 생성 | scene TF 가 없어 `/scene/objects` 가 빈다 |
+| 2 | `setup_scene` | 테이블 · 블록 3개 · 카메라 prim · **돔 라이트** | scene TF 가 없어 `/scene/objects` 가 빈다 |
 | 3 | `setup_graph` | OmniGraph — clock · joint_states · 팔·그리퍼 명령 · scene TF · 카메라 | **ROS 로 아무것도 안 나간다** |
 | 4 | `place_robot` | `panda_link0` 을 월드 원점으로 | 그리퍼가 "도달했다"면서 **허공을 쥔다** (§6) |
 | 5 | `set_home_pose` | Play 시작 자세를 `ready` 로 | 접힌 자세로 시작해 첫 계획이 막힌다 |
@@ -132,7 +132,7 @@ python3 scripts/isaac/is_check_phase0.py    # 골격          5/5
 python3 scripts/isaac/is_check_phase1.py    # 팔 명령       4/5 (τ 는 기준 초과)
 python3 scripts/isaac/is_check_phase2.py    # 그리퍼        6/6
 python3 scripts/isaac/is_check_phase3.py    # scene 객체    5/5
-python3 scripts/isaac/is_check_phase4.py    # 카메라        5/5
+python3 scripts/isaac/is_check_phase4.py    # 카메라        6/6
 python3 scripts/isaac/is_check_phase6.py    # 물리 파지     6/6
 ```
 
@@ -195,6 +195,23 @@ ros2 node list | sort | uniq -c    # 2 이상인 것이 있으면 고아다
 `isaac_scene.json` **두 곳에** 살게 된다. JSON 은 `isaac_scene_state_node` 도 읽는
 정본이라, 갈라지면 시뮬레이터와 ROS 가 다른 크기를 믿는다 — **에러 없이.** 매번
 스크립트로 짓는 편이 느려도 어긋나지 않는다.
+
+### 화면이 검다 / 카메라 이미지가 새까맣다
+
+**씬에 조명이 없으면 그렇다.** 전체 편집기로 띄우면 기본 스테이지에
+`/Environment/defaultLight` 가 딸려 오지만 `--gui`/`--headless` 는 **빈 스테이지**에서
+시작하므로 조명을 직접 만들어야 한다. `setup_scene` 이 돔 라이트를 만든다.
+
+Stage 탭에 물체는 보이는데 뷰포트만 검다면 이 경우다. `ros2 topic echo` 로는 드러나지
+않으니 픽셀을 봐야 한다:
+
+```bash
+python3 scripts/isaac/is_check_phase4.py   # 3. 내용 항목이 잡는다
+```
+
+> **이 검사가 없던 동안 새까만 이미지가 5/5 로 통과했다** (2026-09-02). 주파수·해상도·
+> 인코딩·스탬프가 전부 맞았기 때문이다 — 배관은 멀쩡했고 조명만 없었다. 그 데이터로
+> 학습하면 아무 신호도 없는 영상이 쌓이고, 열어보기 전까지 드러나지 않는다.
 
 ### 로봇이 원점에 있어야 한다
 

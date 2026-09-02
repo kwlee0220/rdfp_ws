@@ -93,6 +93,31 @@ def _bind_physics_material(prim, material) -> None:
     binding.Bind(material, UsdShade.Tokens.weakerThanDescendants, "physics")
 
 
+# 돔 라이트 세기. 렌더 결과만 좌우하고 물리에는 영향이 없다.
+DOME_LIGHT_INTENSITY = 1000.0
+
+
+def _make_light(stage, root_prim: str) -> str:
+    """씬 조명을 만든다. **없으면 카메라가 새까만 이미지를 낸다.**
+
+    Isaac 을 전체 편집기(`isaac-sim.sh`)로 띄우면 기본 스테이지에
+    `/Environment/defaultLight` 가 딸려 오지만, `SimulationApp` 으로 스크립트 기동하면
+    **빈 스테이지**라 조명이 하나도 없다. 그래서 뷰포트도 까맣고
+    `/isaac/camera/image_raw` 의 전 픽셀이 0 이 된다.
+
+    **그 상태로도 Phase 4 검사는 통과했다** — 주파수·해상도·인코딩·스탬프만 보고
+    내용을 안 봤기 때문이다(2026-09-02). 검사에 밝기 확인을 넣어 함께 막았다.
+
+    `root_prim` 아래에 두므로 `setup_scene` 을 다시 돌리면 물체와 함께 재생성된다.
+    """
+    from pxr import UsdLux
+
+    path = f"{root_prim}/dome_light"
+    light = UsdLux.DomeLight.Define(stage, path)
+    light.CreateIntensityAttr(DOME_LIGHT_INTENSITY)
+    return path
+
+
 def _make_object(stage, root_prim: str, spec: dict) -> str:
     """물체 하나를 만든다. prim 경로를 돌려준다."""
     from pxr import Gf, UsdGeom, UsdPhysics
@@ -191,6 +216,7 @@ def main() -> None:
     from pxr import UsdGeom
 
     UsdGeom.Xform.Define(stage, root_prim)
+    _make_light(stage, root_prim)
 
     for spec in config["objects"]:
         path = _make_object(stage, root_prim, spec)
@@ -208,6 +234,8 @@ def main() -> None:
              f"res={camera_spec['resolution']} fps={camera_spec['fps']} "
              f"pos={camera_spec['position']}")
 
+    _log(f"[scene] dome light @ {root_prim}/dome_light "
+         f"(intensity {DOME_LIGHT_INTENSITY}) - without it the camera renders black")
     _log(f"[scene] done - {len(config['objects'])} object(s) under {root_prim}")
     _log("[scene] next: rerun setup_graph.py with PHASE=3 so TF is published")
     _log("[scene] next: run tune_grasp.py so the fingers can actually hold a block")
