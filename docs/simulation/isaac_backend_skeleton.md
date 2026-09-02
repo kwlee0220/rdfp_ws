@@ -237,7 +237,9 @@ Windows 머신                          Ubuntu 머신
 > 스택을 다시 띄우면 `isaac_scene_state` 나 `gripper_action_bridge` 가 **둘**이 되고,
 > 옛 것이 오염된 버퍼로 계속 발행한다. 액션 서버가 둘이면 검사 로그에
 > `There may be more than one action server` 가 나온다. 정리는
-> `ros2 node list | sort | uniq -c` 로 중복을 먼저 확인하고 PID 로 죽인다.
+> `ros2 node list | sort | uniq -c` 로 중복을 먼저 확인하고, 정리는
+> [`scripts/kill_stack.sh`](../../scripts/kill_stack.sh) 로 한다 — 이 네 종류를
+> 한 번에 걷어낸다 (`--dry-run` 으로 대상부터 본다).
 > 펑션베이의 `/ee_pose` 정지 함정과 **같은 종류**다 (CLAUDE.md).
 >
 > **⑥ 헤드리스는 실시간보다 빨리 돈다** — 렌더링이 없어 배속 2.2 가 나왔고 Phase 0
