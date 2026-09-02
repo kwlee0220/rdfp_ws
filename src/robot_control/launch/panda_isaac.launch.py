@@ -131,6 +131,17 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             description="Isaac 이 구독하는 그리퍼 명령 토픽 (sensor_msgs/JointState)",
         ),
         DeclareLaunchArgument(
+            "enable_image_viewer", default_value="false",
+            description=(
+                "Isaac 카메라 이미지를 창으로 띄운다. **GUI 가 필요하다** — "
+                "headless 환경에서 켜면 노드가 기동에 실패한다"
+            ),
+        ),
+        DeclareLaunchArgument(
+            "camera_image_topic", default_value="/isaac/camera/image_raw",
+            description="뷰어가 구독할 이미지 토픽. Isaac 그래프가 내는 이름이다",
+        ),
+        DeclareLaunchArgument(
             "enable_scene", default_value="false",
             description=(
                 "Phase 3 (scene 객체) 연동. Isaac 이 TF 로 내보낸 물체 pose 를 "
@@ -280,6 +291,27 @@ def create_servo_nodes(moveit_config) -> list[Node]:
     ]
 
 
+def create_image_viewer_node() -> Node:
+    """Isaac 카메라 이미지를 창으로 띄운다 (`enable_image_viewer:=true`).
+
+    **카메라 노드는 없다** — Isaac 이 OmniGraph 로 `/isaac/camera/image_raw` 를 직접
+    발행하므로 뷰어만 붙이면 된다. 뷰어는 상대 토픽 `image` 를 구독하므로 remap 한다.
+
+    수집 계열의 `rdfp_image_viewer_node` 와 다르다 — 그쪽은 `/session` 상태를 프레임에
+    겹쳐 그리는 **수집 계층** 노드다. 여기 것은 그냥 보기 위한 것이다.
+
+    ⚠️ **OpenCV 창을 여므로 GUI 가 없는 환경에서는 기동에 실패한다.** headless 로
+    돌릴 때는 켜지 않는다.
+    """
+    return Node(
+        package="robot_control", executable="image_viewer_node",
+        name="image_viewer", output="screen", emulate_tty=True,
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        remappings=[("image", LaunchConfiguration("camera_image_topic"))],
+    )
+
+
 def create_scene_node() -> Node:
     """Phase 3 — Isaac 물체 TF → `/scene/objects`.
 
@@ -319,6 +351,7 @@ def generate_launch_description() -> LaunchDescription:
         *create_gripper_nodes(),
         *create_servo_nodes(moveit_config),
         create_scene_node(),
+        create_image_viewer_node(),
     ]
 
     startup_handler = RegisterEventHandler(

@@ -60,6 +60,23 @@ ros2 launch robot_control panda_isaac.launch.py enable_gripper:=true enable_scen
 | `enable_scene` | `false` | `isaac_scene_state_node` → `/scene/objects` · `/scene/reset` |
 | `enable_rviz` | `true` | RViz (검사만 할 거면 `false` 로 끈다) |
 | `enable_servo` | `false` | `servo_node` + 브리지 (teleop 용) |
+| `enable_image_viewer` | `false` | 카메라 이미지 창 (`image_viewer_node`) |
+
+**카메라를 눈으로 보려면** `enable_image_viewer:=true` 를 붙인다.
+
+```bash
+ros2 launch robot_control panda_isaac.launch.py \
+    enable_gripper:=true enable_scene:=true enable_image_viewer:=true
+```
+
+⚠️ **OpenCV 창을 열므로 GUI 가 있어야 한다.** 원격·headless 환경에서 켜면 노드가
+기동에 실패한다. 그럴 때는 RViz(`enable_rviz:=true`)의 Image 디스플레이나
+`ros2 run rqt_image_view rqt_image_view` 를 쓴다.
+
+> **수집 계열은 자기 뷰어가 따로 있다.** `rdfp_panda_isaac.launch.py` 의
+> `enable_image_viewer_node:=true` 는 `rdfp_image_viewer_node` 를 띄우는데, 그쪽은
+> 프레임에 **`/session` 상태를 겹쳐 그린다** — 에피소드 경계를 눈으로 확인하기 위한
+> 것이다. 제어 계열의 것은 그냥 보기 위한 것이다.
 
 **도메인은 31 이다.** `setup_graph.py` 가 그 값을 그래프에 박으므로, 다르면 브리지
 토픽이 다른 도메인으로 나가 **에러 없이 아무것도 안 보인다.**
