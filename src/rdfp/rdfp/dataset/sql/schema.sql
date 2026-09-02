@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS gripper_states (
     -- **false 가 '물지 않았다'를 보장하지 않는다** — 판정 미구현 스택도 false 다.
     stalled         BOOLEAN             NOT NULL,
     -- **시킨 일을 이뤘는가.** 위치 도달이 아니다 (control_msgs 의 reached_goal 과 다르다).
-    -- open/close 는 목표 폭 도달 AND NOT stalled, grasp 는 stalled 다.
+    -- open/close 는 목표 자세 도달 AND NOT stalled, grasp 는 stalled 다.
+    -- 자세 도달을 무엇으로 재는지는 구현이 정한다 — width 에 묶여 있지 않다.
     -- 판정은 노드가 이미 했으므로 **이 값 하나만 보면 된다.**
     -- ⚠️ false 는 '실패'와 '진행 중'을 구분하지 못한다 — width 를 함께 본다.
     at_goal         BOOLEAN             NOT NULL

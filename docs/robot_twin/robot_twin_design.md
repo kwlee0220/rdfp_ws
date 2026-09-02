@@ -557,7 +557,7 @@ deg, 어떤 쪽은 rad), 변환 지점이 늘수록 오차와 버그가 끼어�
 명령과 무관하게 다음 틱에 세대가 올라 그리퍼가 움직이기도 전에 성공을 돌려준다.
 지금은 `goal` 이 이번 명령과 같고 `at_goal` 이 참인 스냅샷을 기다린다.
 
-판정식(`open`/`close` 는 목표 폭 도달 AND NOT `stalled`, `grasp` 는 `stalled`)은
+판정식(`open`/`close` 는 목표 자세 도달 AND NOT `stalled`, `grasp` 는 `stalled`)은
 `GripperNode` 가 이미 적용했으므로 트윈은 다시 따지지 않는다. 클라이언트도 마찬가지로
 `at_goal` 하나만 보면 된다 — 상세는
 [GripperNode_Design.md](../moveit/GripperNode_Design.md) §2.3.
@@ -1211,7 +1211,7 @@ CHOMP 세 개를 로드한다 ([launch_helper.py:56](../../src/robot_control/rob
 세대가 오른다. `goal` 이 이번 명령과 같고 `at_goal` 이 참인 스냅샷만 결과로 인정한다.
 
 파지 여부는 `at_goal` 이 이미 답한다 — `grasp` 의 판정식이 `stalled` 이기 때문이다
-(물체에 막혀 멈추는 것이 곧 성공이고, 목표 폭에 닿으면 오히려 헛닫힘이다).
+(물체에 막혀 멈추는 것이 곧 성공이고, 목표 자세까지 닫히면 오히려 헛닫힘이다).
 ⚠️ **mock 은 `stalled` 관측 수단이 없어 `grasp` 가 타임아웃한다** (5.7 참조).
 
 **취소·E-stop 은 진행 중인 그리퍼 goal 을 멈추지 않는다.** 동기라 취소 창 자체가

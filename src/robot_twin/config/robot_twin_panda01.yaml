@@ -79,7 +79,7 @@ variables:
   - name: gripper_state
     description: >-
       그리퍼의 연속 상태. **성공 판정은 at_goal 하나로 한다** — goal 별 판정식은
-      GripperNode 가 이미 적용했다(open/close 는 목표 폭 도달, grasp 는 물체에 막혀
+      GripperNode 가 이미 적용했다(open/close 는 목표 자세 도달, grasp 는 물체에 막혀
       멈춤). width 는 개구 폭(m)이며 관절값이 아니다.
       ⚠️ at_goal=false 는 '실패'와 '진행 중'을 구분하지 못한다 — 가르려면 width 를
       함께 본다. mock 은 stalled 판정 수단이 없어 **grasp 가 성공으로 기록되지 않는다.**

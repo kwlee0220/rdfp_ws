@@ -307,7 +307,7 @@ def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
     **"갱신됨"을 완료로 삼지 않는다.** 이 채널은 주기 발행이라 명령과 무관하게 세대가
     올라간다 — 세대만 보면 다음 틱에 곧바로 성공을 돌려주고 그리퍼는 아직 움직이지도
     않았다. 대신 ``goal`` 이 이번 명령과 같고 ``at_goal`` 이 참인 스냅샷을 기다린다.
-    판정식(open/close 는 목표 폭 도달, grasp 는 물림)은 ``GripperNode`` 가 이미
+    판정식(open/close 는 목표 자세 도달, grasp 는 물림)은 ``GripperNode`` 가 이미
     적용했으므로 여기서 다시 따지지 않는다.
 
     Returns:

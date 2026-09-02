@@ -1,8 +1,6 @@
 # GripperActionNode — 액션 기반 `GripperNode` 구현
 
-[GripperNode 설계](GripperNode_Design.md)가 정한 계약을 **`control_msgs/GripperCommand`
-액션**으로 실현한 노드다. 계약이 무엇을 요구하는지는 설계서가, 이 문서는 **그 요구를
-어떻게 만족시켰고 무엇을 만족시키지 못하는지**를 다룬다.
+[GripperNode 설계](GripperNode_Design.md)가 정한 계약을 **`control_msgs/GripperCommand` 액션**으로 실현한 노드다. 계약이 무엇을 요구하는지는 설계서가, 이 문서는 **그 요구를 어떻게 만족시켰고 무엇을 만족시키지 못하는지**를 다룬다.
 
 | | |
 |---|---|
@@ -11,14 +9,9 @@
 | 노드 이름 | `gripper` (launch 가 지정) |
 | 소스 | [gripper_action_node.py](../../src/robot_control/robot_control/gripper/gripper_action_node.py) |
 
-**백엔드가 아니라 실행 수단으로 이름 붙였다.** 액션 서버만 있으면 되므로 mock 과
-Isaac 이 같은 노드를 쓰고(§7), 액션 서버가 없는 펑션베이는 쓸 수 없다.
+**백엔드가 아니라 실행 수단으로 이름 붙였다.** 액션 서버만 있으면 되므로 mock 과 Isaac 이 같은 노드를 쓰고(§7), 액션 서버가 없는 펑션베이는 쓸 수 없다.
 
-> **예전 이름은 `MockGripperNode` 였다 (2026-09-02 개명).** `MockSceneStateNode` /
-> `IsaacSceneStateNode` 처럼 백엔드 접두사를 붙이는 관례를 따랐는데, 그리퍼는
-> **갈리는 축이 백엔드가 아니라 실행 수단**이라 Isaac 이 이 노드를 쓰는 순간 이름이
-> 거짓이 됐다. scene 은 백엔드마다 물체를 얻는 방법이 근본적으로 달라 그 관례가
-> 맞지만, 그리퍼는 액션 서버만 있으면 백엔드가 무엇이든 같은 코드다.
+> **예전 이름은 `MockGripperNode` 였다 (2026-09-02 개명).** `MockSceneStateNode` / `IsaacSceneStateNode` 처럼 백엔드 접두사를 붙이는 관례를 따랐는데, 그리퍼는 **갈리는 축이 백엔드가 아니라 실행 수단**이라 Isaac 이 이 노드를 쓰는 순간 이름이 거짓이 됐다. scene 은 백엔드마다 물체를 얻는 방법이 근본적으로 달라 그 관례가 맞지만, 그리퍼는 액션 서버만 있으면 백엔드가 무엇이든 같은 코드다.
 
 ---
 
@@ -49,9 +42,7 @@ Isaac 이 같은 노드를 쓰고(§7), 액션 서버가 없는 펑션베이는 
 
 ### QoS — `gripper_states` 는 `TRANSIENT_LOCAL` 이 아니다
 
-depth 10 의 기본 QoS(reliable · volatile)다. **늦게 붙은 구독자는 다음 발행까지
-기다린다** — `publish_rate` 기본값에서 최대 100 ms 다. `/session` 처럼 상태를 즉시
-받아야 하는 채널이 아니라 연속 스트림이므로 지연을 감수한다.
+depth 10 의 기본 QoS(reliable · volatile)다. **늦게 붙은 구독자는 다음 발행까지 기다린다** — `publish_rate` 기본값에서 최대 100 ms 다. `/session` 처럼 상태를 즉시 받아야 하는 채널이 아니라 연속 스트림이므로 지연을 감수한다.
 
 ---
 
@@ -67,13 +58,9 @@ depth 10 의 기본 QoS(reliable · volatile)다. **늦게 붙은 구독자는 �
 | `width_tolerance` | `0.005` | `at_goal` 판정의 폭 허용오차 (m) |
 | `publish_rate` | `10.0` | `gripper_states` 발행 Hz |
 
-**`targets` 의 `position` 은 관절값이지 개구 폭이 아니다.** 액션 goal 이 그 단위를
-받기 때문이다. `open` 의 `0.035` 는 SRDF `<group_state group="hand" name="open">` 의
-값과 같다 — 즉 RViz 의 `hand` 그룹 `open` 과 같은 자세로 간다.
+**`targets` 의 `position` 은 관절값이지 개구 폭이 아니다.** 액션 goal 이 그 단위를 받기 때문이다. `open` 의 `0.035` 는 SRDF `<group_state group="hand" name="open">` 의 값과 같다 — 즉 RViz 의 `hand` 그룹 `open` 과 같은 자세로 간다.
 
-`targets` 의 숫자가 **이 노드에 있는 이유**는 그리퍼에 종속이기 때문이다. 명령에는
-의도(심볼)만 실려 오고, 그 로봇의 수치는 기구를 아는 여기에 남는다. 그리퍼를 바꾸면
-이 파라미터만 고치면 되고 트윈 설정·데이터셋·teleop 은 그대로다.
+`targets` 의 숫자가 **이 노드에 있는 이유**는 그리퍼에 종속이기 때문이다. 명령에는 의도(심볼)만 실려 오고, 그 로봇의 수치는 기구를 아는 여기에 남는다. 그리퍼를 바꾸면 이 파라미터만 고치면 되고 트윈 설정·데이터셋·teleop 은 그대로다.
 
 ### 기동 시 검증
 
@@ -96,12 +83,9 @@ if target is None:
     return                                   # ← goal 을 갱신하지 않는다
 ```
 
-**모르는 심볼은 거부한다.** 조용히 무시하면 팔은 움직이는데 그리퍼만 안 움직이는
-상태가 되고, 로그에 아무것도 없어 원인이 보이지 않는다.
+**모르는 심볼은 거부한다.** 조용히 무시하면 팔은 움직이는데 그리퍼만 안 움직이는 상태가 되고, 로그에 아무것도 없어 원인이 보이지 않는다.
 
-거부한 명령은 `GripperState.goal` 에 **싣지 않는다.** 실행되지 않은 목표를 상태에
-실으면 `at_goal` 이 있지도 않은 목표를 판정하게 된다. 액션 서버가 아직 준비되지
-않았을 때도 같다 — 경고만 남기고 `goal` 은 그대로 둔다.
+거부한 명령은 `GripperState.goal` 에 **싣지 않는다.** 실행되지 않은 목표를 상태에 실으면 `at_goal` 이 있지도 않은 목표를 판정하게 된다. 액션 서버가 아직 준비되지 않았을 때도 같다 — 경고만 남기고 `goal` 은 그대로 둔다.
 
 ### 결과는 로그로만 남는다
 
@@ -110,14 +94,11 @@ if target is None:
 **결과로 상태를 만들지 않는 이유가 두 가지다.**
 
 1. 결과는 **명령당 1 건**이라 "지금 어떤 상태인가"에 답할 수 없다.
-2. `at_goal` 은 **매 주기 재평가**여야 한다 — 물체를 놓쳐 손이 벌어지면 다시 `false`
-   가 되어야 하는데, 결과 기반이면 마지막 결과에 얼어붙는다.
+2. `at_goal` 은 **매 주기 재평가**여야 한다 — 물체를 놓쳐 손이 벌어지면 다시 `false`가 되어야 하는데, 결과 기반이면 마지막 결과에 얼어붙는다.
 
 그래서 상태는 전적으로 `/joint_states` 에서 만든다.
 
-> `status` 가 `CANCELED` 면 실패가 아니라 **후속 명령에 의한 선점**이다. 다만 그
-> 구분은 이제 로그에만 있다 — 싣고 다니던 `GripperActionState` 토픽은 2026-09-02 에
-> 삭제됐다 ([설계서](GripperNode_Design.md) §7 미결).
+> `status` 가 `CANCELED` 면 실패가 아니라 **후속 명령에 의한 선점**이다. 다만 그 구분은 이제 로그에만 있다 — 싣고 다니던 `GripperActionState` 토픽은 2026-09-02 에 삭제됐다 ([설계서](GripperNode_Design.md) §7 미결).
 
 ---
 
@@ -130,12 +111,9 @@ idx = list(msg.name).index(self._finger_joint)
 self._width = float(msg.position[idx]) * self._width_scale
 ```
 
-관절이 없거나 인덱스가 범위를 벗어나면 **갱신하지 않는다.** 초기값은 `NaN` 이므로
-`/joint_states` 가 오기 전이나 손가락 관절이 실리지 않는 스택에서는 계속 `NaN` 이다.
+관절이 없거나 인덱스가 범위를 벗어나면 **갱신하지 않는다.** 초기값은 `NaN` 이므로 `/joint_states` 가 오기 전이나 손가락 관절이 실리지 않는 스택에서는 계속 `NaN` 이다.
 
-**`0` 을 넣지 않는 것이 핵심이다.** 0 은 "닫혀 있다"는 거짓말이 되고, 펑션베이가
-`/joint_states` 에 고정값을 주입해 만드는 오염과 같은 종류다. `NaN` 은 "모른다"가
-사실대로 남는다.
+**`0` 을 넣지 않는 것이 핵심이다.** 0 은 "닫혀 있다"는 거짓말이 되고, 펑션베이가 `/joint_states` 에 고정값을 주입해 만드는 오염과 같은 종류다. `NaN` 은 "모른다"가 사실대로 남는다.
 
 ### 4.2 `at_goal` — 단위를 맞춰 비교한다
 
@@ -145,13 +123,7 @@ def _target_width(self, goal):
     return math.nan if target is None else target[0] * self._width_scale
 ```
 
-**`targets` 는 관절값, `width` 는 개구 폭이라 그대로 비교하면 안 된다.** 실제로
-초기 구현이 그대로 비교했고, `open` 은 폭 0.070 을 목표 0.035 와 견주어 **영영
-`at_goal` 이 서지 않았다.** `close` 는 양쪽 다 0 이라 우연히 맞아 증상이 반쪽만
-드러났다. 지금은 `_target_width()` 가 변환을 맡고, 회귀 테스트가 "관절값을 그대로
-견주면 `False`" 를 고정한다.
-
-판정식은 [설계서](GripperNode_Design.md) §2.3 그대로다.
+**`targets` 는 관절값, `width` 는 개구 폭이라 그대로 비교하면 안 된다.** 실제로 초기 구현이 그대로 비교했고, `open` 은 폭 0.070 을 목표 0.035 와 견주어 **영영 `at_goal` 이 서지 않았다.** `close` 는 양쪽 다 0 이라 우연히 맞아 증상이 반쪽만 드러났다. 지금은 `_target_width()` 가 변환을 맡고, 회귀 테스트가 "관절값을 그대로 견주면 `False`" 를 고정한다.
 
 | `goal` | 조건 |
 |---|---|
@@ -161,13 +133,19 @@ def _target_width(self, goal):
 | `grasp` | `stalled` |
 | `targets` 에 없는 심볼 | `false` — 애초에 명령이 거부됐어야 한다 |
 
+**폭으로 재는 것은 계약이 아니라 이 구현의 선택이다.** [설계서](GripperNode_Design.md)
+§2.3 이 요구하는 것은 "목표 **자세** 도달"이고, 무엇으로 재는지는 구현이 정한다. 이
+노드가 폭을 쓰는 이유는 관측이 `/joint_states` 의 손가락 관절 하나뿐이기 때문이다.
+
+그래서 위 표의 둘째 줄 — **`width` 가 `NaN` 이면 `at_goal` 도 `false`** — 은 **이 구현
+한정**이다. 지령과 보고가 같은 관절 공간인 백엔드(펑션베이)는 관절 잔차로 재므로
+`width=NaN` 이어도 `at_goal` 을 정확히 판정한다.
+
 ---
 
 ## 5. `stalled` 은 아직 판정하지 않는다 — `grasp` 가 성공으로 기록되지 않는다
 
-`_stalled()` 는 **항상 `False`** 를 돌려준다. `grasp` 의 판정식이 곧 `stalled` 이므로
-**`grasp` 의 `at_goal` 도 항상 `False`** 다. 계약대로다 — `false` 는 "물지 않았다"가
-아니라 **"모른다"** 는 뜻이다.
+`_stalled()` 는 **항상 `False`** 를 돌려준다. `grasp` 의 판정식이 곧 `stalled` 이므로 **`grasp` 의 `at_goal` 도 항상 `False`** 다. 계약대로다 — `false` 는 "물지 않았다"가 아니라 **"모른다"** 는 뜻이다.
 
 **이유가 백엔드마다 다르다는 점이 중요하다.**
 
@@ -187,9 +165,7 @@ mock 에서 위치 기준으로 정의했다면 목표 폭 0.0 에 도달해 `Tr
 
 ### 구현할 때는 서브클래스가 아니라 파라미터다
 
-Isaac 전용 노드를 따로 만들면 **액션 경로가 같은 코드가 두 벌**이 된다 — 실제로
-달라야 하는 것은 임계 effort 하나뿐이다. 임계값 파라미터를 더하고 기본값을 "판정
-안 함"으로 두면, mock 은 지금 동작 그대로이고 Isaac 은 값만 주면 켜진다.
+Isaac 전용 노드를 따로 만들면 **액션 경로가 같은 코드가 두 벌**이 된다 — 실제로 달라야 하는 것은 임계 effort 하나뿐이다. 임계값 파라미터를 더하고 기본값을 "판정 안 함"으로 두면, mock 은 지금 동작 그대로이고 Isaac 은 값만 주면 켜진다.
 
 ### 파급 — 두 곳에서 증상으로 나타난다
 
@@ -198,8 +174,7 @@ Isaac 전용 노드를 따로 만들면 **액션 경로가 같은 코드가 두 
 | 트윈 `move_gripper_to_target grasp` | `at_goal` 을 기다리다 `sync_timeout_sec`(기본 5 초) 타임아웃 | 지금은 `open`/`close` 만 쓴다 |
 | 데이터셋 `gripper_states.at_goal` | `grasp` 구간이 전부 `false` | 파지 성패를 학습 신호로 쓰지 않는다 |
 
-참고로 펑션베이는 관절 토크로 판정 가능하다 (파지 17 N·m vs 빈손 0.004 N·m) — 다만
-액션 서버가 없어 이 노드를 쓸 수 없다 ([설계서](GripperNode_Design.md) §4).
+참고로 펑션베이는 관절 토크로 판정 가능하다 (파지 17 N·m vs 빈손 0.004 N·m) — 다만 액션 서버가 없어 이 노드를 쓸 수 없다 ([설계서](GripperNode_Design.md) §4).
 
 ---
 
@@ -213,10 +188,7 @@ launch 가 띄우므로 직접 실행할 일은 드물다.
 ros2 run robot_control gripper_action_node --ros-args -r __node:=gripper
 ```
 
-**띄우는 launch** — `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`,
-`rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `replay_panda_mock` 은 항상,
-`panda_isaac` / `rdfp_panda_isaac` 은 `enable_gripper:=true` 일 때
-(`isaac_gripper_bridge` 와 함께).
+**띄우는 launch** — `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `replay_panda_mock` 은 항상, `panda_isaac` / `rdfp_panda_isaac` 은 `enable_gripper:=true` 일 때 (`isaac_gripper_bridge` 와 함께).
 
 `panda_functionbay` 는 **띄우지 않는다** — 액션 서버가 없어 이 구현을 쓸 수 없다.
 
@@ -238,9 +210,7 @@ stalled: false
 at_goal: true
 ```
 
-**`header.stamp` 를 비우지 않는다.** 적재 코드가 이 값을 그대로 쓰므로 비면 epoch 0
-에 적재되어 어느 에피소드에도 속하지 못한다. 로봇은 정상 동작하므로 데이터를 열어보기
-전까지 드러나지 않는다.
+**`header.stamp` 를 비우지 않는다.** 적재 코드가 이 값을 그대로 쓰므로 비면 epoch 0에 적재되어 어느 에피소드에도 속하지 못한다. 로봇은 정상 동작하므로 데이터를 열어보기 전까지 드러나지 않는다.
 
 ### 파라미터 조정
 
@@ -254,16 +224,13 @@ ros2 param get /gripper targets.grasp          # [0.0, 30.0]
 create_gripper_node({'targets.pinch': [0.015, 10.0]})
 ```
 
-⚠️ 새 심볼은 **양쪽**에 있어야 한다 — 트윈에서 부르려면 `backend.labels` 에도 추가해야
-하고, 없으면 이 노드가 명령을 거부한다.
+⚠️ 새 심볼은 **양쪽**에 있어야 한다 — 트윈에서 부르려면 `backend.labels` 에도 추가해야 하고, 없으면 이 노드가 명령을 거부한다.
 
 ---
 
 ## 7. Isaac 도 이 노드를 쓴다 — 이름이 그래서 `Action` 이다
 
-Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다. 대신
-`isaac_gripper_bridge` 가 **같은 이름의 액션 서버**를 열고 받은 목표를 관절 위치
-토픽으로 바꾼다. 명령 경로가 mock 과 동일해지므로 이 노드를 그대로 쓴다.
+Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다. 대신 `isaac_gripper_bridge` 가 **같은 이름의 액션 서버**를 열고 받은 목표를 관절 위치 토픽으로 바꾼다. 명령 경로가 mock 과 동일해지므로 이 노드를 그대로 쓴다.
 
 ```text
 mock    /gripper_cmds → GripperActionNode → gripper_cmd 액션 → panda_hand_controller
@@ -271,12 +238,9 @@ Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → isaac_gri
                                                                 → /isaac/gripper_command
 ```
 
-**갈리는 축이 백엔드가 아니라 실행 수단**이라는 것이 이 그림이다. 두 스택은 액션
-서버를 누가 제공하느냐만 다르고, 그 위는 같은 코드다. 백엔드별로 노드를 나누는
-`MockSceneStateNode`/`IsaacSceneStateNode` 관례가 그리퍼에는 맞지 않는 이유다.
+**갈리는 축이 백엔드가 아니라 실행 수단**이라는 것이 이 그림이다. 두 스택은 액션 서버를 누가 제공하느냐만 다르고, 그 위는 같은 코드다. 백엔드별로 노드를 나누는 `MockSceneStateNode`/`IsaacSceneStateNode` 관례가 그리퍼에는 맞지 않는 이유다.
 
-남은 차이는 `stalled` 판정 하나이며, 그것도 서브클래스가 아니라 파라미터로 다룰
-일이다 (§5).
+남은 차이는 `stalled` 판정 하나이며, 그것도 서브클래스가 아니라 파라미터로 다룰 일이다 (§5).
 
 ---
 
@@ -292,9 +256,7 @@ Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → isaac_gri
 | 노드가 뜨지 않는다 | `targets.<goal>` 길이 ≠ 2, 또는 `publish_rate <= 0` | 기동 로그의 `ValueError` |
 | 상태 조회가 잠깐 비어 있다 | `TRANSIENT_LOCAL` 이 아니다 (§1) | 다음 발행까지 최대 `1/publish_rate` 초 |
 
-**그리퍼가 안 움직일 때 계층부터 가른다.** 명령 토픽(`/gripper_cmds`) → 이 노드 →
-액션(`/panda_hand_controller/gripper_cmd`) → 컨트롤러 순이며, 액션 계층 자체의 함정은
-[gripper_action_server_notes.md](gripper_action_server_notes.md) 가 다룬다.
+**그리퍼가 안 움직일 때 계층부터 가른다.** 명령 토픽(`/gripper_cmds`) → 이 노드 → 액션(`/panda_hand_controller/gripper_cmd`) → 컨트롤러 순이며, 액션 계층 자체의 함정은 [gripper_action_server_notes.md](gripper_action_server_notes.md) 가 다룬다.
 
 ---
 

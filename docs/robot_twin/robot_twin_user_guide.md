@@ -801,10 +801,10 @@ m 가 아니다. 그 숫자는 **로봇 쪽 설정**인 `GripperNode` 의 `targe
 
 | `goal` | `at_goal` 이 서는 조건 |
 |---|---|
-| `open` / `close` | 목표 폭 도달 **AND NOT** `stalled` (막혀 멈춘 것은 성공이 아니다) |
+| `open` / `close` | 목표 자세 도달 **AND NOT** `stalled` (막혀 멈춘 것은 성공이 아니다) |
 | `grasp` | `stalled` — 물체에 막혀 멈춘 것이 곧 성공이다 |
 
-**`grasp` 는 목표 폭에 닿으면 오히려 실패다** (헛닫힘). 그래서 위치가 아니라 `stalled`
+**`grasp` 는 목표 자세까지 닫히면 오히려 실패다** (헛닫힘). 그래서 위치가 아니라 `stalled`
 가 판정 기준이며, 이름도 `reached_goal` 이 아니라 `at_goal` 이다.
 
 ⚠️ **mock 스택에서 `grasp` 는 타임아웃한다.** planning scene 물체에 물리가 없어
@@ -1256,7 +1256,7 @@ def set_gripper(twin: RobotTwin, target: str) -> dict:
     """그리퍼를 조작하고 상태를 그대로 돌려준다.
 
     **성패는 at_goal 하나로 읽는다.** goal 별 판정식은 GripperNode 가 이미 적용했다
-    (open/close 는 목표 폭 도달, grasp 는 물체에 막혀 멈춤).
+    (open/close 는 목표 자세 도달, grasp 는 물체에 막혀 멈춤).
     """
     return twin.run('move_gripper_to_target', {'target': target})['outputs']
 
