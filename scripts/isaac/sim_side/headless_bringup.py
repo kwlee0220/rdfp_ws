@@ -1,0 +1,124 @@
+# -*- coding: utf-8 -*-
+"""Isaac Sim **headless 전 과정 기동** — 로봇 로드부터 Play 까지.
+
+GUI 없이 스테이지를 처음부터 재현한다. Script Editor 로 하던 일을 한 번에 하므로
+검사(`is_check_phase*.py`)와 CI 에 쓴다.
+
+    ./scripts/run_isaac_sim.sh --headless
+
+이 파일을 직접 부르지 않는다 — 환경 변수를 맞춰야 해서 위 스크립트를 거친다.
+
+순서
+----
+
+    1. 확장 활성화     ros2.bridge · ros2.sim_control
+    2. **로봇 로드**   문서에는 "asset browser 에서 드래그" 라는 수동 단계로만 있어
+                       자동화가 끊겨 있었다. 없으면 setup_graph 가 'no articulation
+                       root' 로 멈춘다
+    3. setup_scene     테이블·블록·카메라 prim
+    4. setup_graph     OmniGraph (PHASE 는 환경변수로 받는다)
+    5. place_robot     panda_link0 을 월드 원점으로
+    6. set_home_pose   Play 시작 자세를 ready 로
+    7. tune_drive      팔 관절 gain — **없으면 Phase 1 τ 가 177 ms 다** (기준 50)
+    8. tune_grasp      손가락 마찰 — **없으면 Phase 6 에서 블록이 미끄러진다**
+    9. Stop → Play     그래프와 gain 은 재생 중에 붙지 않는다
+
+`tune_*` 두 개가 빠지기 쉬운데, 빠뜨리면 검사가 "시뮬레이터가 이상하다"로 보이지
+실제 원인(기본 자산이 튜닝되지 않았다)을 가리키지 않는다.
+
+실시간 보조
+----------
+
+**headless 는 렌더링이 없어 물리가 벽시계보다 빨리 돈다** (실측 2.2배). Phase 0 의
+`/clock` 배속 검사가 그것을 잡아낸다 — 검사가 옳고 기동이 틀린 것이다. 물리 dt 기본값이
+1/60 이므로 업데이트를 60 Hz 로 묶어 1.0배를 맞춘다.
+"""
+from __future__ import annotations
+
+import os
+import time
+
+from isaacsim import SimulationApp
+
+# Isaac 6.0 에서 재편된 경로. 5.x 는 `/Isaac/Robots/Franka/franka.usd` 였다.
+FRANKA_USD_RELPATH = "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd"
+ROBOT_PRIM = "/World/franka"
+# 물리 dt 기본값. 업데이트를 이 주기로 묶으면 sim 시간이 벽시계와 같이 간다.
+PHYSICS_PERIOD_SEC = 1.0 / 60.0
+RUN_SECONDS = float(os.environ.get("ISAAC_RUN_SECONDS", "0")) or None
+
+SIM_SIDE_SCRIPTS = ("setup_scene", "setup_graph", "place_robot",
+                    "set_home_pose", "tune_drive", "tune_grasp")
+
+
+def _log(message: str) -> None:
+    print(f"[bringup] {message}", flush=True)
+
+
+def main() -> int:
+    workspace = os.environ["RDFP_WORKSPACE"]
+    app = SimulationApp({"headless": True})
+
+    from isaacsim.core.utils.extensions import enable_extension
+
+    for ext in ("isaacsim.ros2.bridge", "isaacsim.ros2.sim_control"):
+        _log(f"{ext}: {enable_extension(ext)}")
+    for _ in range(120):
+        app.update()
+
+    from isaacsim.core.utils.stage import add_reference_to_stage
+    from isaacsim.storage.native import get_assets_root_path
+
+    root = get_assets_root_path()
+    if root is None:
+        _log("ERROR: asset root not reachable (network?)")
+        app.close()
+        return 1
+    usd = root + FRANKA_USD_RELPATH
+    _log(f"robot <- {usd}")
+    add_reference_to_stage(usd_path=usd, prim_path=ROBOT_PRIM)
+    # 참조가 실제로 풀릴 때까지 돌린다 — 원격 자산이라 첫 실행은 내려받는다.
+    for _ in range(240):
+        app.update()
+
+    failures = 0
+    for name in SIM_SIDE_SCRIPTS:
+        path = os.path.join(workspace, "scripts/isaac/sim_side", name + ".py")
+        try:
+            exec(open(path, encoding="utf-8").read(), {"__name__": "__main__"})
+            _log(f"{name}: ran")
+        except Exception as exc:                      # noqa: BLE001 - 무엇이든 이어서 간다
+            failures += 1
+            _log(f"{name}: FAILED {type(exc).__name__}: {exc}")
+        for _ in range(30):
+            app.update()
+    if failures:
+        _log(f"{failures} script(s) failed — /tmp/isaac_*.log 를 본다")
+
+    import omni.timeline
+
+    timeline = omni.timeline.get_timeline_interface()
+    # **Stop 을 먼저 한다.** 새로 만든 그래프와 gain 은 이미 도는 재생에 붙지 않는다.
+    timeline.stop()
+    for _ in range(60):
+        app.update()
+    timeline.play()
+    _log("PLAY")
+
+    started = time.monotonic()
+    next_tick = time.monotonic()
+    while RUN_SECONDS is None or time.monotonic() - started < RUN_SECONDS:
+        app.update()
+        next_tick += PHYSICS_PERIOD_SEC
+        delay = next_tick - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        else:
+            # 따라잡지 못하면 벌어진 만큼을 버린다 — 빚이 쌓이면 이후가 전속력이 된다.
+            next_tick = time.monotonic()
+    app.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

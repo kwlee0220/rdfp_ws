@@ -59,8 +59,7 @@ spawn_entity        delete_entity       reset_simulation      ...
 
 ## 3. Isaac 은 만들지도 지우지도 않는다
 
-mock 은 planning scene 을 **통째로 교체**하지만, Isaac 의 스테이지 구성은
-`setup_scene.py` 가 정한다. 이 서비스가 하는 일은 **다시 놓기**뿐이다.
+mock 은 planning scene 을 **통째로 교체**하지만, Isaac 의 스테이지 구성은 `setup_scene.py` 가 정한다. 이 서비스가 하는 일은 **다시 놓기**뿐이다.
 
 | 요청 | 결과 |
 |---|---|
@@ -70,11 +69,9 @@ mock 은 planning scene 을 **통째로 교체**하지만, Isaac 의 스테이�
 | `dimensions` 가 다르다 | ❌ `dimensions [0.07,...] != [0.05,...] ...` |
 | `type`/`dimensions` 생략 | ✅ 위치만 바꾸겠다는 뜻으로 읽는다 |
 
-**조용히 넘기지 않는 것이 요점이다.** 성공으로 돌려주면 "그 배치로 놓았다"는 거짓이
-에피소드 metadata 에 남고, 나중에 데이터를 열어보기 전까지 드러나지 않는다.
+**조용히 넘기지 않는 것이 요점이다.** 성공으로 돌려주면 "그 배치로 놓았다"는 거짓이 에피소드 metadata 에 남고, 나중에 데이터를 열어보기 전까지 드러나지 않는다.
 
-기하 불일치를 거부하는 이유도 같다 — 트윈이 5 cm 블록으로 알고 파지 좌표를 계산하는데
-실제가 7 cm 면 **에러 없이 빗나간다.**
+기하 불일치를 거부하는 이유도 같다 — 트윈이 5 cm 블록으로 알고 파지 좌표를 계산하는데 실제가 7 cm 면 **에러 없이 빗나간다.**
 
 ---
 
@@ -88,19 +85,16 @@ mock 은 planning scene 을 **통째로 교체**하지만, Isaac 의 스테이�
 
 ### 4.2 시스템 ROS 를 소싱하지 않는다
 
-Isaac 내장 파이썬은 **3.12**, `/opt/ros/humble` 은 **3.10** 이다. 시스템 ROS 를 소싱하면
-3.10 `site-packages` 가 `PYTHONPATH` 에 올라 Isaac 의 번들 3.12 ROS 를 **가린다.**
+Isaac 내장 파이썬은 **3.12**, `/opt/ros/humble` 은 **3.10** 이다. 시스템 ROS 를 소싱하면 3.10 `site-packages` 가 `PYTHONPATH` 에 올라 Isaac 의 번들 3.12 ROS 를 **가린다.**
 
 ```
 [Error] Failed to import ROS2 Python libraries: No module named 'rclpy._rclpy_pybind11'
 [Error] Failed to initialize ROS2 service manager
 ```
 
-확장은 "startup" 까지 찍고 죽으므로 **로그를 보지 않으면 성공한 것처럼 보인다.**
-증상은 `/isaac_sim_control` 노드가 없는 것뿐이다.
+확장은 "startup" 까지 찍고 죽으므로 **로그를 보지 않으면 성공한 것처럼 보인다.** 증상은 `/isaac_sim_control` 노드가 없는 것뿐이다.
 
-> ⚠️ `~/isaac_ros2_env.sh` 가 정확히 이 문제를 만든다 — `/opt/ros/humble` 을 소싱한다.
-> Windows + WSL2 구성에서 쓰던 방식이라 Ubuntu 에서는 반대로 작동한다.
+> ⚠️ `~/isaac_ros2_env.sh` 가 정확히 이 문제를 만든다 — `/opt/ros/humble` 을 소싱한다. Windows + WSL2 구성에서 쓰던 방식이라 Ubuntu 에서는 반대로 작동한다.
 
 **동작하는 실행 명령:**
 
@@ -127,8 +121,7 @@ ros2 service list | grep set_entity_state
 sudo apt install ros-humble-simulation-interfaces
 ```
 
-없으면 노드는 **정상 기동하되 `/scene/reset` 만 열지 않고** 기동 로그에 에러를 남긴다.
-관측(`/scene/objects`)까지 막을 이유는 없기 때문이다.
+없으면 노드는 **정상 기동하되 `/scene/reset` 만 열지 않고** 기동 로그에 에러를 남긴다. 관측(`/scene/objects`)까지 막을 이유는 없기 때문이다.
 
 ```
 [ERROR] 'simulation_interfaces' is not installed — /scene/reset stays closed.
@@ -139,15 +132,13 @@ sudo apt install ros-humble-simulation-interfaces
 
 ## 5. `entity` 이름 규약
 
-**USD prim 절대 경로**다. `isaac_scene.json` 의 `root_prim` 과 물체 이름을 잇는다 —
-`setup_scene.py` 가 prim 을 만드는 규칙(`f"{root_prim}/{spec['name']}"`)과 같다.
+**USD prim 절대 경로**다. `isaac_scene.json` 의 `root_prim` 과 물체 이름을 잇는다 — `setup_scene.py` 가 prim 을 만드는 규칙(`f"{root_prim}/{spec['name']}"`)과 같다.
 
 ```
 root_prim  "/World/Scene"  +  name "block_a"  →  "/World/Scene/block_a"
 ```
 
-`ros2 service call /get_entities simulation_interfaces/srv/GetEntities '{}'` 로 실제
-목록을 확인할 수 있다.
+`ros2 service call /get_entities simulation_interfaces/srv/GetEntities '{}'` 로 실제 목록을 확인할 수 있다.
 
 ---
 
@@ -164,8 +155,7 @@ after  block_a: (0.42,  0.18, 0.425)      ← 정확히 이동
 after  block_b: (0.58, -0.22, 0.425)
 ```
 
-거부 경로 네 가지(빈 배열 · 모르는 이름 · 치수 불일치 · 타입 불일치)도 모두 사유와 함께
-거부되는 것을 확인했다.
+거부 경로 네 가지(빈 배열 · 모르는 이름 · 치수 불일치 · 타입 불일치)도 모두 사유와 함께 거부되는 것을 확인했다.
 
 ### 재생 중 검증 — 읽기 검증에 물리를 넣어야 했다 (2026-09-02)
 
@@ -176,12 +166,9 @@ after  block_b: (0.58, -0.22, 0.425)
    'did not move: asked (0.5000, 0.1500, 0.9000) but read (0.5000, 0.1500, 0.8956)'
 ```
 
-물체는 정확히 놓였는데, **놓자마자 떨어지기 시작해** 쓰고 읽는 사이에 허용 오차(1 mm)를
-벗어났다. 자유낙하는 30 ms 면 4.4 mm 다.
+물체는 정확히 놓였는데, **놓자마자 떨어지기 시작해** 쓰고 읽는 사이에 허용 오차(1 mm)를 벗어났다. 자유낙하는 30 ms 면 4.4 mm 다.
 
-그래서 `_same_pose` 가 **왕복 시간만큼의 자유낙하를 허용**한다
-(`0.5·g·Δt²`). 고정 오차로는 지지면 없는 배치가 늘 실패한다. 낙하 허용이 "아무 일도
-안 했다"까지 통과시키지는 않는다 — 그 경우 목표와의 거리가 자유낙하로 설명되지 않는다.
+그래서 `_same_pose` 가 **왕복 시간만큼의 자유낙하를 허용**한다 (`0.5·g·Δt²`). 고정 오차로는 지지면 없는 배치가 늘 실패한다. 낙하 허용이 "아무 일도 안 했다"까지 통과시키지는 않는다 — 그 경우 목표와의 거리가 자유낙하로 설명되지 않는다.
 
 고친 뒤 재확인:
 
@@ -197,7 +184,6 @@ after  block_b: (0.58, -0.22, 0.425)
 ## 7. 관련 문서
 
 - [scene_objects_guide.md](scene_objects_guide.md) — scene 계약 전반 (§5 가 `/scene/reset`)
-- [../simulation/isaac_backend_skeleton.md](../simulation/isaac_backend_skeleton.md) —
-  Isaac 백엔드 Phase 0~10, 배포 구성
+- [../simulation/isaac_backend_skeleton.md](../simulation/isaac_backend_skeleton.md) — Isaac 백엔드 Phase 0~10, 배포 구성
 - `src/rdfp_msgs/srv/ResetScene.srv` — 서비스 정의 (정본)
 - `src/robot_control/robot_control/isaac/scene_state_node.py` — 구현

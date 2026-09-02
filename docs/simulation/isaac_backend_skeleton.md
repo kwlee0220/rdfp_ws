@@ -183,6 +183,10 @@ Windows 머신                          Ubuntu 머신
 
 > ## Isaac Sim 6.0 · Ubuntu 재검증 — 2026-09-02
 >
+> **기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다** —
+> 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②). `--headless` 는 로봇 로드부터
+> Play 까지 전 과정을 자동으로 하며, 아래 검증이 그것으로 재현됐다.
+>
 > Phase 0~9 는 **Windows Isaac 5.1 + WSL2**(구성 A)에서 통과한 것이라, Ubuntu 단일
 > 머신(구성 B) + Isaac 6.0 에서 다시 돌렸다.
 >
@@ -220,6 +224,21 @@ Windows 머신                          Ubuntu 머신
 > **⑤ `is_check_phase3.py` 가 낡아 있었다** — `isaac_scene.json` 의 물체 전부를
 > 기대해서 정상 동작이 `누락: table` 로 나왔다. `/scene/objects` 가 조작 대상만 싣게
 > 된 2026-09-01 결정이 반영 안 된 것이라 검사 쪽을 고쳤다.
+>
+> **⑦ 시뮬레이터를 재시작하면 ROS 스택도 재시작한다 — 그리고 런치를 죽여도 노드는
+> 남는다.** Isaac 을 다시 띄우면 sim 시계가 0 으로 돌아가는데, 살아 있던 스택의 TF
+> 버퍼에는 **더 큰 타임스탬프의 옛 데이터**가 남아 새 데이터가 `TF_OLD_DATA` 로
+> 버려진다. 증상은 `/scene/objects` 가 **이전 실행에서 물체를 놓았던 자리**를 계속
+> 말하는 것이다 — 실측에서 스테이지는 z=0.425 인데 토픽은 z=0.524(직전 Phase 6 가
+> 들어올린 높이)를 냈고, Phase 6 접근 목표가 10 cm 어긋나 파지가 실패했다.
+> `ros2 run tf2_ros tf2_echo panda_link0 block_a` 로 **TF 를 직접 보면** 갈린다.
+>
+> 더 고약한 것은 **`ros2 launch` 프로세스를 죽여도 자식 노드가 살아남는다**는 점이다.
+> 스택을 다시 띄우면 `isaac_scene_state` 나 `gripper_action_bridge` 가 **둘**이 되고,
+> 옛 것이 오염된 버퍼로 계속 발행한다. 액션 서버가 둘이면 검사 로그에
+> `There may be more than one action server` 가 나온다. 정리는
+> `ros2 node list | sort | uniq -c` 로 중복을 먼저 확인하고 PID 로 죽인다.
+> 펑션베이의 `/ee_pose` 정지 함정과 **같은 종류**다 (CLAUDE.md).
 >
 > **⑥ 헤드리스는 실시간보다 빨리 돈다** — 렌더링이 없어 배속 2.2 가 나왔고 Phase 0
 > `/clock` 검사가 그것을 잡았다. 물리 dt(1/60)에 맞춰 업데이트를 60 Hz 로 묶으면 0.97 이

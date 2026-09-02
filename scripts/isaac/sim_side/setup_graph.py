@@ -85,7 +85,9 @@ LOG_PATH = LOG_DIR + "/isaac_setup_graph.log"
 #     Control publish rate by setting omni:sensor... 로 바뀌었다
 # 6.0 배선으로 다시 만들기 전까지 3 으로 둔다. **조작 계열(Phase 0~3·6)은 카메라가
 # 필요 없다** — 카메라는 수집(영상 기록)용이다.
-PHASE = 3
+# `ISAAC_PHASE` 환경변수가 있으면 그것을 쓴다 — `run_isaac_sim.sh --phase N` 이
+# 이 경로로 넘긴다. Script Editor 에서 직접 실행할 때는 아래 기본값이 쓰인다.
+PHASE = int(_os.environ.get("ISAAC_PHASE", "3"))
 
 # ROS 쪽 계약. docs/simulation/isaac_backend_skeleton.md §3 토픽 계약표와 일치해야 한다.
 ROS_DOMAIN_ID = 31
