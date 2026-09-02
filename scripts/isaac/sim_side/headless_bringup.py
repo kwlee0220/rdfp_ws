@@ -12,9 +12,8 @@ GUI 없이 스테이지를 처음부터 재현한다. Script Editor 로 하던 �
 ----
 
     1. 확장 활성화     ros2.bridge · ros2.sim_control
-    2. **로봇 로드**   문서에는 "asset browser 에서 드래그" 라는 수동 단계로만 있어
-                       자동화가 끊겨 있었다. 없으면 setup_graph 가 'no articulation
-                       root' 로 멈춘다
+    2. load_robot      Franka 를 스테이지에 올린다. 없으면 setup_graph 가
+                       'no articulation root' 로 멈춘다
     3. setup_scene     테이블·블록·카메라 prim
     4. setup_graph     OmniGraph (PHASE 는 환경변수로 받는다)
     5. place_robot     panda_link0 을 월드 원점으로
@@ -54,14 +53,14 @@ WORKSPACE = _os.environ.get("RDFP_WORKSPACE") or _DEFAULT_WORKSPACE
 LOG_DIR = _os.environ.get("RDFP_LOG_DIR") or _DEFAULT_LOG_DIR
 LOG_PATH = LOG_DIR + "/isaac_headless_bringup.log"
 
-# Isaac 6.0 에서 재편된 경로. 5.x 는 `/Isaac/Robots/Franka/franka.usd` 였다.
-FRANKA_USD_RELPATH = "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd"
-ROBOT_PRIM = "/World/franka"
 # 물리 dt 기본값. 업데이트를 이 주기로 묶으면 sim 시간이 벽시계와 같이 간다.
 PHYSICS_PERIOD_SEC = 1.0 / 60.0
 RUN_SECONDS = float(_os.environ.get("ISAAC_RUN_SECONDS", "0")) or None
 
-SIM_SIDE_SCRIPTS = ("setup_scene", "setup_graph", "place_robot",
+# **`load_robot` 이 먼저다.** 로봇이 없으면 `setup_graph` 가 articulation root 를
+# 찾지 못해 멈춘다. GUI 에서 손으로 도는 순서와 **같은 목록**이라, 한쪽만 고치고
+# 다른 쪽을 빠뜨리는 일이 없다.
+SIM_SIDE_SCRIPTS = ("load_robot", "setup_scene", "setup_graph", "place_robot",
                     "set_home_pose", "tune_drive", "tune_grasp")
 
 
@@ -101,21 +100,6 @@ def main() -> int:
     for _ in range(120):
         app.update()
 
-    from isaacsim.core.utils.stage import add_reference_to_stage
-    from isaacsim.storage.native import get_assets_root_path
-
-    root = get_assets_root_path()
-    if root is None:
-        _log("ERROR: asset root not reachable (network?)")
-        app.close()
-        return 1
-    usd = root + FRANKA_USD_RELPATH
-    _log(f"robot <- {usd}")
-    add_reference_to_stage(usd_path=usd, prim_path=ROBOT_PRIM)
-    # 참조가 실제로 풀릴 때까지 돌린다 — 원격 자산이라 첫 실행은 내려받는다.
-    for _ in range(240):
-        app.update()
-
     failures = 0
     for name in SIM_SIDE_SCRIPTS:
         path = _os.path.join(workspace, "scripts/isaac/sim_side", name + ".py")
@@ -125,7 +109,9 @@ def main() -> int:
         except Exception as exc:                      # noqa: BLE001 - 무엇이든 이어서 간다
             failures += 1
             _log(f"{name}: FAILED {type(exc).__name__}: {exc}")
-        for _ in range(30):
+        # 참조는 비동기로 풀린다 — 원격 자산이라 첫 실행은 내려받는다. 로봇을 올린
+        # 직후에는 넉넉히 기다려야 다음 스크립트가 articulation 을 찾을 수 있다.
+        for _ in range(240 if name == "load_robot" else 30):
             app.update()
     if failures:
         _log(f"{failures} script(s) failed — /tmp/isaac_*.log 를 본다")

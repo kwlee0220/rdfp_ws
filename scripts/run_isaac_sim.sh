@@ -87,14 +87,15 @@ cat <<EOF
 [isaac] GUI 로 띄운다. 뜬 뒤 Script Editor 에서 아래를 순서대로 실행한다.
 
     path = "$WORKSPACE"
-    for _s in ("setup_scene", "setup_graph", "place_robot",
+    for _s in ("load_robot", "setup_scene", "setup_graph", "place_robot",
                "set_home_pose", "tune_drive", "tune_grasp"):
         exec(open(path + "/scripts/isaac/sim_side/%s.py" % _s, encoding="utf-8").read())
 
   그다음 **Stop → Play**. 로그는 /tmp/isaac_*.log 에 남는다.
 
-  ⚠️ 로봇이 스테이지에 없으면 setup_graph 가 'no articulation root' 로 멈춘다.
-     asset browser 에서 Franka 를 올리거나 --headless 를 쓴다 (자동으로 불러온다).
+  화면에 로봇이 안 보이면 load_robot 이 먼저 돌았는지 본다 — 없으면 setup_graph 가
+  'no articulation root' 로 멈춘다. 원격 자산이라 **첫 실행은 내려받느라 몇 초 걸린다.**
+  이 목록은 --headless 가 도는 것과 같다.
 EOF
 
 exec "${isaac_env[@]}" "$ISAAC_ROOT/isaac-sim.sh" --enable isaacsim.ros2.sim_control

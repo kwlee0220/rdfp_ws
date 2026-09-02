@@ -217,9 +217,11 @@ Windows 머신                          Ubuntu 머신
 > 포화). Isaac 트리에서도 그 속성은 라이다·음향 센서에만 쓰이고 `UsdGeom.Camera` 에는
 > 배선돼 있지 않다.
 >
-> **② 로봇 배치가 자동화돼 있지 않다.** §7 은 "asset browser 에서 올린다"는 수동
-> 단계로만 적어 두었고 경로가 없어, 스크립트만으로는 스테이지를 재현할 수 없다.
-> 6.0 경로는 `{assets_root}/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd` 다
+> **② 로봇 배치가 자동화돼 있지 않았다 — 해소.** §7 은 "asset browser 에서
+> 올린다"는 수동 단계로만 적어 두었고 경로도 없어 스크립트만으로는 스테이지를
+> 재현할 수 없었다. `scripts/isaac/sim_side/load_robot.py` 를 만들어 GUI·헤드리스가
+> **같은 목록**을 돌린다. 6.0 경로는
+> `{assets_root}/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd` 다
 > (5.x 의 `/Isaac/Robots/Franka/franka.usd` 에서 재편됐다).
 >
 > **③ 기본 자산은 튜닝이 안 돼 있다.** `tune_drive.py`(τ) 와 `tune_grasp.py`(마찰)를
@@ -940,6 +942,7 @@ scripts/isaac/is_topics.py                                배관 진단 (자체�
 scripts/isaac/is_probe_srdf.py                            파라미터 서비스 2×2 진단
 
 ── Isaac 쪽 (Script Editor 에서 실행) ──────────────────────────────────────
+scripts/isaac/sim_side/load_robot.py                      Franka 를 스테이지에 올린다 (멱등)
 scripts/isaac/sim_side/setup_graph.py                     OmniGraph 구성 (단계 누적)
 scripts/isaac/sim_side/setup_scene.py                     물체·카메라 생성 / 리셋
 scripts/isaac/sim_side/tune_drive.py                      팔 drive 게인 (멱등)
