@@ -746,6 +746,15 @@ Phase 0~7 의 검증은 전부 **수동 체크 스크립트**였다. 사람이 I
 > `isaac_scene_state_node` 가 `/scene/reset` 서비스를 열지조차 않는 이유다.
 > 남겨 두면 결과 토픽을 기다리다 타임아웃할 뿐 구독자가 없다는 단서는 안 남는다.
 >
+> ## ✅ 해소됨 — 2026-09-02
+>
+> **전제가 바뀌었다.** Isaac 6.0 의 `isaacsim.ros2.sim_control` 확장이 표준
+> `simulation_interfaces` 서비스(`/set_entity_state` 등 19개)를 연다. ROS 쪽 노드가
+> 스테이지를 직접 못 쓰는 것은 여전히 맞지만, **Isaac 에게 부탁할 창구가 생겼다.**
+> `isaac_scene_state_node` 가 `/scene/reset` 을 열고 물체마다 `/set_entity_state` 를
+> 부른다 — 시뮬레이터 쪽에 상주 스크립트를 두지 않는다.
+> 상세는 [../scene/isaac_scene_reset.md](../scene/isaac_scene_reset.md).
+>
 > `gripper_last_command_result` / `gripper_position` 은 `NO_DATA` 다. QoS 는
 > 일치하므로 불일치가 아니고, mock 설정에서도 같다 — Isaac 과 무관한 별개 항목이다.
 

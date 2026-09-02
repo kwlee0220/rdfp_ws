@@ -19,6 +19,9 @@
   <depend>tf_transformations</depend>
   <exec_depend>moveit_py</exec_depend>
   <exec_depend>rdfp_msgs</exec_depend>
+  <!-- Isaac 의 sim_control 확장이 여는 표준 서비스. `isaac_scene_state_node` 의
+       /scene/reset 경로에만 쓰이며, 없으면 그 서비스만 열리지 않는다. -->
+  <exec_depend>simulation_interfaces</exec_depend>
 
   <!-- MoveIt / 로봇 description -->
   <exec_depend>moveit_resources_panda_moveit_config</exec_depend>

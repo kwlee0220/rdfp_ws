@@ -13,6 +13,26 @@ norm 이 1 이라 어떤 검사도 통과하고 결과가 '그럴듯하게 틀�
 
 물체의 **이름·종류·크기는 TF 에 없다.** 그래서 시뮬레이터 쪽 생성 스크립트와 **같은
 JSON**(``config/isaac_scene.json``)을 읽는다. 두 곳에 적으면 조용히 어긋난다.
+
+쓰기 경로 — ``/scene/reset``
+---------------------------
+
+물체를 다시 놓는 것은 **시뮬레이터 안에서 USD 스테이지를 써야** 하고, 이 노드는 그럴 수
+없다. 대신 Isaac 이 ``isaacsim.ros2.sim_control`` 확장으로 여는 **표준 서비스**
+(`simulation_interfaces`)를 부른다.
+
+    /scene/reset (rdfp_msgs/ResetScene)   ← 트윈. mock 과 **같은 계약**이다
+        -> 물체마다 /set_entity_state (simulation_interfaces)
+        -> 읽어서 확인 /get_entity_state
+
+**응답을 믿지 않고 읽어서 확인한다.** 실측(2026-09-02)에서 `result=1` 이고 메시지도
+`Successfully set state ...` 인데 **pose 가 그대로인 경우**가 있었다(rigid body 가 아닌
+prim). 성공 보고와 실제 적용이 어긋나므로 판정은 읽기로 한다.
+
+**Isaac 은 물체를 만들거나 지우지 않는다.** 스테이지 구성은 `setup_scene.py` 가 정하고
+이 서비스는 **다시 놓기**만 한다. mock 이 planning scene 을 통째로 갈아끼우는 것과
+다르며, 그래서 모르는 이름이나 빈 배열은 성공시키지 않고 **거부한다** — 조용히 넘기면
+"배치했다"는 거짓이 데이터셋에 남는다.
 """
 
 from __future__ import annotations
@@ -20,23 +40,45 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import json
+import math
 import os
+import time
 
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from ament_index_python.packages import get_package_share_directory
 from rdfp_msgs.msg import SceneObject, SceneObjects
+from rdfp_msgs.srv import ResetScene
 from tf2_ros import Buffer, TransformListener
 
 from robot_control.ros2_utils import get_parameter, parse_stripped_str
 
+# `simulation_interfaces` 는 Isaac 의 sim_control 확장이 쓰는 **표준 패키지**이며
+# apt 로 따로 깔아야 한다(`ros-humble-simulation-interfaces`). 없으면 발행은 그대로
+# 하고 `/scene/reset` 만 열지 않는다 — 이 노드의 원래 일(관측)까지 막을 이유는 없다.
+try:
+    from simulation_interfaces.srv import GetEntityState, SetEntityState
+except ImportError:                                   # pragma: no cover - 환경 의존
+    GetEntityState = None
+    SetEntityState = None
+
 _DEFAULT_SCENE_TOPIC = '/scene/objects'
 _DEFAULT_BASE_FRAME = 'panda_link0'
 _DEFAULT_CONFIG_RELPATH = os.path.join('config', 'isaac_scene.json')
+_DEFAULT_RESET_SERVICE = '/scene/reset'
+# Isaac 의 sim_control 확장이 여는 이름. `SERVICE_PREFIX` 가 빈 문자열이라 루트다.
+_SET_ENTITY_STATE = '/set_entity_state'
+_GET_ENTITY_STATE = '/get_entity_state'
+# 서비스 콜백 안에서 기다리는 한도.
+_ENTITY_TIMEOUT_SEC = 5.0
+# 읽어서 확인할 때의 허용 오차. Isaac 이 float32 로 돌려주므로 1e-3 이면 넉넉하다.
+_POSITION_TOLERANCE_M = 1e-3
+_ORIENTATION_TOLERANCE = 1e-3
 
 # `SceneObjects.msg` 가 권장하는 QoS. **구독 측도 맞춰야 한다** — volatile 로
 # 구독하면 매칭 자체가 되지 않아 값이 영영 오지 않는다.
@@ -46,6 +88,23 @@ _SCENE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+
+
+def _same_pose(actual: Any, wanted: Any) -> bool:
+    """두 pose 가 같은가. 위치와 자세를 **둘 다** 본다.
+
+    위치만 보면 자세만 조용히 무시되는 경우를 놓친다. 쿼터니언은 `q` 와 `-q` 가 같은
+    회전이므로 **내적의 절대값**으로 비교한다 — 부호를 그대로 견주면 같은 자세를
+    다르다고 판정한다.
+    """
+    dx = actual.position.x - wanted.position.x
+    dy = actual.position.y - wanted.position.y
+    dz = actual.position.z - wanted.position.z
+    if math.sqrt(dx * dx + dy * dy + dz * dz) > _POSITION_TOLERANCE_M:
+        return False
+    a, b = actual.orientation, wanted.orientation
+    dot = abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w)
+    return dot >= 1.0 - _ORIENTATION_TOLERANCE
 
 
 class IsaacSceneStateNode(Node):
@@ -65,12 +124,39 @@ class IsaacSceneStateNode(Node):
         publish_rate = float(self.get_parameter('publish_rate').value)
         self._warn_interval = float(self.get_parameter('warn_interval_sec').value)
 
+        self.declare_parameter('reset_service', _DEFAULT_RESET_SERVICE)
+        reset_service = get_parameter(self, 'reset_service', parse_stripped_str)
+
         self._objects = self._load_objects()
+        self._by_name = {o['name']: o for o in self._objects}
 
         self._buffer = Buffer()
         self._listener = TransformListener(self._buffer, self)
         self._publisher = self.create_publisher(SceneObjects, scene_topic, _SCENE_QOS)
         self.create_timer(1.0 / max(publish_rate, 0.1), self._on_timer)
+
+        # 서비스 콜백 안에서 다른 서비스를 기다리므로 **콜백 그룹을 나눈다.**
+        # 같은 그룹이면 응답 콜백이 이 콜백 뒤에 줄을 서서 영영 오지 않는다.
+        # `main` 이 MultiThreadedExecutor 를 쓰는 이유도 이것이다.
+        if SetEntityState is None:
+            self._reset_srv = None
+            self._set_cli = None
+            self._get_cli = None
+            self.get_logger().error(
+                "'simulation_interfaces' is not installed — /scene/reset stays closed. "
+                'Install it with: sudo apt install ros-humble-simulation-interfaces')
+        else:
+            self._set_cli = self.create_client(
+                SetEntityState, _SET_ENTITY_STATE,
+                callback_group=MutuallyExclusiveCallbackGroup())
+            self._get_cli = self.create_client(
+                GetEntityState, _GET_ENTITY_STATE,
+                callback_group=MutuallyExclusiveCallbackGroup())
+            self._reset_srv = self.create_service(
+                ResetScene, reset_service, self._on_reset,
+                callback_group=MutuallyExclusiveCallbackGroup())
+            self.get_logger().info(
+                f'  reset: {reset_service} -> {_SET_ENTITY_STATE} (root {self._root_prim!r})')
 
         self._missing_logged: dict[str, float] = {}
         self._last_heartbeat = 0.0
@@ -105,6 +191,8 @@ class IsaacSceneStateNode(Node):
         with open(path, encoding='utf-8') as f:
             config = json.load(f)
         self.get_logger().info(f'  scene config: {path}')
+        # prim 경로 조립에 쓴다 — `setup_scene.py` 가 `f"{root_prim}/{name}"` 로 만든다.
+        self._root_prim = str(config.get('root_prim', '/World/Scene')).rstrip('/')
         return [o for o in config['objects'] if o.get('dynamic', False)]
 
     def _lookup(self, frame: str) -> Optional[Any]:
@@ -151,6 +239,132 @@ class IsaacSceneStateNode(Node):
         self._publisher.publish(msg)
         self._heartbeat(len(msg.objects))
 
+    # ── 쓰기 (/scene/reset) ─────────────────────────────────────
+
+    def _entity_path(self, name: str) -> str:
+        """물체 이름 → USD prim 절대 경로. `setup_scene.py` 와 같은 규칙이다."""
+        return f'{self._root_prim}/{name}'
+
+    def _on_reset(self, request: ResetScene.Request,
+                  response: ResetScene.Response) -> ResetScene.Response:
+        """요청한 배치대로 물체를 **다시 놓는다.**
+
+        mock 과 달리 **만들지도 지우지도 않는다.** Isaac 의 스테이지 구성은
+        `setup_scene.py` 가 정하므로, 여기서 할 수 있는 것은 이미 있는 물체를 옮기는
+        것뿐이다. 그래서 모르는 이름과 빈 배열을 **거부한다** — 성공으로 돌려주면
+        "그 배치로 놓았다"는 거짓이 에피소드 metadata 에 남는다.
+        """
+        if not request.objects:
+            return self._fail(response,
+                              'Isaac cannot clear the scene; it can only reposition '
+                              'objects defined in isaac_scene.json')
+        if not self._set_cli.service_is_ready() or not self._get_cli.service_is_ready():
+            return self._fail(response,
+                              f"'{_SET_ENTITY_STATE}' not ready — is Isaac running with "
+                              'the isaacsim.ros2.sim_control extension enabled?')
+
+        for obj in request.objects:
+            problem = self._check_known(obj)
+            if problem is not None:
+                return self._fail(response, problem)
+
+        for obj in request.objects:
+            problem = self._place(obj)
+            if problem is not None:
+                return self._fail(response, problem)
+
+        response.success = True
+        response.message = ''
+        response.applied_count = len(request.objects)
+        self.get_logger().info(
+            f'scene reset applied: {response.applied_count} object(s) '
+            f'(scene={request.scene!r}, seed={request.seed})')
+        return response
+
+    def _check_known(self, obj: SceneObject) -> Optional[str]:
+        """요청한 물체가 스테이지에 있는 그것과 같은지 본다.
+
+        **기하가 다르면 거부한다.** Isaac 은 크기를 바꿀 수 없으므로, 다른 치수로
+        요청받고 그냥 옮기면 트윈이 아는 크기와 실제가 어긋난 채로 파지 좌표가
+        계산된다 — 에러 없이 빗나가는 종류의 실패다.
+        """
+        spec = self._by_name.get(obj.name)
+        if spec is None:
+            return (f"unknown object {obj.name!r}; Isaac scene is fixed by "
+                    f'isaac_scene.json: {sorted(self._by_name)}')
+        if obj.type and obj.type != spec['type']:
+            return (f"{obj.name!r}: type {obj.type!r} != {spec['type']!r} in "
+                    'isaac_scene.json; Isaac cannot change geometry')
+        want = [float(v) for v in obj.dimensions]
+        have = [float(v) for v in spec.get('dimensions', [])]
+        if want and (len(want) != len(have)
+                     or any(abs(a - b) > _POSITION_TOLERANCE_M for a, b in zip(want, have))):
+            return (f'{obj.name!r}: dimensions {want} != {have} in isaac_scene.json; '
+                    'Isaac cannot change geometry')
+        return None
+
+    def _place(self, obj: SceneObject) -> Optional[str]:
+        """물체 하나를 옮기고 **읽어서 확인한다.** 문제가 있으면 사유를 돌려준다."""
+        entity = self._entity_path(obj.name)
+
+        set_request = SetEntityState.Request()
+        set_request.entity = entity
+        set_request.state.pose = obj.pose
+        # twist 를 명시적으로 0 으로 둔다. 굴러가던 물체를 옮기기만 하면 속도가 남아
+        # 놓자마자 다시 움직인다.
+        set_request.state.twist.linear.x = 0.0
+        set_request.state.twist.linear.y = 0.0
+        set_request.state.twist.linear.z = 0.0
+        set_request.state.twist.angular.x = 0.0
+        set_request.state.twist.angular.y = 0.0
+        set_request.state.twist.angular.z = 0.0
+
+        result = self._await(self._set_cli.call_async(set_request), _SET_ENTITY_STATE)
+        if result is None:
+            return f"{_SET_ENTITY_STATE} did not respond for '{entity}'"
+
+        # **응답이 성공이어도 믿지 않는다** — 실측에서 result=1 이고 메시지도 성공인데
+        # pose 가 그대로인 경우가 있었다. 판정은 읽기로 한다.
+        get_result = self._await(self._get_cli.call_async(
+            GetEntityState.Request(entity=entity)), _GET_ENTITY_STATE)
+        if get_result is None:
+            return f"{_GET_ENTITY_STATE} did not respond for '{entity}'"
+
+        actual = get_result.state.pose
+        if not _same_pose(actual, obj.pose):
+            reported = getattr(getattr(result, 'result', None), 'error_message', '')
+            return (f"'{entity}' did not move: asked "
+                    f'({obj.pose.position.x:.4f}, {obj.pose.position.y:.4f}, '
+                    f'{obj.pose.position.z:.4f}) but read '
+                    f'({actual.position.x:.4f}, {actual.position.y:.4f}, '
+                    f'{actual.position.z:.4f}). '
+                    f'{_SET_ENTITY_STATE} reported: {reported!r}')
+        return None
+
+    def _await(self, future, what: str, timeout_sec: float = _ENTITY_TIMEOUT_SEC):
+        """`call_async` 결과를 기다린다. 시간 초과면 ``None``.
+
+        `spin_until_future_complete` 를 쓰지 않는다 — executor 가 다른 스레드에서 이미
+        노드를 돌리고 있어, 여기서 또 spin 하면 콜백이 그쪽으로 가서 영영 오지 않는다.
+        """
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if future.done():
+                try:
+                    return future.result()
+                except Exception as exc:   # noqa: BLE001
+                    self.get_logger().error(f'{what} failed: {exc}')
+                    return None
+            time.sleep(0.01)
+        return None
+
+    def _fail(self, response: ResetScene.Response, message: str) -> ResetScene.Response:
+        self.get_logger().warning(f'scene reset failed: {message}')
+        response.success = False
+        response.message = message
+        response.applied_count = 0
+        return response
+
     def _heartbeat(self, resolved: int) -> None:
         """주기적으로 "몇 개를 풀었는지"와 "TF 에 무엇이 있는지"를 남긴다.
 
@@ -176,7 +390,10 @@ def main(args=None) -> int:
     node = None
     try:
         node = IsaacSceneStateNode()
-        rclpy.spin(node)
+        # `/scene/reset` 콜백이 다른 서비스를 기다리므로 단일 스레드로는 막힌다.
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:

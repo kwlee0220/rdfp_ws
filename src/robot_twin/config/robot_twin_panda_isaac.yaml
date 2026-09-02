@@ -338,19 +338,20 @@ operations:
   # outputs.objects 가 **실제 배치**이며 재현의 근거다. seed 만으로는 추출 방식이
   # 바뀌는 순간 재현이 깨지므로, 호출자는 objects 를 stop_episode 의 metadata 로
   # 넘겨 에피소드에 붙인다.
-  # --- reset_scene 은 **없다** ---
+  # --- reset_scene 은 **아직 없다** (노드는 준비됐다) ---
   #
-  # mock 백엔드에서는 트윈이 `/scene/reset` 서비스로 레시피를 보내면
-  # `mock_scene_state_node` 가 planning scene 의 물체를 지우고 다시 놓는다.
-  # Isaac 에서는 물체가 **USD 스테이지에 있고** 그것을 고치려면 시뮬레이터 안에서
-  # 스테이지를 써야 한다 — ROS 쪽 노드는 원리적으로 할 수 없다.
-  # `isaac_scene_state_node` 가 그 서비스를 열지조차 않는 이유다.
+  # `isaac_scene_state_node` 가 2026-09-02 부터 `/scene/reset` 을 연다 — Isaac 의
+  # `simulation_interfaces` 서비스(`/set_entity_state`)를 대신 불러 물체를 옮긴다.
+  # 계약은 mock 과 같으므로 이 파일에 mock 쪽 `reset_scene` 정의를 그대로 옮기면 된다.
   #
-  # 오퍼레이션을 남겨 두면 결과 토픽을 기다리다 10초 뒤 타임아웃할 뿐이고, 로그에는
-  # 구독자가 없다는 단서가 남지 않는다. 그래서 아예 노출하지 않는다.
+  # **다만 의미가 좁다.** Isaac 은 물체를 만들거나 지우지 못하고 **다시 놓기만** 한다.
+  # 그래서 `isaac_scene.json` 에 없는 이름이나 빈 배열은 거부된다 — 레시피가 그 셋
+  # (block_a/b/c)만 쓰는지 확인한 뒤 열어야 한다.
   #
-  # 지금 scene 을 초기화하는 방법은 Isaac 쪽에서 `setup_scene.py` 를 다시 도는 것이다
-  # (그 뒤 `setup_graph.py` 도 함께 — scene root 를 지웠다 다시 만들기 때문).
+  # 선행 조건 둘:
+  #   1. Isaac 을 `--enable isaacsim.ros2.sim_control` 로 띄운다 (기본 비활성)
+  #   2. 시스템 ROS 를 소싱하지 않는다 — 3.10 rclpy 가 Isaac 의 3.12 를 가려 확장이 죽는다
+  # 상세: docs/scene/isaac_scene_reset.md
 
   - name: start_session
     description: >-

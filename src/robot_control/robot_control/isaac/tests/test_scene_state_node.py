@@ -227,3 +227,99 @@ def test_missing_dynamic_key_is_not_published():
     """`dynamic` 이 없으면 static 이라는 뜻이므로 발행 대상이 아니다."""
     cfg = {'objects': [{'name': 'wall', 'type': 'box', 'dimensions': [1.0, 0.1, 1.0]}]}
     assert [o['name'] for o in cfg['objects'] if o.get('dynamic', False)] == []
+
+
+# ----------------------------------------------------------------------
+# /scene/reset — 쓰기 경로
+#
+# 서비스 호출 자체는 Isaac 이 있어야 하므로, 여기서는 **호출 전에 거르는 판정**과
+# **적용 여부를 읽어서 확인하는 비교**만 고정한다. 그 둘이 이 경로의 안전장치다.
+# ----------------------------------------------------------------------
+
+from rdfp_msgs.msg import SceneObject                                   # noqa: E402
+from robot_control.isaac.scene_state_node import _same_pose             # noqa: E402
+
+
+def _pose(x=0.0, y=0.0, z=0.0, qx=0.0, qy=0.0, qz=0.0, qw=1.0):
+    from geometry_msgs.msg import Pose
+    p = Pose()
+    p.position.x, p.position.y, p.position.z = x, y, z
+    p.orientation.x, p.orientation.y = qx, qy
+    p.orientation.z, p.orientation.w = qz, qw
+    return p
+
+
+class _ResetStub:
+    """`_check_known` / `_entity_path` 만 빌려 쓰는 대역."""
+
+    def __init__(self) -> None:
+        self._root_prim = '/World/Scene'
+        self._by_name = {
+            'block_a': {'name': 'block_a', 'type': 'box', 'dimensions': [0.05, 0.05, 0.05]},
+        }
+
+    _entity_path = IsaacSceneStateNode._entity_path
+    _check_known = IsaacSceneStateNode._check_known
+
+
+def _obj(name='block_a', type_='box', dimensions=(0.05, 0.05, 0.05)):
+    obj = SceneObject()
+    obj.name = name
+    obj.type = type_
+    obj.dimensions = [float(v) for v in dimensions]
+    return obj
+
+
+def test_entity_path_matches_setup_scene_rule():
+    """`setup_scene.py` 가 만드는 prim 경로와 같아야 한다 — 다르면 못 찾는다."""
+    assert _ResetStub()._entity_path('block_a') == '/World/Scene/block_a'
+
+
+def test_known_object_passes():
+    assert _ResetStub()._check_known(_obj()) is None
+
+
+def test_unknown_object_is_rejected():
+    """Isaac 은 물체를 만들 수 없다 — 조용히 넘기면 '배치했다'는 거짓이 남는다."""
+    problem = _ResetStub()._check_known(_obj(name='peg'))
+    assert problem is not None and 'peg' in problem
+
+
+def test_type_mismatch_is_rejected():
+    problem = _ResetStub()._check_known(_obj(type_='cylinder'))
+    assert problem is not None and 'geometry' in problem
+
+
+def test_dimension_mismatch_is_rejected():
+    """크기가 다르면 트윈이 아는 치수와 실제가 어긋나 파지 좌표가 빗나간다."""
+    problem = _ResetStub()._check_known(_obj(dimensions=(0.07, 0.07, 0.07)))
+    assert problem is not None and 'dimensions' in problem
+
+
+def test_empty_type_and_dimensions_are_not_checked():
+    """요청이 기하를 생략하면 위치만 바꾸겠다는 뜻이다 — 거부하지 않는다."""
+    assert _ResetStub()._check_known(_obj(type_='', dimensions=())) is None
+
+
+# ---- _same_pose : 적용 여부 판정 ----
+
+def test_same_pose_accepts_float32_rounding():
+    """Isaac 이 float32 로 돌려주므로 정확히 같지 않다."""
+    assert _same_pose(_pose(0.41999998688697815, 0.18000000715255737),
+                      _pose(0.42, 0.18)) is True
+
+
+def test_same_pose_rejects_a_position_that_did_not_move():
+    """실측된 조용한 실패 — `result=1` 인데 pose 가 그대로인 경우를 잡는다."""
+    assert _same_pose(_pose(5.0, 5.0, 5.0), _pose(1.0, 2.0, 3.0)) is False
+
+
+def test_same_pose_treats_negated_quaternion_as_equal():
+    """`q` 와 `-q` 는 같은 회전이다 — 부호로 견주면 같은 자세를 다르다고 판정한다."""
+    assert _same_pose(_pose(qz=0.7071068, qw=0.7071068),
+                      _pose(qz=-0.7071068, qw=-0.7071068)) is True
+
+
+def test_same_pose_rejects_a_different_orientation():
+    """위치만 보면 자세가 조용히 무시되는 경우를 놓친다."""
+    assert _same_pose(_pose(qz=0.7071068, qw=0.7071068), _pose()) is False

@@ -73,8 +73,7 @@ geometry_msgs/Pose  pose
 
 `type` 을 uint8 상수가 아니라 문자열로 표현하는 이유는 둘이다.
 
-- 트윈의 `enums` 변환기가 **최상위 필드만** 훑으므로, 배열 안에 중첩된 이 필드는 숫자인
-  채로 노출된다. 변환기를 중첩 지원으로 확장하면 경로 표기가 필요해져 설정만 복잡해진다.
+- 트윈의 `enums` 변환기가 **최상위 필드만** 훑으므로, 배열 안에 중첩된 이 필드는 숫자인 채로 노출된다. 변환기를 중첩 지원으로 확장하면 경로 표기가 필요해져 설정만 복잡해진다.
 - 기록되는 채널이라 데이터셋 가독성 면에서도 문자열이 낫다.
 
 ### 3.3 `dimensions` — `SolidPrimitive` 순서를 그대로 따른다
@@ -132,6 +131,11 @@ DB 의 `scene_objects` 테이블이 다른 테이블과 달리 `frame_id` 를 �
 
 ## 5. scene 갱신 — 서비스 `/scene/reset`
 
+> **백엔드마다 할 수 있는 일이 다르다.** mock 은 planning scene 을 통째로 교체하지만,
+> Isaac 은 물체를 **다시 놓기만** 한다 (스테이지 구성은 `setup_scene.py` 가 정한다) —
+> 빈 배열과 모르는 이름은 거부된다. Isaac 쪽 구조·선행 조건·함정은
+> [isaac_scene_reset.md](isaac_scene_reset.md) 에 있다.
+
 scene 을 바꾸는 것은 **서비스**다. 타입은 `rdfp_msgs/srv/ResetScene`, 이름은 `/scene/reset` 이며 백엔드별 scene 노드가 서버가 된다.
 
 ```
@@ -159,15 +163,13 @@ int32  applied_count      # 성공 시 요청한 개수와 같아야 한다
 트윈이 `reset_scene` 의 `outputs.objects` 를 돌려주고, 호출자가 그것을
 `stop_episode` 의 metadata 로 넘겨 에피소드에 붙인다.
 
-> **`seed` 만으로는 재현되지 않는다.** 추출 알고리즘이 바뀌면 같은 seed 가 다른 배치를
-> 만든다. 재현의 근거는 `objects` 이며 seed 는 사람이 실행을 식별하는 용도다.
+> **`seed` 만으로는 재현되지 않는다.** 추출 알고리즘이 바뀌면 같은 seed 가 다른 배치를 만든다. 재현의 근거는 `objects` 이며 seed 는 사람이 실행을 식별하는 용도다.
 
 **물체 배치는 이미 정해진 상태로 온다.** 무작위 추출은 트윈이 하고 서비스에는 결과만
 실린다. 노드가 뽑으면 (1) 같은 seed 로도 백엔드마다 다른 배치가 나오고, (2) 트윈이
 실제 배치를 몰라 metadata 에 남길 수 없다.
 
-그리고 물리 시뮬레이터에서는 **명령한 배치와 실제 안착 위치가 다르다** — 블록이 굴러
-기울거나 미끄러진다. 그래서 학습 데이터의 근거는 실제 위치, 즉 `/scene/objects` 다.
+그리고 물리 시뮬레이터에서는 **명령한 배치와 실제 안착 위치가 다르다** — 블록이 굴러 기울거나 미끄러진다. 그래서 학습 데이터의 근거는 실제 위치, 즉 `/scene/objects` 다.
 
 ### 개별 추가/삭제를 두지 않는 이유
 
@@ -419,14 +421,9 @@ ORDER BY s.stamp_ts DESC;
 
 ## 12. 참고
 
-- [robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) — §4.1 변수 응답 형식,
-  §4.2 `reset_scene`, §4.4 자원 락
-- [auto_episode_collection_draft.md](../robot_twin/auto_episode_collection_draft.md) — §2
-  타입 설계 경위(`PoseArray` 를 쓸 수 없던 이유), §3 `reset_scene` 결정, §2.5 좌표 규약
-  어댑터, §2.6 diff 누적으로 바꾼 실측
-- [scene_objects_observation_decision.md](../rosbag2/scene_objects_observation_decision.md) —
-  학습 입력에 넣을 것인가 (미결)
-- [multi_simulator_backend_design.md](../simulation/multi_simulator_backend_design.md) — §5
-  백엔드 계약. 이 토픽은 그 §5.3 의 "환경 오브젝트"(선택)를 계약으로 승격한 것이다
+- [robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) — §4.1 변수 응답 형식, §4.2 `reset_scene`, §4.4 자원 락
+- [auto_episode_collection_draft.md](../robot_twin/auto_episode_collection_draft.md) — §2 타입 설계 경위(`PoseArray` 를 쓸 수 없던 이유), §3 `reset_scene` 결정, §2.5 좌표 규약 어댑터, §2.6 diff 누적으로 바꾼 실측
+- [scene_objects_observation_decision.md](../rosbag2/scene_objects_observation_decision.md) — 학습 입력에 넣을 것인가 (미결)
+- [multi_simulator_backend_design.md](../simulation/multi_simulator_backend_design.md) — §5 백엔드 계약. 이 토픽은 그 §5.3 의 "환경 오브젝트"(선택)를 계약으로 승격한 것이다
 - [robot_control/launch/README.md](../../src/robot_control/launch/README.md) — §5 헬퍼 인벤토리
 - [rdfp/launch/README.md](../../src/rdfp/launch/README.md) — scene 인자가 YAML 밖에 있는 이유
