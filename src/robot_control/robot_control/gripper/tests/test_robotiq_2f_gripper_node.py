@@ -1,4 +1,4 @@
-"""`GripperJointNode` 의 판정 로직을 고정한다.
+"""`Robotiq2FGripperNode` 의 판정 로직을 고정한다.
 
 `Node.__init__` 을 피하고 판정 메서드만 빌려 쓴다 — 토픽·시뮬레이터 없이 로직만
 검증하기 위해서다.
@@ -17,7 +17,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from robot_control.gripper.gripper_joint_node import GripperJointNode  # noqa: E402
+from robot_control.gripper.robotiq_2f_gripper_node import Robotiq2FGripperNode  # noqa: E402
 
 SIGNS = [1.0, 1.0, -1.0, -1.0, -1.0, 1.0]
 CLOSED = 0.725
@@ -40,10 +40,10 @@ class _Stub:
         self._stall_effort = 1.0
         self._stall_velocity = 0.001
 
-    _command_array = GripperJointNode._command_array
-    _residual = GripperJointNode._residual
-    _stalled = GripperJointNode._stalled
-    _at_goal = GripperJointNode._at_goal
+    _command_array = Robotiq2FGripperNode._command_array
+    _residual = Robotiq2FGripperNode._residual
+    _stalled = Robotiq2FGripperNode._stalled
+    _at_goal = Robotiq2FGripperNode._at_goal
 
 
 def _spread(scalar: float) -> list:

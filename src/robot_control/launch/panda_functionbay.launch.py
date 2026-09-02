@@ -72,7 +72,7 @@ from robot_control.launch_helpers.common import (
     declare_ros2_control_hardware_type_argument,
 )
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node, declare_ee_pose_arguments
-from robot_control.launch_helpers.gripper import create_gripper_joint_node
+from robot_control.launch_helpers.gripper import create_robotiq_2f_gripper_node
 
 # 펑션베이가 제공하는 토픽. 시뮬레이터 쪽 고정값이라 상수로 둔다.
 FB_JOINT_REPORT_TOPIC = '/output/panda_joint'
@@ -118,7 +118,7 @@ def declare_functionbay_arguments() -> list[DeclareLaunchArgument]:
         ),
         DeclareLaunchArgument(
             "enable_gripper", default_value="true",
-            description="그리퍼 노드(GripperJointNode) 기동 여부",
+            description="그리퍼 노드(Robotiq2FGripperNode) 기동 여부",
         ),
         DeclareLaunchArgument(
             "fb_gripper_command_topic", default_value=FB_GRIPPER_COMMAND_TOPIC,
@@ -207,12 +207,12 @@ def create_gripper_node_for_functionbay() -> Node:
 
     이 스택에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 존재하지
     않는다. mock·Isaac 이 쓰는 `GripperActionNode` 는 그래서 쓸 수 없고, 6축 목표각을
-    토픽으로 직접 쓰는 `GripperJointNode` 가 대신한다.
+    토픽으로 직접 쓰는 `Robotiq2FGripperNode` 가 대신한다.
 
     파라미터 기본값이 이미 2F-85 실측치라 여기서 재정의할 것이 없다 (부호 벡터,
     `close` 0.725 rad, 파지 임계 1.0 N·m — 설계서 §6.1).
     """
-    return create_gripper_joint_node(
+    return create_robotiq_2f_gripper_node(
         command_topic=LaunchConfiguration("fb_gripper_command_topic"),
         report_topic=LaunchConfiguration("fb_gripper_report_topic"),
         condition=IfCondition(LaunchConfiguration("enable_gripper")),

@@ -5,7 +5,7 @@
 **구현이 둘이고 갈리는 축은 실행 수단이다** — 백엔드가 아니다.
 
   `create_gripper_node()`        액션 서버가 있는 스택 (mock · Gazebo · Isaac)
-  `create_gripper_joint_node()`  관절 목표각을 토픽으로 쓰는 스택 (펑션베이)
+  `create_robotiq_2f_gripper_node()`  Robotiq 2F 를 직접 구동 (펑션베이)
 
 **노드가 하나다.** 예전에는 명령을 받는 `gripper_control_node` 와 상태를 내는
 `gripper_state_publisher` 가 나뉘어 있었는데, `GripperState.goal`(마지막 명령)을 실으려면
@@ -43,13 +43,13 @@ def create_gripper_node(extra_parameters: Optional[dict] = None) -> Node:
     )
 
 
-def create_gripper_joint_node(command_topic: Any, report_topic: Any,
-                              extra_parameters: Optional[dict] = None,
-                              condition: Optional[Condition] = None) -> Node:
-    """`GripperJointNode` 를 생성한다.
+def create_robotiq_2f_gripper_node(command_topic: Any, report_topic: Any,
+                                   extra_parameters: Optional[dict] = None,
+                                   condition: Optional[Condition] = None) -> Node:
+    """`Robotiq2FGripperNode` 를 생성한다.
 
-    `control_msgs/GripperCommand` 액션 서버가 **없는** 스택에서 쓴다. 노드 자체는
-    백엔드 중립이다 — 토픽이 상대 경로라 remap 이 결합을 만든다.
+    `control_msgs/GripperCommand` 액션 서버가 **없는** 스택에서 Robotiq 2F 를 직접
+    구동한다. 백엔드에는 중립이다 — 토픽이 상대 경로라 remap 이 결합을 만든다.
 
     Args:
         command_topic: 시뮬레이터가 관절 목표각을 받는 토픽 (`Float64MultiArray`).
@@ -59,7 +59,7 @@ def create_gripper_joint_node(command_topic: Any, report_topic: Any,
     """
     return Node(
         package="robot_control",
-        executable="gripper_joint_node",
+        executable="robotiq_2f_gripper_node",
         name="gripper",
         output="screen",
         emulate_tty=True,

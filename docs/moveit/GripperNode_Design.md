@@ -209,22 +209,39 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 
 ### 3.2 구현체
 
-**이름은 백엔드가 아니라 실행 수단으로 붙인다.**
+**이름은 그 구현에서 변하지 않는 것을 가리킨다.** 그것이 무엇인지는 표준 인터페이스가
+있느냐에 달렸다.
 
-scene 계열은 `MockSceneStateNode` / `IsaacSceneStateNode` 처럼 백엔드로 가른다 —
-물체 목록을 얻는 방법이 근본적으로 다르기 때문이다. **그리퍼는 그렇지 않다.**
-`control_msgs/GripperCommand` 액션 서버만 있으면 백엔드가 무엇이든 같은 코드이고,
-실제로 Isaac 이 `isaac_gripper_bridge` 로 그 서버를 열어 mock 과 같은 노드를 쓴다.
+| | 이름이 가리키는 것 | 왜 |
+|---|---|---|
+| 표준 인터페이스가 **있다** | **인터페이스** | 그 뒤의 기구가 무엇이든 같은 코드다 |
+| **없다** | **기구 계열** | 기구를 직접 구동하므로 불변항이 기구뿐이다 |
+
+**백엔드로 가르지 않는다.** scene 계열(`MockSceneStateNode` / `IsaacSceneStateNode`)은
+물체 목록을 얻는 방법이 백엔드마다 근본적으로 달라 그 관례가 맞지만, 그리퍼는 그렇지
+않다 — Isaac 은 `isaac_gripper_bridge` 로 액션 서버를 열어 **mock 과 같은 노드**를 쓴다.
 처음에 `MockGripperNode` 로 이름 붙였다가 Isaac 이 쓰는 순간 거짓이 되어
 **2026-09-02 에 `GripperActionNode` 로 고쳤다.**
+
+같은 날 `Robotiq2FGripperNode` 는 반대 방향으로 정리됐다. `GripperJointNode` 로
+시작했으나 **"관절로 지령한다"는 변별력이 없다** — 그리퍼는 대체로 관절로 구현된다.
+이 노드가 가릴 인터페이스가 없다는 것이 요점이므로 기구 계열을 이름에 실었다.
+**모델(2F-85)이 아니라 계열(2F)** 인 것은 2F-140 이 링키지 구조가 같고 스트로크만 달라
+`targets` 파라미터로 흡수되기 때문이다.
 
 | 구현 | 실행 경로 | 쓰는 백엔드 | 상태 |
 |---|---|---|:-:|
 | [`GripperActionNode`](GripperActionNode_Guide.md) | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | mock · Gazebo · Isaac(브리지 경유) | ✅ |
-| [`GripperJointNode`](GripperJointNode_Guide.md) | **관절 목표각 토픽** (6축 `Float64MultiArray` ← `JointState`) | 펑션베이 | ✅ |
+| [`Robotiq2FGripperNode`](Robotiq2FGripperNode_Guide.md) | **관절 목표각 토픽** (6축 `Float64MultiArray` ← `JointState`) | 펑션베이 | ✅ |
 
 **`stalled` 판정은 구현을 가르는 축이 아니다.** 임계 effort 하나가 다를 뿐이라
 서브클래스로 나누면 액션 경로가 같은 코드가 두 벌이 된다 — **파라미터로 다룬다.**
+
+기구 종속 수치도 마찬가지로 **전부 파라미터**다. `GripperActionNode` 의 기본값이
+Panda Hand 전용(`panda_finger_joint1`, `width_scale 2.0`)이고 `Robotiq2FGripperNode` 의
+기본값이 2F-85 전용(부호 벡터, `close: 0.725`)이지만, **코드에는 기구 종속 분기가
+없다.** 이름의 차이는 코드가 얼마나 특수한가가 아니라 **가릴 인터페이스가 있느냐**에서
+온다.
 
 **`GripperActionNode` 가 액션 결과로 상태를 만들지 않는 것에 주의한다.** 결과는 명령당
 1 건이라 "지금 어떤 상태인가"에 답할 수 없고, `at_goal` 은 매 주기 재평가여야 하기
@@ -338,7 +355,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 | 대상 | 할 일 |
 |---|---|
 | 메시지 | ✅ `GripperCommand.goal`, `GripperState` 재정의. `GripperActionState` 는 **삭제** |
-| 노드 | ✅ `GripperActionNode` (`gripper_action_node`) — mock·Gazebo·Isaac. ✅ `GripperJointNode` (`gripper_joint_node`) — 펑션베이. 구 `gripper_control_node`·`gripper_state_publisher` 제거 |
+| 노드 | ✅ `GripperActionNode` (`gripper_action_node`) — mock·Gazebo·Isaac. ✅ `Robotiq2FGripperNode` (`robotiq_2f_gripper_node`) — 펑션베이. 구 `gripper_control_node`·`gripper_state_publisher` 제거 |
 | DB | ✅ `gripper_cmds.goal`, `gripper_states` 를 `goal`/`width`/`stalled`/`at_goal` 로 재정의. `gripper_action_states` 테이블 삭제 (`drop.sql` 은 구 DB 정리용으로 남겼다) |
 | writer/reader | ✅ `gripper_command`·`gripper_state` 갱신, `gripper_action_state` 삭제 |
 | 트윈 | ✅ `gripper_state`(`/gripper_states`) 로 이전. **완료 판정을 세대→`at_goal` 로 바꿨다** — 주기 발행 채널에서 "갱신됨"은 "끝남"이 아니다 |

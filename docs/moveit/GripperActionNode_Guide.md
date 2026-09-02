@@ -262,7 +262,7 @@ Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → isaac_gri
 
 ## 9. 관련 문서
 
-- [GripperJointNode_Guide.md](GripperJointNode_Guide.md) — 관절 지령 기반 자매 구현 (펑션베이)
+- [Robotiq2FGripperNode_Guide.md](Robotiq2FGripperNode_Guide.md) — 관절 지령 기반 자매 구현 (펑션베이)
 - [GripperNode_Design.md](GripperNode_Design.md) — **계약 정본.** 메시지 필드의 뜻,
   `at_goal` 판정식, 백엔드별 실현 가능성, 데이터셋에서 읽는 법
 - [gripper_action_server_notes.md](gripper_action_server_notes.md) — 그 아래 액션 서버

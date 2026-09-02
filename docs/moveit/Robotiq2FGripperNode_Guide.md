@@ -1,17 +1,26 @@
-# GripperJointNode — 관절 지령 기반 `GripperNode` 구현
+# Robotiq2FGripperNode — Robotiq 2F 계열 그리퍼 구동
 
-[GripperNode 설계](GripperNode_Design.md)가 정한 계약을 **관절 목표각을 토픽으로 직접
-쓰는 방식**으로 실현한 노드다. 액션 서버가 없는 스택(펑션베이)이 대상이며,
-[`GripperActionNode`](GripperActionNode_Guide.md)와 **계약은 같고 실행 수단이 다르다.**
+[GripperNode 설계](GripperNode_Design.md)가 정한 계약을 **Robotiq 2F 그리퍼의 관절
+목표각을 토픽으로 직접 씀으로써** 실현한 노드다. 현재 쓰이는 곳은 **펑션베이 백엔드**
+(2F-85)이며, [`GripperActionNode`](GripperActionNode_Guide.md)와 **계약은 같고 실행
+수단이 다르다.**
+
+**이름이 인터페이스가 아니라 기구를 가리키는 이유** — `GripperActionNode` 는
+`control_msgs/GripperCommand` 액션이라는 표준 인터페이스 뒤에 있어 어떤 그리퍼든
+가릴 수 있다. 여기는 그런 인터페이스가 없어 기구를 직접 구동하므로, 이름이 가리킬
+불변항이 기구밖에 없다 ([설계서](GripperNode_Design.md) §3.2).
+
+**계열 안에서는 파라미터로 흡수된다.** 기본값은 2F-85 실측치이고, 2F-140 은 링키지
+구조(6축·부호 벡터)가 같고 스트로크만 다르므로 `targets` 만 바꾸면 된다.
 
 | | |
 |---|---|
 | 패키지 | `robot_control` |
-| 실행 파일 | `gripper_joint_node` |
+| 실행 파일 | `robotiq_2f_gripper_node` |
 | 노드 이름 | `gripper` (launch 가 지정) |
-| 소스 | [gripper_joint_node.py](../../src/robot_control/robot_control/gripper/gripper_joint_node.py) |
+| 소스 | [robotiq_2f_gripper_node.py](../../src/robot_control/robot_control/gripper/robotiq_2f_gripper_node.py) |
 
-| | `GripperActionNode` | **`GripperJointNode`** |
+| | `GripperActionNode` | **`Robotiq2FGripperNode`** |
 |---|---|---|
 | 실행 | `control_msgs/GripperCommand` 액션 | 관절 목표각 토픽 |
 | 쓰는 스택 | mock · Gazebo · Isaac(브리지) | 펑션베이 |
@@ -27,7 +36,7 @@
   gripper_cmds  (rdfp_msgs/GripperCommand)      심볼 'open' / 'close' / 'grasp'
       │
       ▼
-  ┌─────────────────────── GripperJointNode ────────────────────────┐
+  ┌─────────────────────── Robotiq2FGripperNode ────────────────────────┐
   │  targets 의 스칼라 s 를 axis_signs 로 펼쳐 6축 목표각            │
   │                                                                 │
   │  관절 잔차 → 자세 도달 판정                                      │
@@ -202,7 +211,7 @@ ros2 launch robot_control panda_functionbay.launch.py
 직접 띄울 때는 remap 이 필요하다.
 
 ```bash
-ros2 run robot_control gripper_joint_node --ros-args \
+ros2 run robot_control robotiq_2f_gripper_node --ros-args \
     -r joint_command:=/input/gripper_joint \
     -r joint_report:=/output/gripper_joint
 ```

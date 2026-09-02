@@ -1,4 +1,4 @@
-"""관절 공간으로 직접 지령하는 `GripperNode` 구현 — 액션 서버가 없는 스택용.
+"""Robotiq 2F 계열용 `GripperNode` 구현 — 관절 목표각을 토픽으로 직접 쓴다.
 
     gripper_cmds (rdfp_msgs/GripperCommand)   심볼 'open'/'close'/'grasp'
         -> [본 노드] targets 의 스칼라 s 를 axis_signs 로 펼쳐 6축 목표각 생성
@@ -9,9 +9,14 @@
         -> gripper_states (rdfp_msgs/GripperState)  주기 발행
 
 `GripperActionNode` 와 **계약은 같고 실행 수단이 다르다.** 저쪽은
-`control_msgs/GripperCommand` 액션 서버를 부르고, 이쪽은 관절 목표각을 토픽으로
-직접 쓴다. 펑션베이처럼 ros2_control 이 없어 액션 서버가 존재하지 않는 스택이
-대상이다. **토픽은 전부 상대 경로**이므로 백엔드 결합은 launch 의 remap 이 만든다.
+`control_msgs/GripperCommand` 액션 서버를 부르므로 그 뒤의 기구를 알 필요가 없다.
+여기는 그런 인터페이스가 없어 **기구를 직접 구동**하며, 그래서 이름도 인터페이스가
+아니라 기구 계열을 가리킨다. 대상은 펑션베이처럼 ros2_control 이 없어 액션 서버가
+존재하지 않는 스택이다. **토픽은 전부 상대 경로**이므로 백엔드 결합은 launch 의
+remap 이 만든다.
+
+**계열 안에서는 파라미터로 흡수된다.** 기본값은 2F-85 실측치인데, 2F-140 은 링키지
+구조(6축·부호 벡터)가 같고 스트로크만 다르므로 ``targets`` 만 바꾸면 된다.
 
 왜 스칼라 하나로 지령하나
 ------------------------
@@ -95,7 +100,7 @@ _DEFAULT_AXIS_SIGNS = [1.0, 1.0, -1.0, -1.0, -1.0, 1.0]
 _DEFAULT_TARGETS = {'open': 0.0, 'close': 0.725, 'grasp': 0.725}
 
 
-class GripperJointNode(Node):
+class Robotiq2FGripperNode(Node):
     """`GripperNode` 계약의 관절 지령 기반 구현."""
 
     def __init__(self) -> None:
@@ -134,7 +139,7 @@ class GripperJointNode(Node):
         self.create_timer(1.0 / publish_rate, self._on_timer)
 
         self.get_logger().info(
-            f'GripperJointNode started: {_CMD_TOPIC} -> {_JOINT_COMMAND_TOPIC}, '
+            f'Robotiq2FGripperNode started: {_CMD_TOPIC} -> {_JOINT_COMMAND_TOPIC}, '
             f'{_JOINT_REPORT_TOPIC} -> {_STATE_TOPIC} @ {publish_rate} Hz')
         self.get_logger().info(
             f'  axes: {len(self._axis_signs)}, signs: {self._axis_signs}')
@@ -260,7 +265,7 @@ class GripperJointNode(Node):
 
 def main(args: Optional[list] = None) -> int:
     rclpy.init(args=args)
-    node = GripperJointNode()
+    node = Robotiq2FGripperNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
