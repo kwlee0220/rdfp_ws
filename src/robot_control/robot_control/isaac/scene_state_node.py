@@ -79,6 +79,10 @@ _ENTITY_TIMEOUT_SEC = 5.0
 # 읽어서 확인할 때의 허용 오차. Isaac 이 float32 로 돌려주므로 1e-3 이면 넉넉하다.
 _POSITION_TOLERANCE_M = 1e-3
 _ORIENTATION_TOLERANCE = 1e-3
+# 중력 가속도. 재생 중에는 **놓자마자 떨어지기 시작하므로** 왕복 시간만큼의 자유낙하를
+# 허용 오차에 더한다. 30 ms 면 4.4 mm 라 고정 1 mm 로는 정상 배치도 실패로 읽힌다
+# (실측 2026-09-02: 공중 배치가 그렇게 거부됐다).
+_GRAVITY_M_S2 = 9.81
 
 # `SceneObjects.msg` 가 권장하는 QoS. **구독 측도 맞춰야 한다** — volatile 로
 # 구독하면 매칭 자체가 되지 않아 값이 영영 오지 않는다.
@@ -90,17 +94,31 @@ _SCENE_QOS = QoSProfile(
 )
 
 
-def _same_pose(actual: Any, wanted: Any) -> bool:
+def _drift_allowance(elapsed_sec: float) -> float:
+    """왕복 `elapsed_sec` 동안 물체가 정당하게 움직일 수 있는 거리.
+
+    **재생 중에는 놓는 즉시 물리가 작용한다.** 지지면 없이 놓인 물체는 자유낙하하므로,
+    쓰고 읽는 사이의 시간만큼 목표에서 벗어나 있는 것이 정상이다. 그것을 실패로 읽으면
+    공중 배치가 늘 거부된다.
+    """
+    return 0.5 * _GRAVITY_M_S2 * elapsed_sec * elapsed_sec
+
+
+def _same_pose(actual: Any, wanted: Any, elapsed_sec: float = 0.0) -> bool:
     """두 pose 가 같은가. 위치와 자세를 **둘 다** 본다.
 
     위치만 보면 자세만 조용히 무시되는 경우를 놓친다. 쿼터니언은 `q` 와 `-q` 가 같은
     회전이므로 **내적의 절대값**으로 비교한다 — 부호를 그대로 견주면 같은 자세를
     다르다고 판정한다.
+
+    `elapsed_sec` 은 쓰고 읽는 사이의 시간이며, 그동안의 자유낙하를 허용한다. 0 이면
+    정지 상태(또는 시뮬레이션 정지)를 가정한 엄격한 비교다.
     """
     dx = actual.position.x - wanted.position.x
     dy = actual.position.y - wanted.position.y
     dz = actual.position.z - wanted.position.z
-    if math.sqrt(dx * dx + dy * dy + dz * dz) > _POSITION_TOLERANCE_M:
+    limit = _POSITION_TOLERANCE_M + _drift_allowance(elapsed_sec)
+    if math.sqrt(dx * dx + dy * dy + dz * dz) > limit:
         return False
     a, b = actual.orientation, wanted.orientation
     dot = abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w)
@@ -319,6 +337,7 @@ class IsaacSceneStateNode(Node):
         set_request.state.twist.angular.y = 0.0
         set_request.state.twist.angular.z = 0.0
 
+        sent_at = time.monotonic()
         result = self._await(self._set_cli.call_async(set_request), _SET_ENTITY_STATE)
         if result is None:
             return f"{_SET_ENTITY_STATE} did not respond for '{entity}'"
@@ -331,13 +350,16 @@ class IsaacSceneStateNode(Node):
             return f"{_GET_ENTITY_STATE} did not respond for '{entity}'"
 
         actual = get_result.state.pose
-        if not _same_pose(actual, obj.pose):
+        # 쓰고 읽는 사이에 물리가 돈다 — 그 시간만큼의 자유낙하는 정상으로 본다.
+        elapsed = time.monotonic() - sent_at
+        if not _same_pose(actual, obj.pose, elapsed):
             reported = getattr(getattr(result, 'result', None), 'error_message', '')
             return (f"'{entity}' did not move: asked "
                     f'({obj.pose.position.x:.4f}, {obj.pose.position.y:.4f}, '
                     f'{obj.pose.position.z:.4f}) but read '
                     f'({actual.position.x:.4f}, {actual.position.y:.4f}, '
                     f'{actual.position.z:.4f}). '
+                    f'after {elapsed * 1e3:.0f} ms. '
                     f'{_SET_ENTITY_STATE} reported: {reported!r}')
         return None
 

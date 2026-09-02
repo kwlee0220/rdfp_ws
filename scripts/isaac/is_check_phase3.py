@@ -126,7 +126,11 @@ def check_topic(node: Phase3Checker) -> bool:
 
 
 def check_objects(node: Phase3Checker, config: dict) -> bool:
-    expected = {obj['name']: obj for obj in config['objects']}
+    # **`dynamic: true` 인 것만 기대한다.** `/scene/objects` 는 조작 대상 채널이고,
+    # 발행 노드가 환경 물체(탁자 등)를 걸러낸다 (2026-09-01 결정,
+    # docs/scene/scene_objects_guide.md). 이 필터가 생기기 전에 쓰인 검사라 전체를
+    # 기대했고, 그래서 정상 동작이 '누락: table' 로 나왔다 (2026-09-02 재검증).
+    expected = {obj['name']: obj for obj in config['objects'] if obj.get('dynamic', False)}
     received = {obj.name: obj for obj in node.latest.objects}
 
     missing = sorted(set(expected) - set(received))

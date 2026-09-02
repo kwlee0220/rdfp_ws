@@ -1,8 +1,6 @@
 # Isaac scene 리셋 — `/scene/reset`
 
-Isaac 백엔드에서 물체를 다시 놓는 경로. 계약은
-[scene_objects_guide.md](scene_objects_guide.md) §5 와 **같고**, 다른 것은 그 아래에서
-누가 스테이지를 쓰느냐다.
+Isaac 백엔드에서 물체를 다시 놓는 경로. 계약은 [scene_objects_guide.md](scene_objects_guide.md) §5 와 **같고**, 다른 것은 그 아래에서 누가 스테이지를 쓰느냐다.
 
 ```text
 트윈 → /scene/reset  (rdfp_msgs/srv/ResetScene)      ← mock 과 같은 계약
@@ -17,28 +15,22 @@ Isaac 백엔드에서 물체를 다시 놓는 경로. 계약은
       /get_entity_state 로 읽어서 확인 → success
 ```
 
-**시뮬레이터 쪽에 상주 스크립트를 두지 않는다.** Isaac 6.0 의
-`isaacsim.ros2.sim_control` 확장이 표준 `simulation_interfaces` 서비스를 이미 열어
-주므로, ROS 쪽 노드가 그것을 부르기만 하면 된다.
+**시뮬레이터 쪽에 상주 스크립트를 두지 않는다.** Isaac 6.0 의 `isaacsim.ros2.sim_control` 확장이 표준 `simulation_interfaces` 서비스를 이미 열어 주므로, ROS 쪽 노드가 그것을 부르기만 하면 된다.
 
 ---
 
 ## 1. 왜 이 구조인가
 
-**ROS 쪽 노드는 USD 스테이지를 직접 못 쓴다.** Isaac 은 별도 프로세스이고 스테이지는
-그 안에 있다. 그래서 오랫동안 "Isaac 에서 `reset_scene` 은 불가능하다"로 기록돼 있었다
-([isaac_backend_skeleton.md](../simulation/isaac_backend_skeleton.md) Phase 9).
+**ROS 쪽 노드는 USD 스테이지를 직접 못 쓴다.** Isaac 은 별도 프로세스이고 스테이지는 그 안에 있다. 그래서 오랫동안 "Isaac 에서 `reset_scene` 은 불가능하다"로 기록돼 있었다 ([isaac_backend_skeleton.md](../simulation/isaac_backend_skeleton.md) Phase 9).
 
-**전제가 바뀐 것은 Isaac 이 창구를 열었기 때문이다.** `sim_control` 확장이 서비스
-19개를 제공한다.
+**전제가 바뀐 것은 Isaac 이 창구를 열었기 때문이다.** `sim_control` 확장이 서비스 19개를 제공한다.
 
 ```
 set_entity_state    get_entity_state    get_entities
 spawn_entity        delete_entity       reset_simulation      ...
 ```
 
-`SetEntityState.Request` 는 `entity`(string) + `state`(pose · twist · acceleration)라
-**옮기면서 속도를 0 으로 만드는 것까지 한 번에** 된다. 그것이 리셋에 필요한 전부다.
+`SetEntityState.Request` 는 `entity`(string) + `state`(pose · twist · acceleration)라 **옮기면서 속도를 0 으로 만드는 것까지 한 번에** 된다. 그것이 리셋에 필요한 전부다.
 
 ### 대안을 택하지 않은 이유
 
@@ -59,13 +51,9 @@ spawn_entity        delete_entity       reset_simulation      ...
 | `/OmniverseKit_Persp` (카메라) | `result=1`, `Successfully set state ... Entity doesn't have rigid body API` | **pose 그대로** |
 | `/World/Scene/block_a` (rigid body) | `result=1`, `Successfully set state ... Position, orientation, and velocities set` | 이동함 |
 
-같은 `result=1` 이고 메시지 문구도 겹친다. **그래서 이 노드는 응답을 판정에 쓰지 않고
-`/get_entity_state` 로 읽어서 확인한다.**
+같은 `result=1` 이고 메시지 문구도 겹친다. **그래서 이 노드는 응답을 판정에 쓰지 않고 `/get_entity_state` 로 읽어서 확인한다.**
 
-비교는 위치와 자세를 **둘 다** 본다 (`_same_pose`). 쿼터니언은 `q` 와 `-q` 가 같은
-회전이므로 **내적의 절대값**으로 견준다 — 부호를 그대로 비교하면 같은 자세를 다르다고
-판정한다. 허용 오차는 `1e-3` 인데, Isaac 이 float32 로 돌려주기 때문이다
-(`0.42` → `0.41999998688697815`).
+비교는 위치와 자세를 **둘 다** 본다 (`_same_pose`). 쿼터니언은 `q` 와 `-q` 가 같은 회전이므로 **내적의 절대값**으로 견준다 — 부호를 그대로 비교하면 같은 자세를 다르다고 판정한다. 허용 오차는 `1e-3` 인데, Isaac 이 float32 로 돌려주기 때문이다 (`0.42` → `0.41999998688697815`).
 
 ---
 
@@ -179,9 +167,30 @@ after  block_b: (0.58, -0.22, 0.425)
 거부 경로 네 가지(빈 배열 · 모르는 이름 · 치수 불일치 · 타입 불일치)도 모두 사유와 함께
 거부되는 것을 확인했다.
 
-> **재생 중 동작은 아직 안 봤다.** 검증 당시 시뮬레이션이 `STOPPED` 였다. 서비스는
-> `Velocities will take effect when simulation resumes` 라고 보고하므로 `twist=0` 이
-> 낙하를 실제로 멈추는지는 재생 상태에서 한 번 확인해 두는 것이 좋다.
+### 재생 중 검증 — 읽기 검증에 물리를 넣어야 했다 (2026-09-02)
+
+재생 상태에서 다시 해 보니 **공중 배치가 거부됐다.**
+
+```
+/scene/reset {block_c: (0.5, 0.15, 0.9)}   → success=False
+   'did not move: asked (0.5000, 0.1500, 0.9000) but read (0.5000, 0.1500, 0.8956)'
+```
+
+물체는 정확히 놓였는데, **놓자마자 떨어지기 시작해** 쓰고 읽는 사이에 허용 오차(1 mm)를
+벗어났다. 자유낙하는 30 ms 면 4.4 mm 다.
+
+그래서 `_same_pose` 가 **왕복 시간만큼의 자유낙하를 허용**한다
+(`0.5·g·Δt²`). 고정 오차로는 지지면 없는 배치가 늘 실패한다. 낙하 허용이 "아무 일도
+안 했다"까지 통과시키지는 않는다 — 그 경우 목표와의 거리가 자유낙하로 설명되지 않는다.
+
+고친 뒤 재확인:
+
+```
+/scene/reset {block_c: z 0.425 → 0.9}  → success=True
+  0.3초 후 : z = 0.425   ← 테이블에 안착 (√(2×0.475/9.81) = 0.31 s 와 일치)
+```
+
+**`twist=0` 도 확인됐다** — 리셋 직후 속도가 0 이고, 낙하는 그 뒤 중력으로 다시 시작한다.
 
 ---
 

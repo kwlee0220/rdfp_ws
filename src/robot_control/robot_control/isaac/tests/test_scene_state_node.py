@@ -323,3 +323,19 @@ def test_same_pose_treats_negated_quaternion_as_equal():
 def test_same_pose_rejects_a_different_orientation():
     """위치만 보면 자세가 조용히 무시되는 경우를 놓친다."""
     assert _same_pose(_pose(qz=0.7071068, qw=0.7071068), _pose()) is False
+
+
+def test_same_pose_allows_free_fall_between_write_and_read():
+    """재생 중에는 놓자마자 떨어진다 — 왕복 시간만큼의 낙하는 정상이다.
+
+    실측(2026-09-02)에서 공중 배치가 이 때문에 거부됐다. 30 ms 면 4.4 mm 라
+    고정 1 mm 허용치로는 정상 동작이 실패로 읽힌다.
+    """
+    fallen = _pose(0.5, 0.15, 0.9 - 0.0044)
+    assert _same_pose(fallen, _pose(0.5, 0.15, 0.9)) is False          # 정지 가정
+    assert _same_pose(fallen, _pose(0.5, 0.15, 0.9), 0.030) is True    # 30 ms 왕복
+
+
+def test_same_pose_still_catches_a_prim_that_never_moved():
+    """낙하 허용이 '아무 일도 안 했다'까지 통과시키면 안 된다."""
+    assert _same_pose(_pose(5.0, 5.0, 5.0), _pose(1.0, 2.0, 3.0), 0.100) is False

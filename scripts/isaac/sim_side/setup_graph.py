@@ -76,7 +76,16 @@ LOG_PATH = LOG_DIR + "/isaac_setup_graph.log"
 
 
 # 어느 단계까지 만들 것인가. 0=상태만, 1=+팔 명령, 2=+그리퍼 명령, 3=+scene TF, 4=+카메라.
-PHASE = 4
+#
+# ⚠️ **Isaac 6.0 에서 4 는 Play 하는 순간 segfault 다 (2026-09-02, Ubuntu).** 크래시는
+# 카메라 렌더 프로덕트를 붙이는 중에 나며, 파이썬 스레드는 전부 idle 이라 네이티브
+# 쪽이다. 같은 그래프가 Windows + Isaac 5.1 에서는 통과했으므로 **버전 이동에 따른
+# 회귀**다. 직전 경고가 단서다 —
+#   OgnROS2CameraHelper: The frameSkipCount input is deprecated.
+#     Control publish rate by setting omni:sensor... 로 바뀌었다
+# 6.0 배선으로 다시 만들기 전까지 3 으로 둔다. **조작 계열(Phase 0~3·6)은 카메라가
+# 필요 없다** — 카메라는 수집(영상 기록)용이다.
+PHASE = 3
 
 # ROS 쪽 계약. docs/simulation/isaac_backend_skeleton.md §3 토픽 계약표와 일치해야 한다.
 ROS_DOMAIN_ID = 31
