@@ -4,9 +4,14 @@
 # 이 스크립트의 존재 이유는 환경 변수 세 줄이다. 그냥 `isaac-sim.sh` 를 실행하거나
 # `~/isaac_ros2_env.sh` 를 소싱하면 **ROS 확장이 조용히 죽는다** (아래 §2).
 #
-#   ./scripts/run_isaac_sim.sh                 GUI. 스테이지 구성은 Script Editor 로
-#   ./scripts/run_isaac_sim.sh --headless      GUI 없이 **전 과정 자동** (검사·CI 용)
-#   ./scripts/run_isaac_sim.sh --headless --phase 3    카메라 없이 (조작 계열만)
+#   ./scripts/run_isaac_sim.sh --gui           **창 + 전 과정 자동** ← 평소 이것
+#   ./scripts/run_isaac_sim.sh --headless      창 없이 전 과정 자동 (검사·CI 용)
+#   ./scripts/run_isaac_sim.sh                 전체 편집기. 스테이지는 Script Editor 로
+#   ./scripts/run_isaac_sim.sh --gui --phase 3         카메라 없이 (조작 계열만)
+#
+# **`--gui` 면 Script Editor 를 쓸 일이 없다.** 로봇 적재부터 Play 까지 스크립트가
+# 다 한다. 인자 없는 형태는 Isaac 의 **전체 편집기**가 필요할 때(자산 브라우저,
+# 프로퍼티 편집 등)만 쓴다 — 그때만 목록을 손으로 돌린다.
 #
 # 뜨고 나면 ROS 쪽 스택을 따로 올린다:
 #
@@ -50,11 +55,13 @@ ISAAC_ROS="$ISAAC_ROOT/exts/isaacsim.ros2.core/humble"
 WORKSPACE="${RDFP_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DOMAIN="${ROS_DOMAIN_ID:-31}"
 PHASE="${ISAAC_PHASE:-4}"
-HEADLESS=0
+HEADLESS=0        # 1 이면 스크립트가 전 과정을 돈다 (창 유무는 WINDOW 가 정한다)
+WINDOW=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --headless) HEADLESS=1; shift ;;
+        --headless) HEADLESS=1; WINDOW=0; shift ;;
+        --gui)      HEADLESS=1; WINDOW=1; shift ;;
         --phase)    PHASE="$2"; shift 2 ;;
         -h|--help)  sed -n '2,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -78,8 +85,9 @@ isaac_env=(
 echo "[isaac] root=$ISAAC_ROOT  domain=$DOMAIN  workspace=$WORKSPACE"
 
 if [[ "$HEADLESS" == "1" ]]; then
-    echo "[isaac] headless bring-up (PHASE=$PHASE) — 로봇 로드부터 Play 까지 자동"
-    exec "${isaac_env[@]}" ISAAC_PHASE="$PHASE" \
+    echo "[isaac] 전 과정 자동 기동 (PHASE=$PHASE, 창=$([ "$WINDOW" = 1 ] && echo 켬 || echo 끔))"
+    echo "[isaac] 로봇 적재부터 Play 까지 — Script Editor 를 쓸 필요가 없다"
+    exec "${isaac_env[@]}" ISAAC_PHASE="$PHASE" ISAAC_HEADLESS="$([ "$WINDOW" = 1 ] && echo 0 || echo 1)" \
         "$ISAAC_ROOT/python.sh" "$WORKSPACE/scripts/isaac/sim_side/headless_bringup.py"
 fi
 

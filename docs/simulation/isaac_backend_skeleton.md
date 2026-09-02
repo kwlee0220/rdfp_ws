@@ -184,8 +184,17 @@ Windows 머신                          Ubuntu 머신
 > ## Isaac Sim 6.0 · Ubuntu 재검증 — 2026-09-02
 >
 > **기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다** —
-> 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②). `--headless` 는 로봇 로드부터
-> Play 까지 전 과정을 자동으로 하며, 아래 검증이 그것으로 재현됐다.
+> 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②).
+>
+> | | |
+> |---|---|
+> | `--gui` | **창 + 전 과정 자동.** 평소 쓰는 것 — Script Editor 를 안 쓴다 |
+> | `--headless` | 창 없이 같은 일 (검사·CI). 아래 검증이 이것으로 재현됐다 |
+> | (인자 없음) | 전체 편집기. 자산 브라우저·프로퍼티 편집이 필요할 때만 |
+>
+> **스테이지를 저장해 두는 방식은 쓰지 않는다.** 저장하면 물체 이름·크기가 USD 와
+> `isaac_scene.json` 두 곳에 살게 되고 조용히 갈라진다 — JSON 은
+> `isaac_scene_state_node` 도 읽는 정본이다.
 >
 > Phase 0~9 는 **Windows Isaac 5.1 + WSL2**(구성 A)에서 통과한 것이라, Ubuntu 단일
 > 머신(구성 B) + Isaac 6.0 에서 다시 돌렸다.

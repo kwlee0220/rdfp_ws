@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Isaac Sim **headless 전 과정 기동** — 로봇 로드부터 Play 까지.
+"""Isaac Sim **전 과정 기동** — 로봇 로드부터 Play 까지.
 
-GUI 없이 스테이지를 처음부터 재현한다. Script Editor 로 하던 일을 한 번에 하므로
-검사(`is_check_phase*.py`)와 CI 에 쓴다.
+스테이지를 처음부터 재현한다. Script Editor 로 하던 일을 한 번에 하므로 **손으로
+붙여넣을 필요가 없다.**
 
-    ./scripts/run_isaac_sim.sh --headless
+    ./scripts/run_isaac_sim.sh --headless   창 없이 (검사·CI)
+    ./scripts/run_isaac_sim.sh --gui        창을 띄우고 같은 일을 한다
 
 이 파일을 직접 부르지 않는다 — 환경 변수를 맞춰야 해서 위 스크립트를 거친다.
+
+**스테이지를 저장해 두는 방식은 쓰지 않는다.** 저장하면 물체 이름·크기가 USD 와
+``isaac_scene.json`` **두 곳에** 살게 되고, 그 둘은 조용히 갈라진다 — JSON 은
+`isaac_scene_state_node` 도 읽는 정본이다. 매번 스크립트로 짓는 편이 느려도 어긋나지
+않는다.
 
 순서
 ----
@@ -56,6 +62,8 @@ LOG_PATH = LOG_DIR + "/isaac_headless_bringup.log"
 # 물리 dt 기본값. 업데이트를 이 주기로 묶으면 sim 시간이 벽시계와 같이 간다.
 PHYSICS_PERIOD_SEC = 1.0 / 60.0
 RUN_SECONDS = float(_os.environ.get("ISAAC_RUN_SECONDS", "0")) or None
+# 창을 띄울지. `run_isaac_sim.sh --gui` 가 0 으로 넘긴다.
+HEADLESS = _os.environ.get("ISAAC_HEADLESS", "1") != "0"
 
 # **`load_robot` 이 먼저다.** 로봇이 없으면 `setup_graph` 가 articulation root 를
 # 찾지 못해 멈춘다. GUI 에서 손으로 도는 순서와 **같은 목록**이라, 한쪽만 고치고
@@ -91,7 +99,8 @@ def main() -> int:
     from isaacsim import SimulationApp
 
     workspace = WORKSPACE
-    app = SimulationApp({"headless": True})
+    app = SimulationApp({"headless": HEADLESS})
+    _log(f"window: {'off (headless)' if HEADLESS else 'on'}")
 
     from isaacsim.core.utils.extensions import enable_extension
 
