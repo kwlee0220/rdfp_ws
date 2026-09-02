@@ -51,27 +51,29 @@ cd ~/development/ros/rdfp_ws
 cd ~/development/ros/rdfp_ws
 source install/setup.bash
 export ROS_DOMAIN_ID=31
-ros2 launch robot_control panda_isaac.launch.py enable_gripper:=true enable_scene:=true
+ros2 launch robot_control panda_isaac.launch.py
 ```
 
-| 인자 | 기본 | 켜면 |
-|---|---|---|
-| `enable_gripper` | `false` | `gripper_action_bridge` + `gripper_action_node` |
-| `enable_scene` | `false` | `isaac_scene_state_node` → `/scene/objects` · `/scene/reset` |
-| `enable_rviz` | `true` | RViz (검사만 할 거면 `false` 로 끈다) |
-| `enable_servo` | `false` | `servo_node` + 브리지 (teleop 용) |
-| `enable_image_viewer` | `false` | 카메라 이미지 창 (`image_viewer_node`) |
+**기본값이 조작 작업에 맞춰져 있어 인자를 붙일 일이 드물다.**
 
-**카메라를 눈으로 보려면** `enable_image_viewer:=true` 를 붙인다.
+| 인자 | 기본 | |
+|---|:-:|---|
+| `enable_gripper` | **`true`** | `gripper_action_bridge` + `gripper_action_node` |
+| `enable_scene` | **`true`** | `isaac_scene_state_node` → `/scene/objects` · `/scene/reset` |
+| `enable_servo` | **`true`** | `servo_node` + 브리지 — teleop 두 경로가 여기로 수렴한다 |
+| `enable_image_viewer` | **`true`** | 카메라 이미지 창 (`image_viewer_node`) |
+| `enable_rviz` | **`false`** | Isaac 이 이미 뷰포트를 그린다. 계획 결과를 보려면 켠다 |
+
+⚠️ **화면이 없는 곳에서는 뷰어를 끈다.**
 
 ```bash
-ros2 launch robot_control panda_isaac.launch.py \
-    enable_gripper:=true enable_scene:=true enable_image_viewer:=true
+ros2 launch robot_control panda_isaac.launch.py enable_image_viewer:=false
 ```
 
-⚠️ **OpenCV 창을 열므로 GUI 가 있어야 한다.** 원격·headless 환경에서 켜면 노드가
-기동에 실패한다. 그럴 때는 RViz(`enable_rviz:=true`)의 Image 디스플레이나
-`ros2 run rqt_image_view rqt_image_view` 를 쓴다.
+켠 채로 원격 셸에서 돌리면 `image_viewer_node` 가 `exit code -6` 으로 죽는다. 다만
+**나머지 스택은 그대로 산다** — launch 가 함께 내려가지는 않으므로 로그의 그 한 줄만
+무시하면 계속 쓸 수 있다. RViz 의 Image 디스플레이나
+`ros2 run rqt_image_view rqt_image_view` 를 대신 쓸 수도 있다.
 
 > **수집 계열은 자기 뷰어가 따로 있다.** `rdfp_panda_isaac.launch.py` 의
 > `enable_image_viewer_node:=true` 는 `rdfp_image_viewer_node` 를 띄우는데, 그쪽은

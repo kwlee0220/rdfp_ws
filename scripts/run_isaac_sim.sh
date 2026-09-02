@@ -15,7 +15,7 @@
 #
 # 뜨고 나면 ROS 쪽 스택을 따로 올린다:
 #
-#   ros2 launch robot_control panda_isaac.launch.py enable_gripper:=true enable_scene:=true
+#   ros2 launch robot_control panda_isaac.launch.py
 #
 #
 # ── 1. 왜 스크립트가 필요한가 ────────────────────────────────────────────────

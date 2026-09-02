@@ -97,11 +97,11 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             description="Isaac 이 발행하는 관절 상태 토픽 (sensor_msgs/JointState)",
         ),
         DeclareLaunchArgument(
-            "enable_servo", default_value="false",
+            "enable_servo", default_value="true",
             choices=["true", "false"],
             description=(
                 "servo(twist) 경로. teleop_keyboard 와 teleop_retarget 이 모두 "
-                "여기로 수렴하므로, 손으로 몰려면 켠다"
+                "여기로 수렴하므로 **기본으로 켠다** — 끄면 teleop 이 조용히 죽는다"
             ),
         ),
         DeclareLaunchArgument(
@@ -116,14 +116,18 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             ),
         ),
         DeclareLaunchArgument(
-            "enable_rviz", default_value="true",
-            description="RViz2 기동 여부. VRAM 이 빠듯한 호스트에서는 false 를 권한다",
+            "enable_rviz", default_value="false",
+            description=(
+                "RViz2 기동 여부. **기본 off** — Isaac 자체가 뷰포트를 그리므로 "
+                "화면이 겹치고 VRAM 만 더 쓴다. 계획 결과를 보려면 켠다"
+            ),
         ),
         DeclareLaunchArgument(
-            "enable_gripper", default_value="false",
+            "enable_gripper", default_value="true",
             description=(
                 "Phase 2 (그리퍼) 연동. gripper_action_bridge 와 GripperActionNode 를 "
-                "띄운다. 상태(finger 관절)는 이 값과 무관하게 항상 들어온다"
+                "띄운다. **기본으로 켠다** — 이 백엔드의 용도가 조작이라 끌 이유가 "
+                "드물다. 상태(finger 관절)는 이 값과 무관하게 항상 들어온다"
             ),
         ),
         DeclareLaunchArgument(
@@ -131,10 +135,10 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             description="Isaac 이 구독하는 그리퍼 명령 토픽 (sensor_msgs/JointState)",
         ),
         DeclareLaunchArgument(
-            "enable_image_viewer", default_value="false",
+            "enable_image_viewer", default_value="true",
             description=(
-                "Isaac 카메라 이미지를 창으로 띄운다. **GUI 가 필요하다** — "
-                "headless 환경에서 켜면 노드가 기동에 실패한다"
+                "Isaac 카메라 이미지를 창으로 띄운다. ⚠️ **GUI 가 필요하다** — "
+                "화면 없는 곳(원격 셸·CI)에서는 `enable_image_viewer:=false` 로 끈다"
             ),
         ),
         DeclareLaunchArgument(
@@ -142,10 +146,11 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             description="뷰어가 구독할 이미지 토픽. Isaac 그래프가 내는 이름이다",
         ),
         DeclareLaunchArgument(
-            "enable_scene", default_value="false",
+            "enable_scene", default_value="true",
             description=(
                 "Phase 3 (scene 객체) 연동. Isaac 이 TF 로 내보낸 물체 pose 를 "
-                "isaac_scene_state_node 가 /scene/objects 로 바꾼다"
+                "isaac_scene_state_node 가 /scene/objects 로 바꾼다. **기본으로 켠다** — "
+                "데이터셋 채널이고 /scene/reset 도 이 노드가 연다"
             ),
         ),
         DeclareLaunchArgument(

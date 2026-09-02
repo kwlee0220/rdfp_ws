@@ -13,7 +13,7 @@
 #
 # 함께 띄울 스택:
 #   ros2 launch rdfp rdfp_panda_isaac.launch.py
-#   (또는 robot_control panda_isaac.launch.py enable_gripper:=true enable_scene:=true)
+#   (또는 robot_control panda_isaac.launch.py — 기본값이 그리퍼·scene 을 켠다)
 
 twin:
   id: panda_isaac
