@@ -181,6 +181,50 @@ Windows 머신                          Ubuntu 머신
 
 **진행 상황** — Phase 0~9 완료, **Phase 10 은 구현만** (Phase 0~5 2026-08-29, Phase 6~10 2026-08-30). 미검증: 토폴로지 B~D(§2 Phase 8), servo 실기 주행(§2 Phase 10).
 
+> ## Isaac Sim 6.0 · Ubuntu 재검증 — 2026-09-02
+>
+> Phase 0~9 는 **Windows Isaac 5.1 + WSL2**(구성 A)에서 통과한 것이라, Ubuntu 단일
+> 머신(구성 B) + Isaac 6.0 에서 다시 돌렸다.
+>
+> | Phase | 결과 | 비고 |
+> |:-:|---|---|
+> | 0 골격 | ✅ **5/5** | 배속 0.97, `/joint_states` 9관절 |
+> | 1 팔 명령 | ⚠️ **4/5** | τ 59.9 ms (기준 ≤50). `tune_drive.py` 로 177→60 ms. 정착 오차는 0.0001 rad 로 통과 |
+> | 2 그리퍼 | ✅ **6/6** | |
+> | 3 scene 객체 | ✅ **5/5** | 검사 쪽 수정 후 (아래) |
+> | 4 카메라 | ❌ **크래시** | Play 시 segfault (아래) |
+> | 6 물리 파지 | ✅ **6/6** | 폭 0.0251 m·`stalled`, +9.8 cm 들어올림, 3초 유지 낙하 0.6 mm |
+>
+> **pick-and-place 는 Isaac 6.0 에서 동작한다.** 카메라만 별도 작업이다.
+>
+> **① Phase 4 카메라가 Play 에서 segfault 한다.** 크래시는 렌더 프로덕트를 붙이는
+> 중이고 파이썬 스레드는 전부 idle 이라 네이티브 쪽이다. 직전 경고가 단서다 —
+> `OgnROS2CameraHelper: The frameSkipCount input is deprecated`. `setup_graph.py` 는
+> 60→5 fps 를 `frameSkipCount=11` 로 만드는데 6.0 에서 그 배관이 대체됐다.
+> **`PHASE` 를 3 으로 낮춰 뒀다** — 조작 계열(0~3·6)은 카메라가 필요 없다.
+>
+> **② 로봇 배치가 자동화돼 있지 않다.** §7 은 "asset browser 에서 올린다"는 수동
+> 단계로만 적어 두었고 경로가 없어, 스크립트만으로는 스테이지를 재현할 수 없다.
+> 6.0 경로는 `{assets_root}/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd` 다
+> (5.x 의 `/Isaac/Robots/Franka/franka.usd` 에서 재편됐다).
+>
+> **③ 기본 자산은 튜닝이 안 돼 있다.** `tune_drive.py`(τ) 와 `tune_grasp.py`(마찰)를
+> 돌리지 않으면 Phase 1 τ 가 177 ms 이고 Phase 6 은 블록이 미끄러진다. 기동 순서에
+> 넣어야 한다.
+>
+> **④ 6.0 이 예고한 API 이동 셋** (아직 동작하나 경고):
+> `ROS2PublishJointState.targetPrim` → `IsaacReadJointState` 연결,
+> `ROS2PublishTransformTree.targetPrims` → `OgnIsaacComputeTransform` 연결,
+> `frameSkipCount` → `omni:sensor…` 발행 주기.
+>
+> **⑤ `is_check_phase3.py` 가 낡아 있었다** — `isaac_scene.json` 의 물체 전부를
+> 기대해서 정상 동작이 `누락: table` 로 나왔다. `/scene/objects` 가 조작 대상만 싣게
+> 된 2026-09-01 결정이 반영 안 된 것이라 검사 쪽을 고쳤다.
+>
+> **⑥ 헤드리스는 실시간보다 빨리 돈다** — 렌더링이 없어 배속 2.2 가 나왔고 Phase 0
+> `/clock` 검사가 그것을 잡았다. 물리 dt(1/60)에 맞춰 업데이트를 60 Hz 로 묶으면 0.97 이
+> 된다. 검사 자체는 정상 동작한 셈이다.
+
 각 단계는 **이전 단계의 수용 기준을 회귀로 계속 돌린다.** 그리퍼를 붙였다가 팔 관절
 순서가 밀리는 종류의 사고를 그 자리에서 잡기 위해서다.
 
