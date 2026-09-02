@@ -257,7 +257,7 @@ Panda Hand 전용(`panda_finger_joint1`, `width_scale 2.0`)이고 `Robotiq2FGrip
 | | `width` | `stalled` | `at_goal` (`open`/`close`) | `at_goal` (`grasp`) |
 |---|---|---|---|---|
 | **mock** | ✅ `panda_finger_joint1 × 2` | ❌ **항상 false** (판정 수단 없음) | ✅ | ❌ **항상 false** (§4.3) |
-| **Isaac** | ✅ 관절 보고에서 환산 | ⚠️ 미구현 — effort 실측 후 임계값 결정 필요 | ✅ | ⚠️ `stalled` 에 딸림 |
+| **Isaac** | ✅ 관절 보고에서 환산 | ✅ `stall_effort: 1.0` (실측 2026-09-02) | ✅ | ✅ |
 | **펑션베이** | ❌ **NaN** — 2F-85 기구 매핑 미정 (§4.1) | ✅ **매우 명확** (§4.2) | ✅ **관절 잔차로 판정** | ✅ |
 
 **`grasp` 의 `at_goal` 은 `stalled` 에 그대로 딸린다** (§2.3). 따라서 `stalled` 를
@@ -426,9 +426,8 @@ node.create_subscription(GripperState, '/gripper_states', on_state, 10)
 
 - `GripperActionState` 의 `status` 가 갖던 **`CANCELED`(후속 명령에 의한 선점) vs `ABORTED`(실패) 구분**이 사라졌다. `at_goal` 은 둘 다 `false` 로 본다. 선점을 실패로 오독하지 않으려면 어딘가에 남아야 하는지 판단이 필요하다.
 - **트윈의 `move_gripper_to_target grasp` 는 mock 에서 타임아웃한다.** mock 은 `stalled` 판정 수단이 없어 `at_goal` 이 서지 않는다(§4.3). 완료를 정직하게 판정한 대가이며, 대안은 (a) 그대로 두고 mock 에서 grasp 를 쓰지 않기, (b) `sync_timeout_sec` 경과 시 `at_goal=false` 로 성공 반환, (c) mock 에 가짜 stall 을 넣기 — 셋 다 각각의 거짓말이 있어 결정이 필요하다.
-- **`stalled` 임계값을 파라미터로 여는 일이 남았다.** Isaac 실측이 선행이며, 기본값은 '판정 안 함'이어야 mock 동작이 그대로다 (§3.2).
+- ~~**`stalled` 임계값을 파라미터로 여는 일이 남았다.**~~ **완료 (2026-09-02)** — `stall_effort`(0=판정 안 함) / `stall_velocity`(0 이하=속도 조건 미사용). **속도 조건이 선택인 것이 실측의 결과다** — Isaac 은 PhysX 접촉에서 손가락이 계속 떨려(파지 중 최대 0.26 rad/s) 펑션베이식 '속도≈0' 조건을 걸면 파지를 놓친다.
 - 펑션베이 `width` — 지금은 `NaN` 이다. 제원을 받아 채울지, 계속 비워 둘지 결정이 남았다 (§4.1).
-- Isaac `stalled` 임계값 — effort 실측이 선행되어야 한다.
 
 ---
 

@@ -26,23 +26,27 @@ Isaac 이 같은 노드를 쓴다 — Isaac 은 ros2_control 이 없지만 `isaa
   * `at_goal` 은 **의도의 달성 여부**이지 위치 도달이 아니다. 판정식은 §2.3.
   * 명령이 없어도 주기 발행한다 — 연속 상태 채널이다.
 
-`stalled` 은 아직 판정하지 않는다
---------------------------------
+`stalled` 은 파라미터로 켠다
+---------------------------
 
-항상 ``False`` 이고, 따라서 §2.3 의 판정식에 의해 **`grasp` 의 `at_goal` 도 항상
-``False``** 다. 이유는 백엔드마다 다르다.
+``stall_effort`` 가 0 이면 **판정하지 않고** 항상 ``False`` 다. 그때의 ``False`` 는
+**"물지 않았다"가 아니라 "모른다"** 는 뜻이며, §2.3 의 판정식에 의해 `grasp` 의
+`at_goal` 도 항상 ``False`` 가 된다.
 
-  * **mock 은 원리적으로 불가능하다.** ``panda_hand.ros2_control.xacro`` 가 손가락에
-    선언하는 state interface 가 ``position``/``velocity`` 뿐이라 ``/joint_states`` 에
-    effort 가 실리지 않는다. 게다가 planning scene 물체는 물리를 갖지 않아 파지에
-    실패해도 pose 가 그대로다 — **애초에 성패를 관측할 수 없는 백엔드**다.
-  * **Isaac 은 가능한데 미구현이다.** effort 를 실을 수 있으므로 임계값만 정하면 된다.
+  * **mock 은 켤 수 없다.** ``panda_hand.ros2_control.xacro`` 가 손가락에 선언하는
+    state interface 가 ``position``/``velocity`` 뿐이라 ``/joint_states`` 에 effort 가
+    실리지 않는다. 게다가 planning scene 물체는 물리를 갖지 않아 파지에 실패해도
+    pose 가 그대로다 — **애초에 성패를 관측할 수 없는 백엔드**다.
+  * **Isaac 은 ``stall_effort: 1.0`` 으로 켠다** (실측 2026-09-02). 빈손 폐쇄 상태로
+    팔을 흔들어도 |effort| 가 0.13 N·m 를 넘지 않았고(과도 최대 0.50), 블록을 물면
+    22.4 N·m 로 유지된다.
 
-계약대로 ``False`` 를 돌려준다 — **"물지 않았다"가 아니라 "모른다"는 뜻이다.** 여기서
-``True`` 를 내면 "성공했다"는 거짓말이 데이터에 쌓인다.
+**속도 조건(``stall_velocity``)은 선택이다.** 물림의 모습이 백엔드마다 다르다 —
+펑션베이는 링키지가 멎어 속도가 0 이 되지만 Isaac 은 PhysX 접촉에서 손가락이 계속
+떨린다(파지 유지 중 최대 0.26 rad/s). Isaac 에서 속도 게이트를 걸면 파지를 놓친다.
 
-구현할 때는 **파라미터 하나(임계 effort)를 더하는 쪽이 맞다.** 별도 서브클래스로
-가르면 액션 경로가 같은 코드가 두 벌이 된다 — 다른 것은 임계값뿐이다.
+**서브클래스로 가르지 않는다.** 액션 경로가 같은 코드가 두 벌이 되고, 실제로 다른 것은
+이 숫자 둘뿐이다.
 
 파라미터
 --------
@@ -54,6 +58,8 @@ targets.<goal>              open/close/grasp 아래 참조  심볼 → [position
 finger_joint                panda_finger_joint1        폭을 계산할 손가락 관절
 width_scale                 2.0                        관절값 → 개구 폭 배수 (대칭 평행 조)
 width_tolerance             0.005                      `at_goal` 판정의 폭 허용오차 (m)
+stall_effort                0.0                        `stalled` 판정 토크 임계 (0=판정 안 함)
+stall_velocity              0.0                        속도 상한 (0 이하=속도 조건 미사용)
 publish_rate                10.0                       `gripper_states` 발행 Hz
 =========================== ========================= ===============================
 
@@ -122,6 +128,12 @@ class GripperActionNode(Node):
             self.declare_parameter('finger_joint', 'panda_finger_joint1').value)
         self._width_scale = float(self.declare_parameter('width_scale', 2.0).value)
         self._width_tolerance = float(self.declare_parameter('width_tolerance', 0.005).value)
+        # `stalled` 판정. **0 이면 판정하지 않는다** — 수단이 없는 스택(mock)의 기본이다.
+        self._stall_effort = float(self.declare_parameter('stall_effort', 0.0).value)
+        # 속도 상한. **0 이하면 속도 조건을 쓰지 않는다.** 백엔드마다 물림의 모습이
+        # 다르기 때문이다 — 실측(2026-09-02) Isaac 은 파지 중에도 손가락이 계속
+        # 떨려(최대 0.26 rad/s) 속도 조건을 걸면 파지를 놓친다.
+        self._stall_velocity = float(self.declare_parameter('stall_velocity', 0.0).value)
         publish_rate = float(self.declare_parameter('publish_rate', 10.0).value)
         if publish_rate <= 0.0:
             raise ValueError(f"'publish_rate' must be > 0, got {publish_rate}")
@@ -129,6 +141,8 @@ class GripperActionNode(Node):
         # 상태. `goal` 은 명령 수신 시점에 갱신되며, 명령 이전에는 ''.
         self._goal: str = ''
         self._width: float = math.nan
+        self._effort: float = 0.0
+        self._velocity: float = 0.0
 
         self._state_pub = self.create_publisher(GripperState, _STATE_TOPIC, 10)
         self._action = ActionClient(self, GripperCommandAction, _GRIPPER_ACTION_NAME)
@@ -144,10 +158,16 @@ class GripperActionNode(Node):
             f'(tolerance {self._width_tolerance} m)')
         self.get_logger().info(
             f'  targets: { {k: list(v) for k, v in self._targets.items()} }')
-        self.get_logger().warning(
-            '  stalled is not judged yet — always False, therefore '
-            "'grasp' never reports at_goal=True. On mock this is unfixable "
-            '(no effort state interface); on Isaac it needs a measured threshold.')
+        if self._stall_effort > 0.0:
+            gate = (f' AND |velocity| < {self._stall_velocity} rad/s'
+                    if self._stall_velocity > 0.0 else ' (velocity gate off)')
+            self.get_logger().info(
+                f'  stalled: |effort| > {self._stall_effort} N-m{gate}')
+        else:
+            self.get_logger().warning(
+                "  stalled is not judged ('stall_effort' is 0) — always False, "
+                "therefore 'grasp' never reports at_goal=True. mock cannot do better "
+                '(no effort state interface); other stacks pass a measured threshold.')
 
     # ── 명령 ────────────────────────────────────────────────────
 
@@ -229,6 +249,10 @@ class GripperActionNode(Node):
         if idx >= len(msg.position):
             return
         self._width = float(msg.position[idx]) * self._width_scale
+        # effort/velocity 는 없을 수 있다 (mock 은 손가락에 effort 인터페이스가 없다).
+        # 그때는 0 으로 두고 `_stalled` 이 판정하지 않게 한다.
+        self._effort = abs(float(msg.effort[idx])) if idx < len(msg.effort) else 0.0
+        self._velocity = abs(float(msg.velocity[idx])) if idx < len(msg.velocity) else 0.0
 
     def _target_width(self, goal: str) -> float:
         """심볼의 목표를 **개구 폭**으로 돌려준다. 모르는 심볼이면 NaN.
@@ -262,13 +286,22 @@ class GripperActionNode(Node):
         return abs(self._width - target_width) <= self._width_tolerance and not self._stalled()
 
     def _stalled(self) -> bool:
-        """아직 판정하지 않는다 — 계약대로 ``False`` 를 돌려준다.
+        """힘을 내는데 막혔는가. `stall_effort` 가 0 이면 **판정하지 않는다.**
 
-        **"물지 않았다"는 뜻이 아니라 "모른다"는 뜻이다.** mock 에서는 원리적으로
-        불가능하고(effort state interface 자체가 없다), Isaac 에서는 임계값 실측이
-        선행 작업이다. 모듈 docstring 참조.
+        판정하지 않을 때의 ``False`` 는 **"물지 않았다"가 아니라 "모른다"** 는 뜻이다
+        (계약 §2.2). mock 은 손가락에 effort state interface 자체가 없어 그 상태로
+        남는다.
+
+        **속도 조건은 선택이다.** 물림의 모습이 백엔드마다 다르기 때문이다 —
+        펑션베이는 링키지가 멎어 속도가 0 이 되지만, Isaac 은 PhysX 접촉에서 손가락이
+        계속 떨려(실측 최대 0.26 rad/s) 같은 조건을 걸면 파지를 놓친다. 그래서
+        `stall_velocity` 는 기본 0(미사용)이고, 필요한 스택만 켠다.
         """
-        return False
+        if self._stall_effort <= 0.0:
+            return False
+        if self._effort <= self._stall_effort:
+            return False
+        return self._stall_velocity <= 0.0 or self._velocity < self._stall_velocity
 
     def _on_timer(self) -> None:
         """명령이 없어도 주기 발행한다 — 연속 상태 채널이다."""

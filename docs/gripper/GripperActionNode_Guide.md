@@ -56,6 +56,8 @@ depth 10 의 기본 QoS(reliable · volatile)다. **늦게 붙은 구독자는 �
 | `finger_joint` | `panda_finger_joint1` | 폭을 계산할 손가락 관절 |
 | `width_scale` | `2.0` | 관절값 → 개구 폭 배수 |
 | `width_tolerance` | `0.005` | `at_goal` 판정의 폭 허용오차 (m) |
+| `stall_effort` | `0.0` | `stalled` 판정 토크 임계 (N·m). **0 이면 판정하지 않는다** |
+| `stall_velocity` | `0.0` | 속도 상한 (rad/s). **0 이하면 속도 조건을 쓰지 않는다** |
 | `publish_rate` | `10.0` | `gripper_states` 발행 Hz |
 
 **`targets` 의 `position` 은 관절값이지 개구 폭이 아니다.** 액션 goal 이 그 단위를 받기 때문이다. `open` 의 `0.035` 는 SRDF `<group_state group="hand" name="open">` 의 값과 같다 — 즉 RViz 의 `hand` 그룹 `open` 과 같은 자세로 간다.
@@ -143,36 +145,60 @@ def _target_width(self, goal):
 
 ---
 
-## 5. `stalled` 은 아직 판정하지 않는다 — `grasp` 가 성공으로 기록되지 않는다
+## 5. `stalled` — 파라미터로 켠다
 
-`_stalled()` 는 **항상 `False`** 를 돌려준다. `grasp` 의 판정식이 곧 `stalled` 이므로 **`grasp` 의 `at_goal` 도 항상 `False`** 다. 계약대로다 — `false` 는 "물지 않았다"가 아니라 **"모른다"** 는 뜻이다.
+`stall_effort` 가 **0 이면 판정하지 않고** 항상 `False` 다. 그때의 `False` 는
+**"물지 않았다"가 아니라 "모른다"** 는 뜻이며, `grasp` 의 판정식이 곧 `stalled` 이므로
+**`grasp` 의 `at_goal` 도 항상 `False`** 가 된다.
 
-**이유가 백엔드마다 다르다는 점이 중요하다.**
+| 백엔드 | 설정 | 왜 |
+|---|---|---|
+| **Isaac** | `stall_effort: 1.0` | ✅ 실측으로 켰다 (아래) |
+| **mock** | (끔) | ❌ [panda_hand.ros2_control.xacro](../../src/robot_control/description/panda_hand.ros2_control.xacro) 가 손가락에 선언하는 state interface 가 `position`/`velocity` 뿐이라 `/joint_states` 에 effort 가 없다. 게다가 planning scene 물체는 물리를 갖지 않아 **애초에 성패를 관측할 수 없다** |
 
-| 백엔드 | 왜 | 고칠 수 있나 |
-|---|---|:-:|
-| mock | [panda_hand.ros2_control.xacro](../../src/robot_control/description/panda_hand.ros2_control.xacro) 가 손가락에 선언하는 state interface 가 `position`/`velocity` 뿐이라 `/joint_states` 의 `effort` 가 비어 있다. 게다가 planning scene 물체는 물리를 갖지 않아 파지에 실패해도 pose 가 그대로다 | ❌ 원리적으로 불가 |
-| Isaac | effort 를 실을 수 있는데 **임계값을 아직 실측하지 않았다** | ✅ 실측하면 |
+### 5.1 Isaac 실측 (2026-09-02)
 
-mock 에서 위치 기준으로 정의했다면 목표 폭 0.0 에 도달해 `True` 가 됐겠지만, 그것은
-"성공했다"는 거짓말이 데이터에 쌓이는 길이다. 기동 시 이 사실을 경고로 남긴다.
+| 상황 | \|effort\| 최대 |
+|---|---|
+| 열림·빈손 폐쇄 (정지) | **0.001** N·m |
+| 개폐 이동 중 | 0.175 |
+| 빈손 폐쇄 + **팔을 흔듦** | **0.126** (정착 과도 0.503) |
+| **블록 파지 유지** | **22.4** |
 
-```text
-[WARN] stalled is not judged yet — always False, therefore 'grasp' never
-       reports at_goal=True. On mock this is unfixable (no effort state
-       interface); on Isaac it needs a measured threshold.
+임계 `1.0` 은 거짓 양성 최악값(0.503)의 **2배**, 파지의 **1/22** 지점이다. 펑션베이가
+쓰는 값과 같다.
+
+### 5.2 ⚠️ 속도 조건은 Isaac 에서 끈다
+
+**파지 중에도 손가락이 계속 움직인다** — PhysX 접촉에서 떨리기 때문이다.
+
+```
+파지 유지 중 |velocity| : 평균 0.008,  최대 0.258 rad/s
+  0.002 rad/s 를 넘는 샘플이 96.5%
 ```
 
-### 구현할 때는 서브클래스가 아니라 파라미터다
+펑션베이는 링키지가 멎어 속도가 0 이 되므로 "힘을 내는데 안 움직인다"가 그대로
+성립하지만, **Isaac 에서 같은 조건을 걸면 파지의 96.5% 를 놓친다.** 그래서
+`stall_velocity` 는 기본 0(미사용)이고 필요한 스택만 켠다.
 
-Isaac 전용 노드를 따로 만들면 **액션 경로가 같은 코드가 두 벌**이 된다 — 실제로 달라야 하는 것은 임계 effort 하나뿐이다. 임계값 파라미터를 더하고 기본값을 "판정 안 함"으로 두면, mock 은 지금 동작 그대로이고 Isaac 은 값만 주면 켜진다.
+### 5.3 계약 케이스 검증 (실기, 2026-09-02)
 
-### 파급 — 두 곳에서 증상으로 나타난다
+| 명령 | 물체 | `stalled` | `at_goal` | |
+|---|:-:|:-:|:-:|---|
+| (명령 이전) | 문 채 | true | **false** | `goal` 이 없으면 무의미 |
+| `grasp` | **있음** | **true** | **true** | **파지 성공** |
+| `open` | — | false | true | 개방 성공 |
+| `close` | 없음 | false | true | 빈손 폐쇄 성공 |
+| `grasp` | 없음 | false | **false** | **헛닫힘** |
+
+### 5.4 판정을 끈 스택(mock)의 파급
 
 | 어디서 | 무슨 일이 | 대응 |
 |---|---|---|
-| 트윈 `move_gripper_to_target grasp` | `at_goal` 을 기다리다 `sync_timeout_sec`(기본 5 초) 타임아웃 | 지금은 `open`/`close` 만 쓴다 |
-| 데이터셋 `gripper_states.at_goal` | `grasp` 구간이 전부 `false` | 파지 성패를 학습 신호로 쓰지 않는다 |
+| 트윈 `move_gripper_to_target grasp` | `at_goal` 을 기다리다 `sync_timeout_sec`(기본 5 초) 타임아웃 | mock 에서는 `open`/`close` 만 쓴다 |
+| 데이터셋 `gripper_states.at_goal` | `grasp` 구간이 전부 `false` | mock 수집분으로 파지 성패를 라벨링하지 않는다 |
+
+**Isaac 에서는 둘 다 해소됐다** — `stall_effort` 를 켜면 `grasp` 가 정상 완료된다.
 
 참고로 펑션베이는 관절 토크로 판정 가능하다 (파지 17 N·m vs 빈손 0.004 N·m) — 다만 액션 서버가 없어 이 노드를 쓸 수 없다 ([설계서](GripperNode_Design.md) §4).
 

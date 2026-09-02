@@ -110,9 +110,9 @@
 | 트윈의 명령 완료 신호 (주기 발행인 `gripper_states` 로는 "갱신됨"이 "끝남"을 뜻하지 않는다) | `at_goal` 이 **판정을 값 안에 담는다.** 갱신 여부를 볼 필요가 없어졌다 |
 | Isaac 의 유일한 파지 지표 (`stalled = not reached`) | 해소되지 않았다 — 아래 |
 
-**남은 부채: Isaac 의 파지 여부가 데이터에서 빠져 있다.** `GripperActionNode` 의
-`stalled` 가 미구현이라 `at_goal` 이 `grasp` 에서 늘 `false` 다. 파지 시 effort 를
-실측해 임계값을 잡는 것이 선행 작업이다
+**부채였던 Isaac 파지 관측은 해소됐다 (2026-09-02).** `GripperActionNode` 에
+`stall_effort` 파라미터가 생겼고 Isaac 은 `1.0` N·m 로 켠다 — 실측에서 빈손은
+0.13 N·m 를 넘지 않고 파지는 22.4 N·m 로 유지된다
 ([GripperNode_Design.md](gripper/GripperNode_Design.md) §4).
 
 > **학습 신호로서는 잃은 것이 없다.** action 은 `gripper_cmds`(의도)가, 관측은

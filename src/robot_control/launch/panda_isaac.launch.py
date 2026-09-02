@@ -201,13 +201,18 @@ def create_gripper_nodes() -> list[Node]:
         # `GripperActionNode` — mock 과 **같은 노드**다. 이름이 백엔드가 아니라 실행
         # 수단(액션 클라이언트)을 가리키고, 위 브리지가 액션 서버를 제공하므로 명령
         # 경로가 mock 과 같기 때문이다.
-        # **`stalled` 은 아직 판정하지 않는다** — Isaac 은 effort 를 실을 수 있으므로
-        # 임계값만 실측하면 파라미터로 켤 수 있다. 그때까지 `grasp` 의 `at_goal` 은
-        # 항상 false 다.
+        # **`stall_effort` 는 실측값이다 (2026-09-02).** 빈손으로 닫은 채 팔을 흔들어도
+        # 손가락 |effort| 가 0.13 N·m 를 넘지 않았고(과도 최대 0.50), 블록을 물면
+        # 22.4 N·m 로 유지된다. 1.0 은 거짓 양성 최악값의 2배, 파지의 1/22 지점이다.
+        #
+        # **속도 조건은 켜지 않는다.** Isaac 은 PhysX 접촉에서 손가락이 계속 떨려
+        # (파지 유지 중 |vel| 최대 0.26 rad/s) 속도 게이트를 걸면 파지를 놓친다 —
+        # 펑션베이(링키지가 멎는다)와 다른 점이다.
         Node(
             package="robot_control", executable="gripper_action_node",
             name="gripper", output="screen", emulate_tty=True,
-            condition=condition, parameters=[sim_time],
+            condition=condition,
+            parameters=[sim_time, {"stall_effort": 1.0, "stall_velocity": 0.0}],
         ),
     ]
 
