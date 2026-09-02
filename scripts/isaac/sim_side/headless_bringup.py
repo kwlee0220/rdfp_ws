@@ -35,28 +35,63 @@ GUI 없이 스테이지를 처음부터 재현한다. Script Editor 로 하던 �
 """
 from __future__ import annotations
 
-import os
+import os as _os
 import time
 
-from isaacsim import SimulationApp
+# **Isaac 임포트를 최상위에 두지 않는다.** 같은 폴더의 다른 스크립트와 같은 규칙이며,
+# `robot_control/tests/test_isaac_sim_side_scripts.py` 가 Isaac 없이 이 파일을 읽어
+# 경로 계약을 검사하기 때문이다. 최상위에 두면 그 검사가 통째로 깨진다.
+
+# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# **같은 블록이 이 폴더의 모든 스크립트에 복사돼 있다** — Isaac 쪽에서는
+# `robot_control` 을 import 할 수 없어 공용 헬퍼로 뽑을 수 없기 때문이다. 하나를
+# 고치면 나머지도 함께 고친다 (test_isaac_sim_side_scripts.py 가 그것을 잡는다).
+_IS_WINDOWS = _os.name == "nt"
+_DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
+                      if _IS_WINDOWS else "/home/kwlee/development/ros/rdfp_ws")
+_DEFAULT_LOG_DIR = "//wsl.localhost/Ubuntu-22.04/tmp" if _IS_WINDOWS else "/tmp"
+WORKSPACE = _os.environ.get("RDFP_WORKSPACE") or _DEFAULT_WORKSPACE
+LOG_DIR = _os.environ.get("RDFP_LOG_DIR") or _DEFAULT_LOG_DIR
+LOG_PATH = LOG_DIR + "/isaac_headless_bringup.log"
 
 # Isaac 6.0 에서 재편된 경로. 5.x 는 `/Isaac/Robots/Franka/franka.usd` 였다.
 FRANKA_USD_RELPATH = "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd"
 ROBOT_PRIM = "/World/franka"
 # 물리 dt 기본값. 업데이트를 이 주기로 묶으면 sim 시간이 벽시계와 같이 간다.
 PHYSICS_PERIOD_SEC = 1.0 / 60.0
-RUN_SECONDS = float(os.environ.get("ISAAC_RUN_SECONDS", "0")) or None
+RUN_SECONDS = float(_os.environ.get("ISAAC_RUN_SECONDS", "0")) or None
 
 SIM_SIDE_SCRIPTS = ("setup_scene", "setup_graph", "place_robot",
                     "set_home_pose", "tune_drive", "tune_grasp")
 
 
+_LOG_LINES: list = []
+
+
 def _log(message: str) -> None:
-    print(f"[bringup] {message}", flush=True)
+    line = f"[bringup] {message}"
+    print(line, flush=True)
+    _LOG_LINES.append(line)
+
+
+def _flush_log() -> None:
+    """Script Editor 가 아니라 셸에서 돌지만 **같은 자리에 로그를 남긴다.**
+
+    검사 스크립트와 인수인계 문서가 `/tmp/isaac_*.log` 를 보라고 안내하므로, 여기만
+    다르면 찾는 사람이 없다.
+    """
+    try:
+        with open(LOG_PATH, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(_LOG_LINES) + "\n")
+        print(f"[bringup] log written: {LOG_PATH}", flush=True)
+    except Exception as exc:                          # noqa: BLE001
+        print(f"[bringup] could not write log: {type(exc).__name__}: {exc}", flush=True)
 
 
 def main() -> int:
-    workspace = os.environ["RDFP_WORKSPACE"]
+    from isaacsim import SimulationApp
+
+    workspace = WORKSPACE
     app = SimulationApp({"headless": True})
 
     from isaacsim.core.utils.extensions import enable_extension
@@ -83,7 +118,7 @@ def main() -> int:
 
     failures = 0
     for name in SIM_SIDE_SCRIPTS:
-        path = os.path.join(workspace, "scripts/isaac/sim_side", name + ".py")
+        path = _os.path.join(workspace, "scripts/isaac/sim_side", name + ".py")
         try:
             exec(open(path, encoding="utf-8").read(), {"__name__": "__main__"})
             _log(f"{name}: ran")
@@ -104,6 +139,7 @@ def main() -> int:
         app.update()
     timeline.play()
     _log("PLAY")
+    _flush_log()
 
     started = time.monotonic()
     next_tick = time.monotonic()

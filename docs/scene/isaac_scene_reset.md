@@ -181,6 +181,40 @@ after  block_b: (0.58, -0.22, 0.425)
 
 ---
 
+## 7. 트윈 연산 `reset_scene`
+
+`robot_twin_panda_isaac.yaml` 이 mock 과 **같은 이름·같은 계약**으로 노출한다
+(2026-09-02). 상위는 백엔드를 모른다.
+
+레시피가 지킬 것이 셋이다 — 어기면 노드가 거부한다(§3).
+
+| | |
+|---|---|
+| 이름 | `isaac_scene.json` 의 `dynamic` 물체뿐 (`block_a`/`b`/`c`) |
+| `type`·`size` | 그 파일과 **정확히 일치** |
+| `z` | **0.425 고정** — 테이블 상단 0.4 + 블록 반높이 0.025 |
+
+**세 개를 모두 싣는다.** 빠뜨린 물체는 이전 에피소드가 남긴 자리에 그대로 있어 배치가
+에피소드 간에 새어 나간다.
+
+이 값들이 두 파일에 나뉘어 적히므로 `test_isaac_scene_recipe.py` 가 대조한다 — 이름·
+기하·z·물체 누락·블록 겹침 다섯 가지를 잡는다.
+
+### 실기 검증 (2026-09-02)
+
+```
+POST /operations/reset_scene {"scene": "three_blocks", "seed": 42}
+  → COMPLETED
+    outputs.objects  a=(0.514,-0.198) b=(0.478,-0.022) c=(0.524, 0.174)
+    스테이지 실제     a=(0.514,-0.198) b=(0.478,-0.022) c=(0.522, 0.172)
+```
+
+같은 seed 는 같은 배치를, 다른 seed 는 다른 배치를 준다. 스테이지와 응답의 2 mm 차이는
+**놓은 뒤의 물리 정착**이다 — `ResetScene.srv` 가 예고한 그대로이며, 그래서 파지 좌표의
+최종 근거는 `outputs.objects` 가 아니라 관측 채널 `/scene/objects` 다.
+
+---
+
 ## 7. 관련 문서
 
 - [scene_objects_guide.md](scene_objects_guide.md) — scene 계약 전반 (§5 가 `/scene/reset`)

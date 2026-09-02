@@ -338,20 +338,80 @@ operations:
   # outputs.objects 가 **실제 배치**이며 재현의 근거다. seed 만으로는 추출 방식이
   # 바뀌는 순간 재현이 깨지므로, 호출자는 objects 를 stop_episode 의 metadata 로
   # 넘겨 에피소드에 붙인다.
-  # --- reset_scene 은 **아직 없다** (노드는 준비됐다) ---
+  # --- reset_scene ---
   #
-  # `isaac_scene_state_node` 가 2026-09-02 부터 `/scene/reset` 을 연다 — Isaac 의
-  # `simulation_interfaces` 서비스(`/set_entity_state`)를 대신 불러 물체를 옮긴다.
-  # 계약은 mock 과 같으므로 이 파일에 mock 쪽 `reset_scene` 정의를 그대로 옮기면 된다.
+  # 계약은 mock 과 같다. 다른 것은 그 아래다 — `isaac_scene_state_node` 가 Isaac 의
+  # `simulation_interfaces` 서비스(`/set_entity_state`)를 대신 불러 USD 스테이지의
+  # 물체를 옮긴다 (docs/scene/isaac_scene_reset.md).
   #
-  # **다만 의미가 좁다.** Isaac 은 물체를 만들거나 지우지 못하고 **다시 놓기만** 한다.
-  # 그래서 `isaac_scene.json` 에 없는 이름이나 빈 배열은 거부된다 — 레시피가 그 셋
-  # (block_a/b/c)만 쓰는지 확인한 뒤 열어야 한다.
+  # ⚠️ **Isaac 은 물체를 만들지도 지우지도 못한다 — 다시 놓기만 한다.** 스테이지 구성은
+  # `setup_scene.py` 가 정하므로 레시피가 지킬 것이 셋이다. 어기면 노드가 **거부**한다
+  # (조용히 넘기면 "그 배치로 놓았다"는 거짓이 에피소드 metadata 에 남는다).
   #
-  # 선행 조건 둘:
+  #   1. 이름은 `isaac_scene.json` 의 dynamic 물체뿐 — block_a / block_b / block_c
+  #   2. type·size 가 그 파일과 **정확히 같아야** 한다 (기하는 못 바꾼다)
+  #   3. 빈 배열은 거부된다 (scene 을 비울 수 없다)
+  #
+  # **z 는 고정 0.425 다.** 테이블 상단이 0.4(중심 0.2 + 두께 0.4/2)이고 블록이 5 cm 라
+  # 0.4 + 0.025 다. 이 값을 흔들면 블록이 공중에서 떨어지거나 테이블에 박힌다.
+  #
+  # **세 개를 모두 싣는다.** 빠뜨린 물체는 이전 에피소드가 남긴 자리에 그대로 있어
+  # 배치가 에피소드 간에 새어 나간다.
+  #
+  # y 를 겹치지 않는 띠로 나눈 것은 5 cm 블록끼리 파고들지 않게 하기 위해서다.
+  # x 범위는 Phase 6 로 파지가 확인된 구간(0.5 부근) 주변이다.
+  #
+  # 선행 조건 둘 (없으면 서비스 자체가 없거나 호출이 실패한다):
   #   1. Isaac 을 `--enable isaacsim.ros2.sim_control` 로 띄운다 (기본 비활성)
   #   2. 시스템 ROS 를 소싱하지 않는다 — 3.10 rclpy 가 Isaac 의 3.12 를 가려 확장이 죽는다
-  # 상세: docs/scene/isaac_scene_reset.md
+  # 둘 다 `scripts/run_isaac_sim.sh` 가 처리한다.
+  - name: reset_scene
+    description: >-
+      scene 의 블록을 레시피(scene)대로 다시 배치한다. 위치는 레시피가 정한 범위 안에서
+      무작위 추출하며, seed 를 주면 같은 배치가 재현된다.
+      **에피소드를 시작하기 전에 부른다** — 물체를 매번 다른 곳에 두는 것이 이 수집의
+      목적이므로 리셋은 에피소드 밖이다.
+      **반환된 outputs.objects 가 실제 배치이며 이후 파지 좌표의 출처다** —
+      seed 만으로는 추출 방식이 바뀌면 재현이 깨지므로, 이 값을 stop_episode 의
+      metadata 에 넣어 에피소드에 붙인다.
+      ⚠️ Isaac 은 **다시 놓기만** 한다 — isaac_scene.json 에 없는 물체는 배치할 수 없다.
+      팔과 scene 을 함께 점유하므로 이동 중에는 거부된다(409).
+    kind: sync
+    resource: [scene, arm]
+    idempotent: false
+    backend:
+      service: /scene/reset
+      service_type: rdfp_msgs/srv/ResetScene
+      # 각 축은 숫자(고정) 또는 [최소, 최대] (균등 추출)다.
+      # **name·type·size 는 isaac_scene.json 과 같아야 한다** (위 ⚠️ 참조).
+      scenes:
+        three_blocks:
+          objects:
+            - { name: block_a, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.45, 0.55], y: [-0.20, -0.12], z: 0.425 }
+            - { name: block_b, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.45, 0.55], y: [-0.04, 0.04], z: 0.425 }
+            - { name: block_c, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.45, 0.55], y: [0.12, 0.20], z: 0.425 }
+        # 파지 대상 하나만 옮기고 나머지는 기본 자리에 둔다. 셋을 모두 싣는 이유는
+        # 위와 같다 — 빠뜨리면 이전 에피소드의 자리가 남는다.
+        one_block:
+          objects:
+            - { name: block_a, type: box, size: [0.05, 0.05, 0.05],
+                x: [0.45, 0.55], y: [-0.20, -0.10], z: 0.425 }
+            - { name: block_b, type: box, size: [0.05, 0.05, 0.05],
+                x: 0.5, y: 0.0, z: 0.425 }
+            - { name: block_c, type: box, size: [0.05, 0.05, 0.05],
+                x: 0.5, y: 0.15, z: 0.425 }
+    inputs_schema:
+      type: object
+      required: [scene]
+      properties:
+        scene: { type: string }      # enum 은 backend.scenes 에서 파생된다
+        seed: { type: integer }
+      additionalProperties: false
+    # 물체마다 set + get 왕복이 있어 mock 보다 호출이 많다.
+    sync_timeout_sec: 10.0
 
   - name: start_session
     description: >-

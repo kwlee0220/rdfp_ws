@@ -128,19 +128,24 @@ def test_shipped_isaac_config_loads():
     assert config.ros.use_sim_time is True
 
 
-def test_shipped_isaac_config_omits_reset_scene():
-    """scene 리셋은 USD 스테이지를 써야 해서 ROS 쪽에서 원리적으로 불가능하다.
+def test_shipped_isaac_config_exposes_the_same_operations_as_mock():
+    """오퍼레이션 목록이 백엔드마다 갈리면 상위가 백엔드를 알아야 한다.
 
-    남겨 두면 결과 토픽을 기다리다 타임아웃할 뿐이고, 구독자가 없다는 단서는 로그에
-    남지 않는다.
+    `reset_scene` 은 한동안 Isaac 에서 빠져 있었다 — scene 이 USD 스테이지에 있어
+    ROS 노드가 못 고친다고 봤기 때문이다. Isaac 6.0 이 표준
+    `simulation_interfaces` 서비스를 열면서 그 전제가 깨졌고(2026-09-02),
+    `isaac_scene_state_node` 가 그것을 대신 불러 계약을 맞춘다.
+    상세: docs/scene/isaac_scene_reset.md
     """
     from robot_twin.config import load_config
 
-    path = _config_dir() / 'robot_twin_panda_isaac.yaml'
-    if not path.is_file():
+    isaac_path = _config_dir() / 'robot_twin_panda_isaac.yaml'
+    mock_path = _config_dir() / 'robot_twin_panda01.yaml'
+    if not isaac_path.is_file() or not mock_path.is_file():
         pytest.skip('배포 설정이 없는 트리 (installed)')
 
-    names = {op.name for op in load_config(str(path)).operations}
-    assert 'reset_scene' not in names
-    # 나머지 오퍼레이션은 mock 판과 같아야 한다 — 상위가 백엔드를 몰라도 되게.
-    assert {'move_to_named_target', 'move_to_joints', 'start_episode'} <= names
+    isaac = {op.name for op in load_config(str(isaac_path)).operations}
+    mock = {op.name for op in load_config(str(mock_path)).operations}
+    assert 'reset_scene' in isaac
+    assert isaac == mock, (
+        f'only in mock: {sorted(mock - isaac)}; only in isaac: {sorted(isaac - mock)}')
