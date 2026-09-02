@@ -16,7 +16,7 @@ import pytest
 from robot_twin.backends import (
     _HANDLERS,
     _require_joint_values,
-    gripper_targets,
+    gripper_labels,
     requires_move_group,
     validate_inputs,
     validate_operation_config,
@@ -32,8 +32,7 @@ GRIPPER_BACKEND = {'topic': '/gripper_control/gripper_cmds',
 # 그리퍼 목표 표를 가진 최소 연산 정의. 목표 이름도 폭도 코드가 아니라 설정이 정한다.
 GRIPPER_OP = OperationConfig(
     name='move_gripper_to_target', kind='sync', resource='gripper',
-    backend={**GRIPPER_BACKEND,
-             'targets': {'open': {'position': 0.04}, 'close': {'position': 0.0}}}
+    backend={**GRIPPER_BACKEND, 'labels': ['open', 'close']}
 )
 
 
@@ -72,10 +71,15 @@ def test_gripper_operations_are_not_split_per_target() -> None:
 # move_gripper_to_target 입력 검증
 # ----------------------------------------------------------------------
 
-def test_gripper_targets_come_from_config() -> None:
-    assert sorted(gripper_targets(GRIPPER_OP)) == ['close', 'open']
+def test_gripper_labels_come_from_config() -> None:
+    """**숫자가 아니라 심볼 목록이다.** position/max_effort 는 그리퍼에 종속이라
+    `gripper_control_node` 의 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼 수 있는지만
+    안다. 목록을 설정에 두는 이유는 `/operations` 카탈로그의 enum 이 여기서 파생돼
+    에이전트가 그것을 보고 값을 고르기 때문이다.
+    """
+    assert sorted(gripper_labels(GRIPPER_OP)) == ['close', 'open']
     # 목표 표가 없는 정의는 빈 dict 이다 — 조회 측이 방어할 필요가 없다.
-    assert gripper_targets(OperationConfig(name='x', kind='sync')) == {}
+    assert gripper_labels(OperationConfig(name='x', kind='sync')) == []
 
 
 @pytest.mark.parametrize('target', ['open', 'close'])
@@ -108,8 +112,8 @@ def test_configured_gripper_operation_passes_startup_check() -> None:
     validate_operation_config(GRIPPER_OP)
 
 
-@pytest.mark.parametrize('backend', [{}, {'targets': {}}, {'targets': None}, {'targets': []}])
-def test_gripper_operation_without_targets_is_rejected(backend: Any) -> None:
+@pytest.mark.parametrize('backend', [{}, {'labels': []}, {'labels': None}, {'labels': {}}])
+def test_gripper_operation_without_labels_is_rejected(backend: Any) -> None:
     """목표 표가 없으면 호출 시점이 아니라 기동 시점에 실패해야 한다.
 
     없어도 트윈은 뜨고 카탈로그에도 연산이 보이므로, 이 검사가 없으면 "연산은
@@ -117,7 +121,7 @@ def test_gripper_operation_without_targets_is_rejected(backend: Any) -> None:
     """
     op = OperationConfig(name='move_gripper_to_target', kind='sync', backend=backend)
 
-    with pytest.raises(ValueError, match='backend.targets'):
+    with pytest.raises(ValueError, match='backend.labels'):
         validate_operation_config(op)
 
 
@@ -126,46 +130,29 @@ def test_gripper_operation_without_wiring_is_rejected(missing: str) -> None:
     """토픽·타입·결과 변수는 설정에서 온다 — 하나라도 없으면 기동을 막는다."""
     backend = {k: v for k, v in GRIPPER_BACKEND.items() if k != missing}
     op = OperationConfig(name='move_gripper_to_target', kind='sync',
-                         backend={**backend, 'targets': {'open': {'position': 0.04}}})
+                         backend={**backend, 'labels': ['open']})
 
     with pytest.raises(ValueError, match=f'backend.{missing}'):
         validate_operation_config(op)
 
 
-@pytest.mark.parametrize('spec', ['0.04', {}, {'positon': 0.04}, {'position': None},
-                                  {'position': 'wide'}, {'position': float('nan')},
-                                  {'position': True}])
-def test_target_without_valid_position_is_rejected(spec: Any) -> None:
+@pytest.mark.parametrize('labels', [['open', ''], ['open', '  '], ['open', 3],
+                                    ['open', None], [{'open': {'position': 0.04}}]])
+def test_labels_must_be_non_empty_symbols(labels: Any) -> None:
+    """**심볼 목록이다.** 예전처럼 `{position, max_effort}` 를 적으면 거부한다 —
+    숫자는 그리퍼에 종속이라 `gripper_control_node` 의 파라미터가 갖는다.
+    """
     op = OperationConfig(name='move_gripper_to_target', kind='sync',
-                         backend={**GRIPPER_BACKEND, 'targets': {'open': spec}})
+                         backend={**GRIPPER_BACKEND, 'labels': labels})
 
-    with pytest.raises(ValueError, match='open'):
+    with pytest.raises(ValueError, match='labels'):
         validate_operation_config(op)
 
 
-def test_removed_service_form_is_rejected_with_migration_hint() -> None:
-    """예전 `service:` 형태로 남은 설정이 조용히 무시되지 않도록 한다."""
-    op = OperationConfig(name='move_gripper_to_target', kind='sync',
-                         backend={**GRIPPER_BACKEND,
-                                  'targets': {'open': {'service': '/open_gripper'}}})
-
-    with pytest.raises(ValueError, match="removed 'service' form"):
-        validate_operation_config(op)
-
-
-def test_optional_max_effort_is_validated() -> None:
+def test_labels_accepts_plain_symbols() -> None:
     validate_operation_config(OperationConfig(
         name='move_gripper_to_target', kind='sync',
-        backend={**GRIPPER_BACKEND, 'targets': {'grasp': {'position': 0.02,
-                                                          'max_effort': 30.0}}}
-    ))
-
-    bad = OperationConfig(name='move_gripper_to_target', kind='sync',
-                          backend={**GRIPPER_BACKEND,
-                                   'targets': {'grasp': {'position': 0.02,
-                                                         'max_effort': 'hard'}}})
-    with pytest.raises(ValueError, match='max_effort'):
-        validate_operation_config(bad)
+        backend={**GRIPPER_BACKEND, 'labels': ['open', 'close', 'grasp']}))
 
 
 def test_move_group_requirement_comes_from_the_backend_declaration() -> None:
@@ -245,9 +232,7 @@ class _FakeRuntime:
 def fake_command(monkeypatch) -> None:
     """ROS 메시지 생성만 갈아끼운다 — 나머지 흐름은 그대로 돈다."""
     monkeypatch.setattr('robot_twin.backends._make_command',
-                        lambda node, position, max_effort, label: {'position': position,
-                                                                   'max_effort': max_effort,
-                                                                   'label': label})
+                        lambda node, label: {'label': label})
 
 
 def test_command_carries_a_stamp() -> None:
@@ -271,10 +256,12 @@ def test_command_carries_a_stamp() -> None:
         def get_clock(self):
             return _Clock()
 
-    msg = _make_command(_Node(), 0.04, 0.0, 'open')
+    msg = _make_command(_Node(), 'open')
 
     assert (msg.header.stamp.sec, msg.header.stamp.nanosec) == (123, 456)
-    assert (msg.position, msg.max_effort, msg.label) == (0.04, 0.0, 'open')
+    # **숫자 필드가 없다.** 심볼만 싣는다.
+    assert msg.goal == 'open'
+    assert not hasattr(msg, 'position') and not hasattr(msg, 'max_effort')
 
 
 def test_fake_snapshot_matches_the_real_one() -> None:
@@ -302,11 +289,12 @@ def test_command_result_is_reported_as_is(fake_command: None) -> None:
 
     publisher = _FakePublisher(on_publish=_arrive)
     outputs = _send_gripper_command(_FakeRuntime(publisher, entry), GRIPPER_OP,
-                                    position=0.0, max_effort=30.0, label='grasp', timeout=1.0)
+                                    label='grasp', timeout=1.0)
 
     assert outputs == {'position': 0.018, 'effort': 30.0,
                        'stalled': True, 'reached_goal': False}
-    assert publisher.published == [{'position': 0.0, 'max_effort': 30.0, 'label': 'grasp'}]
+    # 발행된 것은 심볼뿐이다 — 숫자는 gripper_control_node 가 푼다.
+    assert publisher.published == [{'label': 'grasp'}]
 
 
 def test_stale_result_is_not_mistaken_for_this_command(fake_command: None) -> None:
@@ -322,7 +310,7 @@ def test_stale_result_is_not_mistaken_for_this_command(fake_command: None) -> No
 
     with pytest.raises(TimeoutError, match='no time left'):
         _send_gripper_command(_FakeRuntime(publisher, entry), GRIPPER_OP,
-                              position=0.04, max_effort=0.0, label='open', timeout=0.2)
+                              label='open', timeout=0.2)
     assert len(publisher.published) == 1
 
 
@@ -335,7 +323,7 @@ def test_missing_publisher_fails_fast(fake_command: None) -> None:
     runtime = _FakeRuntime(None, entry)
 
     with pytest.raises(BackendUnavailable, match='no publisher'):
-        _send_gripper_command(runtime, GRIPPER_OP, position=0.04, max_effort=0.0,
+        _send_gripper_command(runtime, GRIPPER_OP,
                               label='open', timeout=1.0)
 
 
@@ -345,7 +333,7 @@ def test_missing_result_variable_fails_fast(fake_command: None) -> None:
     runtime = _FakeRuntime(_FakePublisher(), None)
 
     with pytest.raises(BackendUnavailable, match='result_variable'):
-        _send_gripper_command(runtime, GRIPPER_OP, position=0.04, max_effort=0.0,
+        _send_gripper_command(runtime, GRIPPER_OP,
                               label='open', timeout=1.0)
 
 

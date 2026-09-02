@@ -70,37 +70,35 @@ def validate_operation_config(op: OperationConfig) -> None:
     Raises:
         ValueError: 정의가 백엔드를 구동할 수 없을 때. 호출자가 기동 실패로 바꾼다.
     """
-    targets = op.backend.get('targets')
+    labels = op.backend.get('labels')
 
     if op.name in _TARGET_BACKED_OPERATIONS:
-        if not (isinstance(targets, dict) and targets):
+        if not (isinstance(labels, list) and labels):
             raise ValueError(
-                f"operation '{op.name}' requires a non-empty 'backend.targets' mapping, "
-                f'got {targets!r}'
+                f"operation '{op.name}' requires a non-empty 'backend.labels' list, "
+                f'got {labels!r}'
             )
         for key in ('topic', 'topic_type', 'result_variable'):
             if not op.backend.get(key):
                 raise ValueError(f"operation '{op.name}' requires 'backend.{key}'")
 
-    if targets is None:
+    if labels is None:
         return
-    if not isinstance(targets, dict):
-        raise ValueError(f"operation '{op.name}': backend.targets must be a mapping")
+    if not isinstance(labels, list):
+        raise ValueError(f"operation '{op.name}': backend.labels must be a list")
 
-    for name, spec in sorted(targets.items()):
-        if not isinstance(spec, dict):
-            raise ValueError(f"operation '{op.name}': target '{name}' must be a mapping")
-        # 목표는 폭으로만 정의한다. 예전의 `service:` 형태는 `gripper_control_node`
-        # 를 경유했는데, 그 경로는 goal 을 보내고 결과를 기다리지 않아 완료 판정이
-        # 불가능했다.
-        if 'service' in spec:
+    for raw in labels:
+        if not isinstance(raw, str) or not raw.strip():
             raise ValueError(
-                f"operation '{op.name}': target '{name}' uses the removed 'service' form; "
-                "declare 'position' (and optionally 'max_effort') instead"
+                f"operation '{op.name}': backend.labels entries must be non-empty strings, "
+                f'got {raw!r}'
             )
-        _require_finite_number(spec.get('position'), f"{op.name}: target '{name}' position")
-        if spec.get('max_effort') is not None:
-            _require_finite_number(spec['max_effort'], f"{op.name}: target '{name}' max_effort")
+        # 숫자를 여기 두면 안 된다 — 그리퍼에 종속이라 `gripper_control_node` 의
+        # `targets` 파라미터가 갖는다 (rdfp_msgs/msg/GripperCommand.msg 참조).
+        if isinstance(raw, dict):
+            raise ValueError(
+                f"operation '{op.name}': backend.labels takes symbols, not specs"
+            )
 
 
 def _require_finite_number(raw: Any, what: str) -> float:
@@ -258,25 +256,28 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
 # gripper — 사용 가능한 백엔드
 # ----------------------------------------------------------------------
 
-def gripper_targets(op: OperationConfig) -> dict[str, dict[str, Any]]:
-    """연산 정의에서 목표 이름 → 목표 정의 매핑을 꺼낸다.
+def gripper_labels(op: OperationConfig) -> list:
+    """설정이 허용하는 그리퍼 심볼 목록.
 
-    ``backend.targets`` 가 곧 지원 목표 목록이다. 목표를 늘리는 일이 설정 편집만으로
-    끝나도록 코드에는 목표 이름을 두지 않는다.
+    **숫자는 여기 없다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
+    `gripper_control_node` 의 `targets` 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼
+    수 있는지만 안다(2026-09-01 결정, `GripperCommand.msg` 참조).
+
+    목록을 설정에 두는 이유는 `/operations` 카탈로그의 enum 이 여기서 파생되기
+    때문이다. 에이전트는 그 목록을 보고 값을 고른다 — 코드에 목표 이름을 두면
+    설정만 고쳐서 늘릴 수 없다.
     """
-    targets = op.backend.get('targets')
-    return targets if isinstance(targets, dict) else {}
+    labels = op.backend.get('labels')
+    return [str(v) for v in labels] if isinstance(labels, list) else []
 
 
-def _make_command(node: Any, position: float, max_effort: float, label: str) -> Any:
+def _make_command(node: Any, label: str) -> Any:
     """``rdfp_msgs/GripperCommand`` 메시지를 만든다.
 
     ROS 의존성을 이 함수 하나에 가둔다 — 호출 흐름(예산 배분, 결과 해석)은 ROS 없이
     테스트할 수 있어야 한다.
 
-    ``position`` 은 컨트롤러가 물린 관절 하나의 목표값이며(Panda 는
-    ``panda_finger_joint1``), 손가락 **사이 거리가 아니라 그 절반**이다 — 실기 franka 의
-    ``move``/``grasp`` 가 쓰는 ``width`` 와 2배 차이가 난다.
+    **심볼만 싣는다.** 숫자는 `gripper_control_node` 가 자기 `targets` 로 푼다.
     """
     from rdfp_msgs.msg import GripperCommand
 
@@ -284,16 +285,12 @@ def _make_command(node: Any, position: float, max_effort: float, label: str) -> 
     # **stamp 를 반드시 채운다.** 저장기가 에피소드를 시각으로 자르므로, 비워 두면
     # 이 명령이 epoch 0 에 적재되어 어느 에피소드에도 속하지 않는다.
     msg.header.stamp = node.get_clock().now().to_msg()
-    msg.position = float(position)
-    msg.max_effort = float(max_effort)
-    # label 은 제어에 쓰이지 않는다. 데이터셋 가독성을 위한 값이다.
-    msg.label = str(label)
+    msg.goal = str(label)
     return msg
 
 
 def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
-                          position: float, max_effort: float, label: str,
-                          timeout: float) -> dict[str, Any]:
+                          label: str, timeout: float) -> dict[str, Any]:
     """명령 토픽에 발행하고 **결과 변수가 갱신될 때까지** 기다린다.
 
     액션을 직접 부르지 않는 이유는 두 가지다 (설계서 6.14).
@@ -330,7 +327,7 @@ def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
     # 결과로 인정한다 — 이전 명령의 결과를 자기 것으로 착각하지 않기 위해서다.
     before = _snapshot_gen(entry)
     node = runtime._node  # noqa: SLF001 — 런타임 내부 협력자다
-    publisher.publish(_make_command(node, position, max_effort, label))
+    publisher.publish(_make_command(node, label))
 
     while True:
         snap = entry.snapshot
@@ -363,26 +360,21 @@ def _remaining(deadline: float, what: str, budget: float) -> float:
 def _move_gripper_to_target(runtime: 'RobotTwinRuntime', client: Optional[Any],
                             op: OperationConfig, session: Session,
                             timeout: float) -> dict[str, Any]:
-    """이름 붙은 그리퍼 목표로 이동한다 — 목표 정의는 설정에서 읽는다.
+    """이름 붙은 그리퍼 목표로 이동한다 — **심볼만 보낸다.**
 
-    목표는 ``{position, max_effort}`` 로 정의한다. ``max_effort`` 는 생략하면 ``0``
-    이며, 그 값은 "드라이버 기본 효과치"라는 뜻이다 (mock 의 ``GripperActionController``
-    기준). 실기 franka 에서는 ``max_effort = 0`` 이 파지 없는 ``move`` 로 해석될 수
-    있으므로 물체를 쥐려면 명시해야 한다.
+    숫자(position / max_effort)는 `gripper_control_node` 의 `targets` 파라미터가
+    갖는다. 그리퍼가 바뀌면 그쪽만 고치면 되고, 트윈 설정과 데이터셋은 그대로다.
     """
     del client  # MoveGroup 을 쓰지 않는다
     target = session.inputs.get('target')
-    targets = gripper_targets(op)
-    spec = targets.get(target) if isinstance(target, str) else None
-    if not isinstance(spec, dict):
-        available = ', '.join(sorted(targets)) or '(none configured)'
+    labels = gripper_labels(op)
+    if not isinstance(target, str) or target not in labels:
+        available = ', '.join(sorted(labels)) or '(none configured)'
         raise BackendUnavailable(
             f"unknown gripper target {target!r}; configured targets: {available}"
         )
 
-    outputs = _send_gripper_command(runtime, op, position=float(spec['position']),
-                                    max_effort=float(spec.get('max_effort') or 0.0),
-                                    label=str(target), timeout=timeout)
+    outputs = _send_gripper_command(runtime, op, label=target, timeout=timeout)
     return {'target': target, **outputs}
 
 
@@ -719,9 +711,9 @@ def _require_gripper_target(raw: Any, op: Optional[OperationConfig]) -> str:
         raise ValueError("input 'target' (gripper target name) is required")
     if op is None:
         return raw
-    targets = gripper_targets(op)
-    if targets and raw not in targets:
-        available = ', '.join(sorted(targets))
+    labels = gripper_labels(op)
+    if labels and raw not in labels:
+        available = ', '.join(sorted(labels))
         raise ValueError(f"unknown target '{raw}'; available targets: {available}")
     return raw
 

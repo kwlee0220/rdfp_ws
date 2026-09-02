@@ -77,20 +77,20 @@ variables:
   # 이 변수를 가리킨다.
   #
   # **이벤트성이다** — 명령이 없는 동안 갱신되지 않으므로 연속 상태로 쓰지 않는다.
-  # 현재 그리퍼 폭은 아래 gripper_position(= joint_states 파생)에서 읽는다.
-  - name: gripper_last_command_result
+  # 현재 그리퍼 폭은 gripper_state.width 에 있다.
+  - name: gripper_state
     description: >-
-      마지막 그리퍼 명령의 결과. **파지 성공 여부를 판정하는 유일한 수단**이다 —
-      target=grasp 인데 reached_goal=true 면 끝까지 닫혔다는 뜻이라 빈손이고,
-      stalled=true 면 물체에 막혀 멈춘 것이라 쥐었다는 뜻이다.
-      이벤트성이라 명령이 없는 동안은 갱신되지 않으니 연속 상태로 쓰지 않는다.
-      현재 그리퍼 폭은 gripper_position 을 본다.
+      그리퍼의 연속 상태. **성공 판정은 at_goal 하나로 한다** — goal 별 판정식은
+      GripperNode 가 이미 적용했다(open/close 는 목표 폭 도달, grasp 는 물체에 막혀
+      멈춤). width 는 개구 폭(m)이며 관절값이 아니다.
+      ⚠️ at_goal=false 는 '실패'와 '진행 중'을 구분하지 못한다 — 가르려면 width 를
+      함께 본다. mock 은 stalled 판정 수단이 없어 **grasp 가 성공으로 기록되지 않는다.**
     source:
       type: topic
-      topic: /gripper_control/gripper_action_states
-      msg: rdfp_msgs/msg/GripperActionState
+      topic: /gripper_states
+      msg: rdfp_msgs/msg/GripperState
       qos: { reliability: reliable, durability: volatile, depth: 1 }
-    staleness_ms: null      # 이벤트성 — staleness 검사를 하지 않는다
+    staleness_ms: 500
     enums:
       status:
         0: UNKNOWN
@@ -103,18 +103,6 @@ variables:
 
   # 연속적인 그리퍼 위치는 /joint_states 의 finger joint 에서 파생한다.
   # (derived 소스는 아직 배선되지 않아 NO_DATA 로 보고된다 — 설계서 9장)
-  - name: gripper_position
-    description: >-
-      현재 그리퍼 열림 폭(m, 손가락 하나 기준이라 손가락 사이 거리의 절반).
-      **아직 배선되지 않아 항상 NO_DATA 로 온다** — 값이 필요하면 joint_states 의
-      panda_finger_joint1 을 직접 읽는다.
-    source:
-      type: derived
-      source_variable: joint_states
-      extract: panda_finger_joint1
-    staleness_ms: 500
-    units:
-      position: m
 
   # scene 안의 물체 상태. 백엔드별 발행 노드(mock 은 `mock_scene_state_node`)가 planning
   # scene / Gazebo / Isaac 을 각자 변환해 하나의 토픽으로 낸다 — 트윈은 어느 백엔드인지
@@ -266,8 +254,8 @@ operations:
       그리퍼를 이름표 목표로 구동한다 — open(벌림) / close(빈손으로 닫음) /
       grasp(힘을 주어 물체를 쥠). **물체를 쥘 때는 반드시 grasp** 를 쓴다; close 는
       힘을 주지 않아 물체를 놓친다. 놓을 때는 open.
-      결과 판정은 gripper_last_command_result 로 한다 — grasp 인데 reached_goal 이면
-      끝까지 닫힌 것이라 빈손이다. 팔과 독립 자원이라 이동과 동시에 실행할 수 있다.
+      결과 판정은 gripper_state.at_goal 하나로 한다 — GripperNode 가 goal 별 판정식을
+      이미 적용했다. 팔과 독립 자원이라 이동과 동시에 실행할 수 있다.
     kind: sync
     resource: gripper
     idempotent: true
@@ -275,23 +263,23 @@ operations:
       # 액션을 직접 부르지 않는다 — goal 전송은 서비스라 rosbag2 가 기록하지 못한다.
       # 명령을 토픽으로 흘려 gripper_control_node 가 액션으로 중계하게 하고, 결과는
       # 그 노드가 재발행하는 상태 변수로 받는다 (설계서 6.14).
-      topic: /gripper_control/gripper_cmds
+      topic: /gripper_cmds
       topic_type: rdfp_msgs/msg/GripperCommand
-      result_variable: gripper_last_command_result
-      targets:
-        open: { position: 0.04 }
-        # 빈손으로 닫는다. 힘을 주지 않으므로 물체를 쥐는 용도가 아니다.
-        close: { position: 0.0 }
-        # 물체를 쥔다. 목표는 close 와 같고 max_effort 만 다르다 — 물체에 닿으면
-        # 그 힘으로 버티며 멈추므로 outputs 가 stalled=true / reached_goal=false 로
-        # 온다. 30 N 은 Franka Hand 연속 파지력(약 70 N) 안에서 보수적으로 잡은
-        # 값이며, 대상물에 맞게 조정한다.
-        grasp: { position: 0.0, max_effort: 30.0 }
+      result_variable: gripper_state
+      # 보낼 수 있는 **심볼 목록**. 숫자(position/max_effort)는 여기 없다 —
+      # 그리퍼에 종속이라 `gripper_control_node` 의 `targets` 파라미터가 갖는다
+      # (2026-09-01 결정, rdfp_msgs/msg/GripperCommand.msg 참조).
+      #
+      #   open   손을 편다
+      #   close  빈손으로 닫는다 (힘을 주지 않으므로 파지 용도가 아니다)
+      #   grasp  물체를 쥔다 — 물체에 닿으면 그 힘으로 버티며 멈추므로
+      #          outputs 가 stalled=true / reached_goal=false 로 온다
+      labels: [open, close, grasp]
     inputs_schema:
       type: object
       required: [target]
       properties:
-        target: { type: string }      # enum 은 backend.targets 에서 파생된다
+        target: { type: string }      # enum 은 backend.labels 에서 파생된다
       additionalProperties: false
     # 액션 result 가 돌아올 때까지 기다리므로 넉넉해야 한다. 이 시간 동안
     # HTTP 요청이 블록된다 — 그리퍼는 취소 실익이 없어 동기로 둔다 (설계서 6.2).

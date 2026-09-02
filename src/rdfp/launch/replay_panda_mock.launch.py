@@ -12,7 +12,7 @@
 - 이미지 (``/camera/...``) — 데이터셋에서 재생되므로 ``camera`` 노드를 띄우지
   않는다. 재생된 이미지 토픽을 구독하는 ``rdfp_image_viewer_node`` 는 유지한다.
 - ``/gripper_control/gripper_cmds`` — 데이터셋 재생 쪽에서 발행한다. 본 런치의
-  ``gripper_control_node`` 가 이를 받아 gripper action 으로 중계한다.
+  ``GripperNode`` 가 이를 받아 gripper action 으로 중계한다.
 - ``/target_joint_cmds`` — 데이터셋에서 재생되므로
   ``target_joint_cmds_publisher`` 를 띄우지 않는다.
 - 세션 / 녹화는 **수행하지 않는다** (``session_control`` / ``image_recorder``
@@ -112,6 +112,7 @@ from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from robot_control.launch_helpers.gripper import create_gripper_node
 from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
@@ -353,17 +354,11 @@ def _build_actions(context: LaunchContext) -> list:
         ],
     )
 
-    # --- rdfp 애플리케이션: GripperControlNode ---
+    # --- rdfp 애플리케이션: GripperNode ---
     # 데이터셋 재생 도구가 발행하는 `rdfp_msgs/GripperCommand` 를 받아 gripper
     # action 으로 중계한다. 수집 때와 **같은 노드**이며, 다른 점은 명령 토픽의
     # 퍼블리셔가 teleop/트윈이 아니라 재생 도구라는 것뿐이다.
-    gripper_control_node = Node(
-        package="robot_control",
-        executable="gripper_control_node",
-        name="gripper_control",
-        output="screen",
-        emulate_tty=True,
-    )
+    gripper_node = create_gripper_node()
 
     # --- arm 재생 경로 선택 ---
     # `replay_arm_path` 값에 따라 arm 을 구동하는 노드 조합이 달라진다. 두 경로가
@@ -458,7 +453,7 @@ def _build_actions(context: LaunchContext) -> list:
         panda_hand_controller_spawner,
         [
             move_group_node, servo_node, rviz_node,
-            rdfp_image_viewer_node, gripper_control_node,
+            rdfp_image_viewer_node, gripper_node,
             *arm_path_nodes,
         ],
     )

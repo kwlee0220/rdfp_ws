@@ -71,7 +71,7 @@ from robot_control.launch_helpers.controller import (
 )
 from robot_control.launch_helpers.controller_startup import create_controller_startup_handlers
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node
-from robot_control.launch_helpers.gripper import create_gripper_control_node
+from robot_control.launch_helpers.gripper import create_gripper_node
 from robot_control.launch_helpers.image_pipeline import (
     declare_config_file_argument as declare_image_pipeline_config_file_argument,
     declare_image_pipeline_arguments,
@@ -207,7 +207,7 @@ def _build_actions(context: LaunchContext) -> list:
     rviz_node = create_rviz_node(moveit_config)
     camera_node = create_camera_node()
     ee_pose_node = create_ee_pose_node()
-    gripper_control_node = create_gripper_control_node()
+    gripper_node = create_gripper_node()
     # scene 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
     # 기다리지 않으므로 같은 그룹에서 동시에 spawn 해도 안전하다.
     scene_node = create_mock_scene_node()
@@ -296,7 +296,7 @@ def _build_actions(context: LaunchContext) -> list:
         panda_hand_controller_spawner,
         [
             move_group_node, servo_node, rviz_node, camera_node, ee_pose_node,
-            gripper_control_node, scene_node,
+            gripper_node, scene_node,
             session_control_node, rdfp_image_viewer_node, image_recorder_node,
             target_joint_cmds_publisher,
         ],

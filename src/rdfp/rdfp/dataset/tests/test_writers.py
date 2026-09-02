@@ -164,25 +164,28 @@ def test_gripper_command_row_values() -> None:
 
     conn = _FakeConn()
     w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
-    msg = SimpleNamespace(header=_header(100, 500), position=0.04, max_effort=0.0,
-                          label='open')
-    w.append(3, msg)
+    w.append(3, SimpleNamespace(header=_header(100, 500), label='open'))
     assert len(conn.executed) == 1
     sql, params = conn.executed[0]
     assert 'INSERT INTO gripper_cmds' in sql
-    # 심볼이 아니라 숫자가 남아야 한다 — 데이터셋이 자기 완결적이어야 하기 때문이다.
-    assert params[0] == (3, 11, 100, 500, 0.04, 0.0, 'open')
+    # **의도(심볼)만 남는다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
+    # `gripper_control_node` 의 targets 파라미터가 갖는다 (2026-09-01 결정).
+    assert params[0] == (3, 11, 100, 500, 'open')
 
 
-def test_gripper_command_label_is_optional() -> None:
-    """`label` 은 제어에 쓰이지 않는 선택 필드다 — 없어도 적재가 멈추지 않는다."""
+def test_gripper_command_without_label_is_stored_empty() -> None:
+    """라벨이 없는 구형 bag 도 적재는 멈추지 않는다.
+
+    **숫자를 되살려 추측하지 않는다** — 빈 라벨을 그대로 남긴다. 무엇을 의도했는지
+    모르는 것이 사실이고, 그 사실이 데이터에 드러나야 한다.
+    """
     from rdfp.dataset.db.writers.gripper_command import GripperCommandWriter
 
     conn = _FakeConn()
     w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
-    w.append(3, SimpleNamespace(header=_header(100, 500), position=0.0, max_effort=30.0))
+    w.append(3, SimpleNamespace(header=_header(100, 500)))
 
-    assert conn.executed[0][1][0] == (3, 11, 100, 500, 0.0, 30.0, '')
+    assert conn.executed[0][1][0] == (3, 11, 100, 500, '')
 
 
 def test_gripper_state_row_values() -> None:

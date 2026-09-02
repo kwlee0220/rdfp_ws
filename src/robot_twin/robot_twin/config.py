@@ -296,19 +296,23 @@ class OperationConfig(_Base):
         통째로 생략되기 때문이다 (설계서 6.9).
 
         카탈로그(``GET /operations``)는 ``backend`` 를 노출하지 않으므로 ``enum`` 이
-        클라이언트가 지원 목표를 발견하는 유일한 경로이기도 하다. 따라서 ``targets``
+        클라이언트가 지원 목표를 발견하는 유일한 경로이기도 하다. 따라서 ``labels``
         를 단일 출처로 삼는다.
 
         ``enum`` 을 직접 적었다면 지우지 않고 **불일치를 기동 시점에 실패**시킨다.
         입력 dict 는 건드리지 않는다 — 호출자의 자료구조를 바꾸지 않기 위해서다.
         """
-        for backend_key, input_key in (('targets', 'target'), ('scenes', 'scene')):
+        # `labels` 는 리스트, `scenes` 는 dict 다 — 둘 다 키(값)를 enum 으로 옮긴다.
+        for backend_key, input_key in (('labels', 'target'), ('scenes', 'scene')):
             self._derive_enum_from(backend_key, input_key)
         return self
 
     def _derive_enum_from(self, backend_key: str, input_key: str) -> None:
         """``backend[backend_key]`` 의 키를 ``inputs_schema`` 의 enum 으로 옮긴다."""
         table = self.backend.get(backend_key)
+        # dict 면 키를, list 면 항목을 이름으로 쓴다.
+        if isinstance(table, list):
+            table = {str(v): None for v in table}
         if not isinstance(table, dict) or not table:
             return
 

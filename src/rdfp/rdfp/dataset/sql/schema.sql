@@ -86,7 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_joint_states_stamp_ts ON joint_states (stamp_ts);
 
 
 -- /gripper_control/gripper_cmds → rdfp_msgs/msg/GripperCommand
--- command 는 'open' / 'close' 문자열.
+-- label 은 'open' / 'close' / 'grasp' 심볼.
 CREATE TABLE IF NOT EXISTS gripper_cmds (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -97,13 +97,12 @@ CREATE TABLE IF NOT EXISTS gripper_cmds (
                         (to_timestamp(stamp_sec::double precision
                                       + stamp_nanosec::double precision / 1e9))
                         STORED,
-    -- 학습 데이터의 **action 채널**. 심볼이 아니라 숫자를 남긴다 — 심볼을 쓰면
-    -- 그 의미(몇 m 인가)가 노드 상수에 남아 데이터셋이 자기 완결적이지 않게 된다.
-    position        DOUBLE PRECISION    NOT NULL,
-    max_effort      DOUBLE PRECISION    NOT NULL,
-    -- 사람이 읽기 위한 이름('open'/'close'/'grasp'). 제어에 쓰이지 않으며 비어 있을
-    -- 수 있다. 학습 입력이 아니라 필터링·가독성용이다.
-    label           TEXT                NOT NULL DEFAULT ''
+    -- 학습 데이터의 **action 채널**. 의도(심볼)만 남기고 숫자는 남기지 않는다 —
+    -- position(m) / max_effort(N) 은 그리퍼에 종속이라 다른 기구로 옮기면 틀린 값이
+    -- 된다(2026-09-01 결정, GripperCommand.msg 참조).
+    --
+    -- "실제로 얼마나 닫혔는가" 는 joint_states 에 손가락 관절로 남는다.
+    goal            TEXT                NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_episode  ON gripper_cmds (episode_id);
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_topic    ON gripper_cmds (topic_id);
@@ -111,6 +110,35 @@ CREATE INDEX IF NOT EXISTS idx_gripper_cmds_stamp_ts ON gripper_cmds (stamp_ts);
 
 
 -- /gripper_control/gripper_action_states → rdfp_msgs/msg/GripperActionState
+-- /gripper_states → rdfp_msgs/msg/GripperState
+-- 그리퍼의 **연속 상태**. gripper_action_states 와 달리 명령과 무관하게 주기 발행된다.
+CREATE TABLE IF NOT EXISTS gripper_states (
+    id              BIGSERIAL           PRIMARY KEY,
+    episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    topic_id        BIGINT              NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
+    stamp_sec       INTEGER             NOT NULL,
+    stamp_nanosec   BIGINT              NOT NULL,
+    stamp_ts        TIMESTAMPTZ         GENERATED ALWAYS AS
+                        (to_timestamp(stamp_sec::double precision
+                                      + stamp_nanosec::double precision / 1e9))
+                        STORED,
+    -- 마지막으로 받은 GripperCommand.goal. 명령 이전에는 ''.
+    -- 이것이 있어서 상태가 자기 완결적이다 — 명령 토픽과 시각으로 짝지을 필요가 없다.
+    goal            TEXT                NOT NULL,
+    -- **개구 폭(m)이며 관절값이 아니다.** 같은 데이터셋의 scene_objects.dimensions
+    -- 와 같은 단위라 직접 비교된다. 구할 수 없으면 NaN 이다 — 0 은 '닫혀 있다'는
+    -- 거짓말이 된다.
+    width           DOUBLE PRECISION    NOT NULL,
+    -- 힘을 내는데 안 움직인다. **관측**이지 판정이 아니다.
+    -- **false 가 '물지 않았다'를 보장하지 않는다** — 판정 미구현 스택도 false 다.
+    stalled         BOOLEAN             NOT NULL,
+    -- **시킨 일을 이뤘는가.** 위치 도달이 아니다 (control_msgs 의 reached_goal 과 다르다).
+    -- open/close 는 목표 폭 도달 AND NOT stalled, grasp 는 stalled 다.
+    -- 판정은 노드가 이미 했으므로 **이 값 하나만 보면 된다.**
+    -- ⚠️ false 는 '실패'와 '진행 중'을 구분하지 못한다 — width 를 함께 본다.
+    at_goal         BOOLEAN             NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS gripper_action_states (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

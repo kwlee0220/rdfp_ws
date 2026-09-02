@@ -25,8 +25,12 @@
 /joint_states
 
 # MoveIt hand 관련 토픽
-/gripper_control/gripper_cmds
+/gripper_cmds
 /gripper_control/gripper_action_states
+# 그리퍼 연속 상태. **/joint_states 로 대신할 수 없다** — 펑션베이는 TF 성립용
+# 고정값을 주입해 '항상 열려 있다'고 거짓말을 한다. position 은 관절값이
+# 아니라 **개구 폭(m)** 이라 scene/objects 치수와 직접 비교된다.
+/gripper_states
 
 # Scene 물체 상태 (ground truth)
 #   백엔드별 scene 상태 노드가 2 Hz 로 발행한다. **학습 입력(observation)이 아니라**

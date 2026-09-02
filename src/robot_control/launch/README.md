@@ -30,12 +30,12 @@ ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진
 | `panda_mock.launch.py` | mock | **기본 진입점.** ros2_control(mock) + MoveIt + RViz + 카메라 + ee_pose + 그리퍼 + scene |
 | `panda_jgpc_mock.launch.py` | mock | 위와 노드 구성 동일, arm 컨트롤러 **타입만** JGPC 로 교체 |
 | `panda_gazebo.launch.py` | Gazebo (Fortress) | `panda_mock` 의 Gazebo 대응본 |
-| `panda_functionbay.launch.py` | 펑션베이 | **ros2_control 없음** — 토픽 브리지로 연동 |
+| `panda_functionbay.launch.py` | 펑션베이+Crisp | **ros2_control 없음** — 토픽 브리지로 연동 |
 | `panda_isaac.launch.py` | Isaac Sim | **ros2_control 없음** — 토픽 브리지. 팔·그리퍼·scene·파지 (Phase 0~6). 카메라는 노드가 아니라 Isaac 이 직접 발행한다 |
 
 ### `panda_mock.launch.py`
 
-`static_tf` + `robot_state_publisher` + `ros2_control_node` + controller spawner 3종을 순차 기동한 뒤 `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_control_node`, `mock_scene_state_node` 를 일괄 spawn 한다.
+`static_tf` + `robot_state_publisher` + `ros2_control_node` + controller spawner 3종을 순차 기동한 뒤 `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_control_node`, `gripper_state_publisher`, `mock_scene_state_node` 를 일괄 spawn 한다.
 순서와 근거는 §4.
 
 ### `panda_jgpc_mock.launch.py`
@@ -79,15 +79,29 @@ Robotiq 2F-85 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다
 기본값이 `true` 이고 모든 노드에 전파한다. 이 값이 한 노드라도 어긋나면 `move_group`
 이 `Failed to fetch current robot state` 로 **조용히** 무력해진다.
 
-**Phase 0~6 이 모두 구현·검증됐다.** 인자로 필요한 부분만 켠다.
+**Phase 0~9 가 구현·검증됐고, servo 경로(Phase 10)는 실기 확인까지 마쳤다.** 인자로
+필요한 부분만 켠다.
 
 | 인자 | 기본 | 켜면 |
 |---|---|---|
 | — | — | Phase 0·1: `/clock`·`/joint_states`·MoveIt·팔 명령 |
-| `enable_gripper` | false | `gripper_action_bridge` + `gripper_control_node` (Phase 2) |
-| `enable_scene` | false | `isaac_scene_state_node` (Phase 3) |
-| `enable_servo` | false | `servo_node` + `servo_auto_start` + `isaac_servo_bridge`. **teleop 두 경로가 모두 여기로 수렴**한다 (Phase 10) |
-| `enable_rviz` | true | VRAM 이 빠듯한 호스트에서는 false 를 권한다 |
+| `enable_gripper` | `false` | `gripper_action_bridge` + `gripper_control_node` + `gripper_state_publisher` (Phase 2) |
+| `enable_scene` | `false` | `isaac_scene_state_node` — `/scene/objects` 발행 (Phase 3) |
+| `enable_servo` | `false` | `servo_node` + `servo_auto_start` + `isaac_servo_bridge`. **teleop 두 경로가 모두 여기로 수렴**한다 |
+| `enable_rviz` | `true` | VRAM 이 빠듯한 호스트에서는 false 를 권한다 |
+
+**MoveIt 의 planning scene 에는 아무것도 들어가지 않는다** (2026-09-01 결정).
+`/scene/objects` 는 조작 대상 채널이라 `isaac_scene_state_node` 가 `dynamic: true` 인
+물체만 싣고, 조작 대상을 planning scene 에 넣으면 파지 자세가 시작 자세 충돌이 되어
+관절공간 계획이 `INVALID_MOTION_PLAN`(-2)으로 거부된다 — 넣을 것이 남지 않아
+`planning_scene_sync` 노드를 삭제했다.
+
+> ⚠️ **감수한 위험 — 관절공간 이동 중 팔이 탁자를 통과한다.** 자기충돌 검사는 그대로
+> 동작하고, 파지 동작은 전부 cartesian 이라(`avoid_collisions` 기본값 `False`) 영향이
+> 없다. 실제로 잃는 것은 `move_to_named_target` / `move_to_joints` 중의 탁자 회피뿐이다.
+>
+> 근거와 되살릴 때의 대안은
+> [scene_objects_guide.md](../../../docs/scene/scene_objects_guide.md) §7 에 있다.
 
 **Isaac 쪽 준비가 선행되어야 한다** — `setup_graph.py` 의 `PHASE` 가 쓰려는 단계
 이상이어야 하고, scene 을 열 때마다 그 스크립트를 다시 돌려야 한다(ROS 2 bridge 확장
@@ -97,7 +111,8 @@ Robotiq 2F-85 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다
 발행하므로(`PHASE>=4`), 이 launch 가 켜고 끌 대상이 아니다. 보기·녹화는 수집 계층의
 몫이며 해상도·주파수·토픽은 `config/isaac_scene.json` 의 `camera` 블록이 단일 출처다.
 
-수용 기준은 `scripts/isaac/is_check_phase0.py` ~ `is_check_phase6.py` 가 검사한다.
+수용 기준은 `scripts/isaac/is_check_phase0.py` ~ `is_check_phase6.py` 가 검사한다
+(`is_check_phase5.py` 는 attach/detach 철회와 함께 삭제됐다).
 배관이 의심되면 `scripts/isaac/is_topics.py` 를 **먼저** 돌린다. 시작 자세가 scene 과
 충돌해 계획이 `-2`(INVALID_MOTION_PLAN)로 거부되면 `scripts/isaac/is_recover.py` 로
 계획 없이 빠져나온다.
@@ -175,7 +190,39 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 
 > **이 두 launch 는 설정 파일을 갈아끼울 argument 가 없다.** `image_pipeline.yaml`을 기본값 원천으로만 쓴다. 값을 바꾸려면 `arg:=value` 로 개별 지정하거나 YAML 자체를 수정한다. 파일 교체가 필요하면 `rdfp_panda_mock` 계열을 쓴다 (`image_pipeline_config_file:=`).
 
-### 2.2 `panda_gazebo` — 16개
+### 2.2 `panda_isaac` — 15개
+
+`--show-args` 로 확인한 실제 목록이다.
+
+| 인자 | 기본값 | 설명 |
+|---|---|---|
+| `ros2_control_hardware_type` | `mock_components` | **쓰이지 않는다** — 공통 helper 가 선언할 뿐 이 스택엔 ros2_control 이 없다 |
+| `log_level` | `info` | |
+| `base_frame` / `ee_frame` / `publish_rate` | `panda_link0` / `panda_hand` / `50.0` | `/ee_pose` 공통 인자 |
+| `use_sim_time` | **`true`** | Isaac 이 `/clock` 을 발행한다. 한 노드라도 어긋나면 `move_group` 이 **조용히** 무력해진다 |
+| `joint_state_topic` | `/joint_states` | Isaac 이 관절 상태를 내보내는 토픽 |
+| `isaac_ready_timeout` | `60.0` | 첫 관절 보고 대기 한도(초). 넘기면 launch 가 실패한다 |
+| `enable_rviz` | `true` | |
+| `enable_gripper` | `false` | Phase 2 |
+| `gripper_command_topic` | `/isaac/gripper_command` | |
+| `enable_scene` | `false` | Phase 3 — `/scene/objects` 발행 |
+| `scene_publish_rate` | `2.0` | |
+| `sync_planning_scene` | `true` | 정적 물체를 MoveIt 장애물로 |
+| `enable_servo` | `false` | servo(twist) 경로 |
+
+**카메라 인자가 없다.** 이미지는 Isaac 그래프가 직접 발행하며, 해상도·주파수·토픽은
+`config/isaac_scene.json` 의 `camera` 블록이 단일 출처다.
+
+### 2.3 `panda_functionbay` — 11개
+
+| 인자 | 기본값 | 설명 |
+|---|---|---|
+| `ros2_control_hardware_type` · `log_level` · `base_frame` · `ee_frame` · `publish_rate` | — | 공통 |
+| `servo_linear_scale` | **`0.8`** | MoveIt 기본 `0.4` 가 아니다. **런타임 변경이 안 먹으므로** 여기서 준다 |
+| `enable_camera_node` · `camera_image_topic` | `false` · — | 시뮬레이터 계열은 이 둘만 연다 |
+| `fb_joint_report_topic` · `fb_finger_position` · `fb_ready_timeout` | — | 펑션베이 전용 |
+
+### 2.4 `panda_gazebo`
 
 | 인자 | 설명 |
 |---|---|
@@ -188,6 +235,9 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `debugger`, `debug_env`, `on_exit_shutdown` | 디버깅·종료 정책 |
 
 `ros2_control_hardware_type` / `enable_camera_node` / scene 인자가 **없다** — 백엔드가 Gazebo 라 하드웨어 타입이 무의미하고, 카메라는 `simulate_camera` 로 갈음한다.
+
+> 이 표만 `--show-args` 로 확인하지 못했다. 이 환경에는 `ros_gz_sim` 이 없어
+> launch 로드 자체가 실패한다(`PackageNotFoundError`). 나머지 넷은 실제 출력을 옮겼다.
 
 ---
 
@@ -276,7 +326,7 @@ ros2_control_node start
 
 | launch | post_hand_actions |
 |---|---|
-| `panda_mock.launch.py` | `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_control_node`, `mock_scene_state_node` |
+| `panda_mock.launch.py` | `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_control_node`, `gripper_state_publisher`, `mock_scene_state_node` |
 | `panda_jgpc_mock.launch.py` | 위와 동일 (컨트롤러 타입만 다름) |
 
 ### scene 노드는 기본 on 이다
@@ -305,8 +355,8 @@ from robot_control.launch_helpers.common import build_moveit_config
 | `camera.py` | 카메라 argument 선언 + `camera_node` 생성 |
 | `image_pipeline.py` | **`config/image_pipeline.yaml` 로더 + camera / image_viewer / image_recorder argument 선언.** 카메라를 띄우는 launch 가 여섯이라 기본값을 한 곳에 모은 모듈 |
 | `ee_pose.py` | EE pose argument 선언 + `ee_pose_node` 생성 |
-| `gripper.py` | `gripper_control_node` 생성 (argument 없음) |
-| `scene.py` | scene argument 선언 + 백엔드별 노드 팩토리 (현재 `create_mock_scene_node()` 하나) |
+| `gripper.py` | `gripper_control_node` + `gripper_state_publisher` 생성 (argument 없음). 후자는 `/joint_states` 손가락 → **개구 폭**을 `/gripper_states` 로 낸다 — `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2 |
+| `scene.py` | `enable_scene` / `scene_publish_rate` 선언 + `create_mock_scene_node()`. **팩토리는 아직 mock 용 하나뿐이다** — Isaac 은 launch 안에서 직접 만든다 |
 | `gazebo.py` | Gazebo 백엔드 전용 — gz-sim 기동, 스폰, 브리지 |
 
 ### 두 개의 의도적인 argument 재사용
@@ -324,6 +374,17 @@ from robot_control.launch_helpers.common import build_moveit_config
 | `panda_mock` | ✅ | ✅ | ✅ | ✅ | ⭕ | ✅ | ✅ | ✅ | |
 | `panda_jgpc_mock` | ✅ | ✅ | ✅ | ✅ | ⭕ | ✅ | ✅ | ✅ | |
 | `panda_gazebo` | ✅ | ✅ | | | | ✅ | ✅ | | ✅ |
+| `panda_functionbay` | ✅ | | ✅ | ✅ | ✅ | ✅ | | | |
+| `panda_isaac` | ✅ | | ✅ | | | ✅ | | | |
+
+**토픽 브리지 계열(`panda_functionbay` · `panda_isaac`)은 `controller` 를 쓰지 않는다** —
+ros2_control 이 없어 spawner 가 없기 때문이다. 대신 `controller_startup` 의
+`_chain_or_shutdown` 만 빌려 `readiness_gate` 종료 뒤 노드를 띄운다.
+
+`panda_isaac` 이 `scene` helper 도 안 쓰는 이유는 백엔드 노드가 다르기 때문이다 —
+`scene.py` 의 팩토리는 `create_mock_scene_node()` 하나뿐이고, Isaac 은
+`isaac_scene_state_node` 를 launch 안에서 직접 만든다.
+`camera` 를 안 쓰는 이유는 §1 에 있다(Isaac 이 이미지를 직접 발행한다).
 
 `rdfp` 패키지 launch 의 helper 사용은 [그쪽 README](../../rdfp/launch/README.md) §4 에 있다.
 
@@ -336,6 +397,8 @@ from robot_control.launch_helpers.common import build_moveit_config
 | Panda mock 전체 스택 | `panda_mock.launch.py` |
 | arm 을 JGPC 로 제어 (move_group plan&execute 불가) | `panda_jgpc_mock.launch.py` |
 | Gazebo 물리 시뮬레이션 | `panda_gazebo.launch.py` |
+| **Isaac Sim** 백엔드 | `panda_isaac.launch.py` (Isaac 쪽 준비 선행 — §1) |
+| 펑션베이 시뮬레이터 | `panda_functionbay.launch.py` |
 | **세션·녹화·데이터셋까지** | `rdfp` 패키지의 `rdfp_panda_mock.launch.py` 등 |
 | 이 스택을 띄운 뒤 수집 계층만 얹기 | `ros2 launch rdfp rdfp_collect.launch.py` (아래) |
 
@@ -355,7 +418,13 @@ ros2 launch rdfp rdfp_collect.launch.py arm_cmd_source:=float64_multi_array
 동등성은 실측으로 검증되어 있고, Gazebo 조합은 인자를 맞춰야 한다 —
 [rdfp launch README §6.1](../../rdfp/launch/README.md) 참고.
 
-robot twin(REST) 을 함께 쓰려면 이 launch 위에 `ros2 run robot_twin robot_twin --config <파일>` 을 띄운다. 세션/에피소드 연산은
+Isaac 스택에 수집 계층까지 얹으려면 **묶음 launch** 를 쓴다 —
+`ros2 launch rdfp rdfp_panda_isaac.launch.py`. 카메라 설정을 `isaac_scene.json` 에서
+읽어 넘기므로 인자를 손으로 맞출 필요가 없다.
+
+robot twin(REST) 을 함께 쓰려면 이 launch 위에 `ros2 run robot_twin robot_twin --config <파일>` 을 띄운다.
+백엔드마다 설정 파일이 다르다 — mock 은 `robot_twin_panda01.yaml`, Isaac 은
+`robot_twin_panda_isaac.yaml`(명령 채널이 다르다). 세션/에피소드 연산은
 `rdfp` 패키지가 설치돼 있어야 동작한다 — [robot_twin/README.md](../../robot_twin/README.md).
 
 ---
@@ -368,4 +437,11 @@ robot twin(REST) 을 함께 쓰려면 이 launch 위에 `ros2 run robot_twin rob
 - controller 기동 순서를 바꿀 때는 `launch_helpers/controller_startup.py` 를 먼저 수정한다.
 - **카메라 argument 를 고칠 때는 `launch_helpers/image_pipeline.py` 하나만 본다.**
   여섯 launch 가 이 모듈을 (직접 또는 `camera.py` 경유로) 쓰므로 한 곳을 고치면 전부 반영된다. 어느 한 launch 에서만 기본값을 바꾸려 하면 값이 다시 갈라지므로, 그 launch 에 `config_file` 을 주는 쪽을 택한다.
+- **`--show-args` 는 설치본을 읽는다.** 인자를 고친 뒤 `colcon build` 를 빠뜨리면
+  낡은 이름이 그대로 나오고, 그 출력을 믿고 문서를 쓰면 문서까지 틀린다. 실제로 이
+  문서를 검증하다 `enable_scene` 이 `enable_scene_node` 로 보인 적이 있다 — 설치본이
+  반나절 낡아 있었다. 인자 목록을 옮길 때는 **빌드 직후에** 뽑는다.
+- **토픽 이름을 새로 정하거나 바꿀 때는 [토픽 이름 규약](../../../docs/topic_naming_contract.md)
+  을 먼저 본다.** 논리 채널마다 정규 이름이 하나씩 정해져 있고, 노드 코드에는 **절대
+  경로를 쓰지 않는다** — 상대로 두어야 remap 도 (나중의) 네임스페이스도 통한다.
 - launch 를 추가하면 §1 표와 §5 의존 관계 표를 함께 갱신한다.

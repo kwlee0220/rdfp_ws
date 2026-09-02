@@ -149,15 +149,15 @@ _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살�
 # gripper_control_node 가 구독하는 명령 토픽. 이 토픽이 곧 학습 데이터의 action
 # 채널이므로, 키 입력을 **숫자 명령**으로 바꿔 발행한다 (심볼을 보내면 그 의미가
 # 데이터셋 밖에 남는다).
-_GRIPPER_CMD_TOPIC = "/gripper_control/gripper_cmds"
+_GRIPPER_CMD_TOPIC = "/gripper_cmds"
 
 # Panda 손 관례: open = 0.04 m, close = 0.0 m (panda_finger_joint1 기준 half-width).
-# 물체를 쥐려면 max_effort > 0 이 필요하지만, 키보드 teleop 은 빈손 개폐가 기본
-# 용도이므로 0(드라이버 기본값)으로 둔다.
-_GRIPPER_TARGETS = {
-    "open": (0.04, 0.0),
-    "close": (0.0, 0.0),
-}
+# 키보드로 보낼 수 있는 그리퍼 심볼. 숫자는 `gripper_control_node` 의 `targets`
+# 파라미터가 갖는다 — 명령 메시지에는 의도만 실린다.
+#
+# `grasp` 를 넣지 않은 것은 키보드 teleop 이 빈손 개폐가 기본 용도이기 때문이다.
+# 필요하면 키를 하나 더 배정하고 여기에 추가한다.
+_GRIPPER_LABELS = ("open", "close")
 
 _DEFAULT_RATE_HZ = 100.0
 # deadman TTL 기본값. 마지막 모션 키 입력(자동반복 포함) 이후 이 시간만큼만
@@ -428,27 +428,25 @@ class TeleopKeyboard(Node):
     # ── Gripper helpers ─────────────────────────────────────────
 
     def _call_gripper(self, command: str) -> None:
-        """키 입력을 숫자 명령으로 바꿔 `gripper_control_node` 에 발행한다.
+        """키 입력을 심볼 명령으로 `gripper_control_node` 에 발행한다.
+
+        **숫자를 싣지 않는다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
+        `gripper_control_node` 의 `targets` 파라미터가 갖는다.
 
         결과는 기다리지 않는다 — 액션 호출과 result 발행은
         `gripper_control_node` 의 몫이며, 도달 여부는 `/gripper_control/gripper_action_states`
         또는 `/joint_states` 의 finger joint 로 확인한다.
         """
-        target = _GRIPPER_TARGETS.get(command)
-        if target is None:
+        if command not in _GRIPPER_LABELS:
             self.get_logger().warning(f"[gripper] unknown command {command!r}")
             return
 
-        position, max_effort = target
         msg = GripperCommand()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.position = position
-        msg.max_effort = max_effort
-        # label 은 제어에 쓰이지 않는다. 데이터셋을 눈으로 훑을 때만 쓴다.
-        msg.label = command
+        msg.goal = command
         self._gripper_pub.publish(msg)
 
-        self.get_logger().info(f"[gripper] {command} (position={position:.3f} m)")
+        self.get_logger().info(f"[gripper] {command}")
 
     # ── Home helpers (MoveIt named target 'ready' 이동) ─────────────
 

@@ -155,6 +155,7 @@
 | [simulation/isaac_backend_skeleton.md](simulation/isaac_backend_skeleton.md) | **Isaac Sim 백엔드 — 설계·구현·실측 (Phase 0~9 완료, 2026-08-30)**. 골격 → 팔(τ 195.6→34.9 ms) → 그리퍼 → scene(쿼터니언 45° 검증) → 카메라(640×480 @ 5 Hz) → **물리 파지**(블록 +0.0999 m 들어올림) → **수집 계층 연동**(에피소드 2개 분절) → **테스트·토폴로지 계약**(robot_control 146→231) → **robot_twin 연동**(REST 로 팔·그리퍼·세션 실제 제어). **DB 적재까지 확인** — init-db 12테이블, 에피소드 3개, 무결성·재적재·MP4 검증. **배포 구성 네 가지**(Windows+WSL2 / Ubuntu 단독 / Ubuntu 2대 / Windows+Ubuntu)별 구동법 — A 만 실측, B~D 미검증. 결정 10건 중 **7건 종결**. **함정 15건**을 증상 색인표와 함께 기록 — `DEFAULT_ROS_DISTRO=jazzy`, MTU 초과 소실, `initialPeersList` 포트 누락, Stop/Play 시간 역행, cp949 가림, **로봇이 월드 원점에 없어 35 cm 어긋남**, **에셋 기본 자세가 탁자 안**, **마찰 재질 미바인딩**, **`externally_spun` 미전달로 트윈이 영원히 RUNNING** | 현행 |
 | [simulation/isaac_windows_setup.md](simulation/isaac_windows_setup.md) | **새 Windows 11 머신 구축 절차 (구성 A: Windows Isaac + WSL2 스택)**. Isaac Sim 만 설치된 상태에서 처음부터 돌리기까지 8단계 — WSL2/Ubuntu-22.04, `.wslconfig`(메모리 캡·mirrored networking), ROS 2 Humble 의존 목록, 워크스페이스 빌드, **Isaac 쪽은 파일 2개 복사**(`run_isaac_humble.bat` + `fastdds_wsl_bridge.xml`), 환경변수 4개, **sim_side 스크립트 6개의 실행 순서와 각각이 없으면 생기는 증상**, 검증 순서. 자주 막히는 곳 7가지를 증상 → 원인 → 확인법 표로 정리 — **셋이 모두 '에러 없이 토픽이 안 보이는' 증상이라 눈으로 구별되지 않는다**. 근거·설계는 isaac_backend_skeleton.md 에 있고 이 문서는 재현 절차만 담는다 | 현행 |
 
+| [topic_naming_contract.md](topic_naming_contract.md) | **⭐ 토픽 이름 규약 (1단계 결정, 2026-09-01)**. 논리 채널마다 이름을 하나로 고정한다 — 기준은 `panda_mock` 이 쓰는 이름이며 `config/recording_topics.list` 11종이 그대로 정규 이름이다. **정규 이름은 상대 경로**로 적어 2단계(로봇별 네임스페이스)가 `PushRosNamespace` 한 줄로 끝나게 한다. 단수/복수는 **메시지 모양을 따른다**(`ee_pose` 단수 · `scene/objects` 복수). **`gripper_states` 는 `/joint_states` 로 대신할 수 없다** — 펑션베이가 TF 성립용 고정값을 주입해 거짓말을 하기 때문이며, 값은 관절값이 아니라 **개구 폭(m)** 이다. **arm 명령은 규약이 아니다** — 스택마다 컨트롤러 유무와 타입이 달라 통일하지 않고, 그 위의 `target_joint_cmds` 를 정규 채널로 둔다. remap 은 **백엔드 경계에서만**. 지금 어긋난 곳(절대 기본값·검사 스크립트 11종·트윈 설정 8종)과 적용 순서 5단계, `/clock`·`/tf` 를 전역으로 두는 판단과 **다중 로봇에는 프레임 접두사가 필수**라는 점 | 현행 |
 ## 11. 외부 로봇 (OMY-L100)
 
 > `rdfp` 패키지와 직접 관련 없는 별도 로봇(ROBOTIS OMY-L100) 자료다.
@@ -226,6 +227,8 @@
 | 펑션베이 시뮬레이터로 돌린다 | [simulation/functionbay_backend_design.md](simulation/functionbay_backend_design.md) |
 | 펑션베이 작업을 이어서 한다 (남은 작업·블로커) | [simulation/functionbay_open_work.md](simulation/functionbay_open_work.md) |
 | 펑션베이 시뮬레이터 제작사에 수정을 요청한다 | [simulation/functionbay_vendor_requests.md](simulation/functionbay_vendor_requests.md) |
+| 토픽 이름을 정하거나 바꾼다 | [topic_naming_contract.md](topic_naming_contract.md) |
+| 그리퍼 명령·상태 채널을 다룬다 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) |
 | Isaac Sim 백엔드를 개발한다 | [simulation/isaac_backend_skeleton.md](simulation/isaac_backend_skeleton.md) |
 | 새 Windows 머신에 Isaac 환경을 구축한다 | [simulation/isaac_windows_setup.md](simulation/isaac_windows_setup.md) |
 | Gazebo 로 돌린다 | [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md) |

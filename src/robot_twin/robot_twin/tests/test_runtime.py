@@ -26,7 +26,7 @@ GRIPPER_OP = OperationConfig(
     backend={'topic': '/gripper_control/gripper_cmds',
              'topic_type': 'rdfp_msgs/msg/GripperCommand',
              'result_variable': 'gripper_last_command_result',
-             'targets': {'open': {'position': 0.04}}}
+             'labels': ['open']}
 )
 
 

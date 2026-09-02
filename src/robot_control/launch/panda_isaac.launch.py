@@ -122,7 +122,7 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
         DeclareLaunchArgument(
             "enable_gripper", default_value="false",
             description=(
-                "Phase 2 (그리퍼) 연동. gripper_action_bridge 와 gripper_control_node 를 "
+                "Phase 2 (그리퍼) 연동. gripper_action_bridge 와 GripperNode 를 "
                 "띄운다. 상태(finger 관절)는 이 값과 무관하게 항상 들어온다"
             ),
         ),
@@ -198,9 +198,13 @@ def create_gripper_nodes() -> list[Node]:
                 **sim_time,
             }],
         ),
+        # `GripperNode` — 액션 기반 구현을 그대로 쓴다. Isaac 은
+        # `isaac_gripper_bridge` 가 액션 서버를 제공하므로 명령 경로가 mock 과 같다.
+        # **`IsaacGripperNode` 는 미구현이다** — 다른 점은 `stalled` 판정뿐이고
+        # (Isaac 은 effort 를 실을 수 있다) 그 임계값을 아직 실측하지 않았다.
         Node(
-            package="robot_control", executable="gripper_control_node",
-            name="gripper_control", output="screen", emulate_tty=True,
+            package="robot_control", executable="mock_gripper_node",
+            name="gripper", output="screen", emulate_tty=True,
             condition=condition, parameters=[sim_time],
         ),
     ]

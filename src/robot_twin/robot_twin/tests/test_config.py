@@ -22,12 +22,12 @@ MINIMAL: dict[str, Any] = {
 GRIPPER_BACKEND: dict[str, Any] = {'topic': '/gripper_control/gripper_cmds',
                                    'topic_type': 'rdfp_msgs/msg/GripperCommand',
                                    'result_variable': 'gripper_last_command_result'}
-GRIPPER_TARGETS: dict[str, Any] = {'open': {'position': 0.04}, 'close': {'position': 0.0}}
+GRIPPER_LABELS: list = ['open', 'close']
 
 
 def _gripper_op(target_schema: dict[str, Any]) -> dict[str, Any]:
     return {'name': 'move_gripper_to_target', 'kind': 'sync', 'resource': 'gripper',
-            'backend': {**GRIPPER_BACKEND, 'targets': GRIPPER_TARGETS},
+            'backend': {**GRIPPER_BACKEND, 'labels': GRIPPER_LABELS},
             'inputs_schema': {'type': 'object', 'required': ['target'],
                               'properties': {'target': target_schema}}}
 
@@ -134,8 +134,8 @@ def test_lookup_helpers() -> None:
     assert cfg.operation('missing') is None
 
 
-def test_target_enum_is_derived_from_backend_targets() -> None:
-    """목표 이름의 단일 출처는 backend.targets 다.
+def test_target_enum_is_derived_from_backend_labels() -> None:
+    """목표 이름의 단일 출처는 backend.labels 다.
 
     카탈로그가 backend 를 노출하지 않으므로 enum 이 클라이언트의 유일한 발견
     경로다. 설정에 두 번 적지 않도록 여기서 채운다.
@@ -173,19 +173,19 @@ def test_mismatched_target_enum_is_rejected(enum: Any) -> None:
 
     with pytest.raises(ValidationError) as exc:
         TwinConfig.model_validate({**MINIMAL, 'operations': [op]})
-    assert 'backend.targets' in str(exc.value)
+    assert 'backend.labels' in str(exc.value)
 
 
 def test_schema_without_target_property_is_left_alone() -> None:
     """`target` 입력이 없는 연산의 스키마는 건드리지 않는다."""
-    op = {'name': 'other', 'kind': 'sync', 'backend': {'targets': GRIPPER_TARGETS},
+    op = {'name': 'other', 'kind': 'sync', 'backend': {'labels': GRIPPER_LABELS},
           'inputs_schema': {'type': 'object', 'properties': {'width': {'type': 'number'}}}}
     cfg = TwinConfig.model_validate({**MINIMAL, 'operations': [op]})
 
     assert cfg.operation('other').inputs_schema['properties'] == {'width': {'type': 'number'}}
 
 
-def test_operation_without_targets_keeps_its_schema() -> None:
+def test_operation_without_labels_keeps_its_schema() -> None:
     op = {'name': 'move_to_named_target', 'kind': 'async',
           'backend': {'method': 'move_to_named_target_async'},
           'inputs_schema': {'type': 'object', 'properties': {'target': {'type': 'string'}}}}
@@ -195,7 +195,7 @@ def test_operation_without_targets_keeps_its_schema() -> None:
         'type': 'string'}
 
 
-def test_shipped_config_derives_gripper_targets() -> None:
+def test_shipped_config_derives_gripper_labels() -> None:
     """배포되는 설정 파일 자체를 한 번 로드한다.
 
     단위 테스트가 전부 인라인 dict 라 실제 YAML 의 오타를 잡을 그물이 없었다.
@@ -207,11 +207,10 @@ def test_shipped_config_derives_gripper_targets() -> None:
     cfg = load_config(path)
     op = cfg.operation('move_gripper_to_target')
 
-    assert sorted(op.backend['targets']) == ['close', 'grasp', 'open']
+    assert sorted(op.backend['labels']) == ['close', 'grasp', 'open']
     assert op.inputs_schema['properties']['target']['enum'] == ['close', 'grasp', 'open']
-    # grasp 만 힘을 준다 — close 와의 차이가 이것뿐이다.
-    assert op.backend['targets']['grasp']['max_effort'] > 0
-    assert 'max_effort' not in op.backend['targets']['close']
+    # **숫자는 설정에 없다.** 그리퍼 종속이라 gripper_control_node 가 갖는다.
+    assert not any(isinstance(v, dict) for v in op.backend['labels'])
 
 
 def test_load_config_from_file(tmp_path) -> None:

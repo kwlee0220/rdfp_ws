@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GripperActionState.msg"
   "msg/TargetJointStates.msg"
   "msg/ClutchState.msg"
+  "msg/GripperState.msg"
   "msg/SceneObject.msg"
   "msg/SceneObjects.msg"
   DEPENDENCIES std_msgs trajectory_msgs geometry_msgs

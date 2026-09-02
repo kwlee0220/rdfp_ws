@@ -14,6 +14,7 @@ from typing import Optional
 from .readers.base import ReaderBase
 from .readers.gripper_command import GripperCommandReader
 from .readers.gripper_action_state import GripperActionStateReader
+from .readers.gripper_state import GripperStateReader
 from .readers.joint_jog import JointJogReader
 from .readers.joint_state import JointStateReader
 from .readers.pose_stamped import PoseStampedReader
@@ -23,6 +24,7 @@ from .readers.twist_stamped import TwistStampedReader
 from .writers.base import WriterBase
 from .writers.gripper_command import GripperCommandWriter
 from .writers.gripper_action_state import GripperActionStateWriter
+from .writers.gripper_state import GripperStateWriter
 from .writers.joint_jog import JointJogWriter
 from .writers.joint_state import JointStateWriter
 from .writers.pose_stamped import PoseStampedWriter
@@ -112,6 +114,11 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
         table='gripper_action_states',
         writer_cls=GripperActionStateWriter,
         reader_cls=GripperActionStateReader,
+    ),
+    'rdfp_msgs/msg/GripperState': TypeBinding(
+        table='gripper_states',
+        writer_cls=GripperStateWriter,
+        reader_cls=GripperStateReader,
     ),
 }
 

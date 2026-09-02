@@ -58,7 +58,7 @@ from robot_control.launch_helpers.gazebo import (
     create_spawn_entity_node,
     gz_resource_path_actions,
 )
-from robot_control.launch_helpers.gripper import create_gripper_control_node
+from robot_control.launch_helpers.gripper import create_gripper_node
 from robot_control.launch_helpers.common import (
     create_move_group_node,
     create_robot_state_publisher,
@@ -124,7 +124,7 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("enable_rviz")),
     )
     ee_pose_node = create_ee_pose_node()
-    gripper_control_node = create_gripper_control_node()
+    gripper_node = create_gripper_node()
 
     # --- 옵션: gz 카메라 센서 → ROS 브리지 (simulate_camera 일 때만) ---
     camera_bridge = create_gz_camera_bridge_node(
@@ -140,7 +140,7 @@ def generate_launch_description() -> LaunchDescription:
         panda_arm_controller_spawner,
         panda_hand_controller_spawner,
         [move_group_node, servo_node, rviz_node, ee_pose_node,
-         gripper_control_node, camera_bridge],
+         gripper_node, camera_bridge],
     )
 
     return LaunchDescription(

@@ -39,7 +39,6 @@ setup(
             'ee_pose_node = robot_control.moveit.ee_pose_publisher:main',
             'ee_twist_node = robot_control.moveit.ee_twist_publisher:main',
             'servo_auto_start_node = robot_control.moveit.servo_auto_start_node:main',
-            'gripper_control_node = robot_control.moveit.gripper_control_node:main',
             'isaac_gripper_bridge = robot_control.isaac.gripper_action_bridge_node:main',
             'isaac_scene_state_node = robot_control.isaac.scene_state_node:main',
             # 백엔드 중립 이름. 노드가 Isaac 전용이 아니라 토픽 remap 으로
@@ -50,6 +49,8 @@ setup(
             'target_joint_cmds_executor = robot_control.moveit.target_joint_cmds_executor:main',
             'target_joint_states_publisher = robot_control.moveit.target_joint_states_publisher:main',
             'target_joint_states_executor = robot_control.moveit.target_joint_states_executor:main',
+            # gripper — GripperNode 계약 구현 (docs/moveit/GripperNode_Design.md)
+            'mock_gripper_node = robot_control.gripper.mock_gripper_node:main',
             # scene
             'mock_scene_state_node = robot_control.scene.mock_scene_state_node:main',
             # functionbay 백엔드 브리지
