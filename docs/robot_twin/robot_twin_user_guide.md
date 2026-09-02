@@ -1854,6 +1854,6 @@ ros2 topic hz /ee_pose                # 실제 발행 주기
 
 - [robot_twin_design.md](robot_twin_design.md) — 설계서. 결정 근거와 이력
 - [../moveit/MoveGroupClient_UserGuide.md](../moveit/MoveGroupClient_UserGuide.md) — `MoveGroupClient` API
-- [../moveit/GripperControlNode_Guide.md](../moveit/GripperControlNode_Guide.md) — 그리퍼 서비스
+- [../moveit/GripperNode_Design.md](../moveit/GripperNode_Design.md) — 그리퍼 서비스
 - [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 로봇 스택(제어 계열) launch 인벤토리
 - [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — 수집 계열 launch 인벤토리

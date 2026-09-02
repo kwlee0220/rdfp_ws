@@ -332,7 +332,7 @@ u:  0 ─────── 0.3 ─────── 0.7 ─────── 
 - [teleop_retarget_node_guide.md](teleop_retarget_node_guide.md) — 클러치 상태·자동 해제
 - [clutch_pedal_guide.md](clutch_pedal_guide.md) — 클러치 게이트(6.2)의 상대편
 - [omy_leader_teleop_guide.md](omy_leader_teleop_guide.md) — 전체 체인 기동 절차
-- [../moveit/GripperControlNode_Guide.md](../moveit/GripperControlNode_Guide.md) — open/close 서비스
+- [../moveit/GripperNode_Design.md](../moveit/GripperNode_Design.md) — open/close 서비스
 - [../moveit/gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) — 액션 서버의 feedback/result 성격
 - [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) 4.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
 - 외부 저장소 `omy_leader_bridge` — `bridge_topics.json` 이 릴레이 토픽의 단일 출처

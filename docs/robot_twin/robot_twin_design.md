@@ -1618,6 +1618,6 @@ extern_op 이 규정하지 않지만 REST API 에서 흔히 쓰이는 것 중 �
 
 - [extern_op 프로토콜](file:///home/kwlee/mdt/share/extern_op/extern_op_revised.md) — RESTful 기반 외부 시스템 연동 프로토콜
 - [moveit/MoveGroupClient_UserGuide.md](../moveit/MoveGroupClient_UserGuide.md) — `MoveGroupClient` API 및 Threading 주의사항
-- [moveit/GripperControlNode_Guide.md](../moveit/GripperControlNode_Guide.md) — 그리퍼 서비스/토픽 인터페이스
+- [moveit/GripperNode_Design.md](../moveit/GripperNode_Design.md) — 그리퍼 서비스/토픽 인터페이스
 - [moveit/gripper_action_server_notes.md](../moveit/gripper_action_server_notes.md) — `gripper_cmd` 액션 계층과 mock 환경 제약
 - [session/session_control_guide.md](../session/session_control_guide.md) — TRANSIENT_LOCAL QoS 사례

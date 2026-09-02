@@ -58,11 +58,10 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|:-:|
-| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 세 진입점(`MoveGroupClient` / `ServoClient` / `GripperControlNode`)의 계층 그림, 읽는 순서, `robot_control/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
+| [moveit/README.md](moveit/README.md) | **moveit 문서 진입점**. "하려는 일 → 문서" 표, 세 진입점(`MoveGroupClient` / `ServoClient` / `GripperNode`)의 계층 그림 — **그리퍼만 계약과 구현이 나뉘고**, 액션 서버 유무가 구현을 가른다. 읽는 순서, `robot_control/moveit/` 모듈 중 다른 폴더에 문서가 있는 것들의 위치 | 현행 |
 | [moveit/MoveGroupClient_UserGuide.md](moveit/MoveGroupClient_UserGuide.md) | **공통 인터페이스 + JTC 구현**. 추상 base + `create_move_group_client()` 팩토리 + 구현별 API 가용성 대조표, Cartesian waypoint 경로 계획·실행, SRDF named target 이동, joint 목표값 이동(`move_to_joints`), 계획 전용 API(`plan_named_target`/`plan_joints`), 동작 중단(`cancel`), 동기/비동기 API, 파라미터 튜닝, Threading 주의사항, 실전 예제. JGPC 상세는 아래 문서로 위임 | 현행 |
 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) | **JGPC 구현 전담**. `FollowJointTrajectory` 가 없는 컨트롤러에서 계획(plan_only)과 실행(명령 토픽 스트리밍)을 분리하는 방법. `MoveGroupJgpcClient` 전체 API(`stream_trajectory`/`*_streamed`/JGPC `cancel`), `TrajectoryStreamer`, joint 순서 자동 조회, `publish_rate` 보간 실측치, `tolerance` 가 최종 자세를 결정하는 이유, `replay_gui` 연동 | 현행 |
 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) | `ServoClient` — `/servo_node` 시작/정지/상태 확인 유틸리티. **Node 가 아님**에 따른 사용 제약, `ServoStatus` 상태 전이, 무인 스택용 `servo_auto_start_node`, 실제 사용처 4곳 | 현행 |
-| [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) | `GripperControlNode` — `control_msgs/GripperCommand` 액션을 `std_srvs/Trigger` 서비스로 감싼 그리퍼 제어 노드. 서비스/토픽 인터페이스, 예제, 에러 처리, 트러블슈팅 | 현행 |
 | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) | **⭐ 그리퍼 인터페이스 설계 (2026-09-02)**. `GripperCommand`(심볼)/`GripperState`(물리량) 계약과 `GripperNode` 노드 계약. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적인 이유 — 숫자는 그리퍼에 종속이라 기구를 바꾸면 틀린 값이 된다. `width` 는 관절값이 아니라 **개구 폭(m)**(Panda 는 2배), 못 구하면 NaN. **`at_goal` 은 위치 도달이 아니라 "시킨 일을 이뤘는가"** — `open`/`close` 는 목표 자세 도달 AND NOT `stalled`, `grasp` 는 `stalled` 다(목표 자세에 닿으면 오히려 헛닫힘). 소비자는 `at_goal` 하나만 본다. **도달을 무엇으로 재는지는 구현이 정한다** — `width` 에 묶이지 않아 `NaN` 인 스택도 판정할 수 있고, 관절 잔차로 재는 쪽이 정확한 백엔드가 있다. `effort` 를 넣지 않은 근거, 백엔드별 실현 가능성(펑션베이 `width` 매핑 미결 · Isaac `stalled` 미구현 · **mock 은 `grasp` 를 영영 성공으로 기록하지 못한다**), 반영 범위와 미결 | 현행 |
 | [moveit/Robotiq2FGripperNode_Guide.md](moveit/Robotiq2FGripperNode_Guide.md) | **Robotiq 2F 계열(2F-85) 그리퍼 구동** (`robot_control`, 실행 파일 `robotiq_2f_gripper_node`) — 액션 서버가 없어 기구를 직접 구동하는 펑션베이용 `GripperNode` 구현. **이름이 인터페이스가 아니라 기구를 가리키는 이유**(가릴 표준 인터페이스가 없다)와 모델이 아니라 계열인 이유(2F-140 은 `targets` 로 흡수). 스칼라 하나를 `axis_signs` 로 **6축에 펼쳐** 보내는 이유(시뮬레이터가 mimic 을 강제하지 않아 한 축만 보내면 링키지가 어긋난 자세가 되고 거부되지도 않는다), **`at_goal` 을 개구 폭이 아니라 관절 잔차로 판정**(지령·보고가 같은 관절 공간이라 실측 잔차 0.0000), `stalled` 을 토크와 속도 **두 신호**로 보는 이유와 실측 임계(빈손 0.004 / 자유이동 0.845 / 파지 17.19 N·m → 임계 1.0), **`width` 는 NaN** 이고 근사를 넣지 않는 이유. 계약 5케이스 검증 표와 증상별 트러블슈팅 | 현행 |
 | [moveit/GripperActionNode_Guide.md](moveit/GripperActionNode_Guide.md) | **`GripperNode` 계약의 액션 기반 구현** (`robot_control`, 실행 파일 `gripper_action_node`, 노드 이름 `gripper`). 채널·QoS(`gripper_states` 는 **`TRANSIENT_LOCAL` 이 아니다**), 파라미터 7종과 기동 시 `ValueError` 로 죽는 조건, 심볼→액션 goal 변환과 **모르는 심볼 거부**(거부한 명령은 `goal` 에 싣지 않는다), 액션 결과를 상태로 쓰지 않는 이유(명령당 1건 · `at_goal` 은 매 주기 재평가), `targets`(관절값)와 `width`(개구 폭)의 **단위 변환**과 그것을 빠뜨려 `open` 판정이 뒤집혔던 회귀. **mock 은 `effort` state interface 자체가 없어 `grasp` 가 영영 성공으로 기록되지 않는다** — 트윈 타임아웃·데이터셋 공백으로 나타난다. Isaac 이 같은 노드를 쓰는 이유, 증상별 트러블슈팅 표 | 현행 |
@@ -214,7 +213,7 @@
 | scene 에 물체를 놓거나 물체 좌표를 읽는다 | [scene/scene_objects_guide.md](scene/scene_objects_guide.md) |
 | JGPC(비-JTC) 환경에서 움직인다 | [moveit/MoveGroupJgpcClient_UserGuide.md](moveit/MoveGroupJgpcClient_UserGuide.md) |
 | servo 로 실시간 제어한다 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) |
-| 그리퍼를 연다/닫는다 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) |
+| 그리퍼를 코드에서 쓴다 (명령 발행·상태 구독·성공 판정) | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) §5 |
 | 그리퍼가 안 움직인다 / 상태가 안 온다 | [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) |
 | 그리퍼 메시지 필드의 뜻을 안다 (`width`/`stalled`/`at_goal`) | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) |
 | 그리퍼 노드를 띄우고 파라미터를 조정한다 | [moveit/GripperActionNode_Guide.md](moveit/GripperActionNode_Guide.md) (mock·Isaac) / [moveit/Robotiq2FGripperNode_Guide.md](moveit/Robotiq2FGripperNode_Guide.md) (펑션베이) |
@@ -233,7 +232,7 @@
 | 펑션베이 작업을 이어서 한다 (남은 작업·블로커) | [simulation/functionbay_open_work.md](simulation/functionbay_open_work.md) |
 | 펑션베이 시뮬레이터 제작사에 수정을 요청한다 | [simulation/functionbay_vendor_requests.md](simulation/functionbay_vendor_requests.md) |
 | 토픽 이름을 정하거나 바꾼다 | [topic_naming_contract.md](topic_naming_contract.md) |
-| 그리퍼 명령·상태 채널을 다룬다 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) |
+| 그리퍼 명령·상태 채널을 다룬다 | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) |
 | Isaac Sim 백엔드를 개발한다 | [simulation/isaac_backend_skeleton.md](simulation/isaac_backend_skeleton.md) |
 | 새 Windows 머신에 Isaac 환경을 구축한다 | [simulation/isaac_windows_setup.md](simulation/isaac_windows_setup.md) |
 | Gazebo 로 돌린다 | [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md) |

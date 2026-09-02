@@ -205,7 +205,7 @@ if (fabs(error_position) < params_.goal_tolerance) {
 > 토픽은 삭제됐고, 지금 `GripperActionNode` 는 **status 를 로그로만 남긴다.**
 > `/gripper_states` 가 싣는 것은 `at_goal` 이며, `CANCELED`(선점)와 `ABORTED`(실패)는
 > 둘 다 `at_goal=false` 로 뭉개진다 — 구분이 필요해지면 되살릴 방법을 정해야 한다
-> ([GripperNode_Design.md](GripperNode_Design.md) §7 미결).
+> ([GripperNode_Design.md](GripperNode_Design.md) §8 미결).
 
 ---
 

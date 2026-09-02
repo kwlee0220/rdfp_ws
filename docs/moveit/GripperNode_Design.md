@@ -1,10 +1,10 @@
 # GripperNode 설계
 
-작성 2026-09-02 · 설계안
+작성 2026-09-02 · **반영 완료**
 
-그리퍼를 **백엔드와 무관하게 같은 방식으로** 활용하기 위한 인터페이스와, 그것을 구현하는 노드(`GripperNode`)의 계약을 정의한다. 실행 방법·CLI·트러블슈팅은 여기 없다 — 현행 구현의 사용법은 [GripperControlNode_Guide.md](GripperControlNode_Guide.md) 를 본다.
+그리퍼를 **백엔드와 무관하게 같은 방식으로** 활용하기 위한 인터페이스와, 그것을 구현하는 노드(`GripperNode`)의 계약을 정의한다. **소비자가 코드에서 쓰는 법은 §5** 에 있고, 실행 방법·파라미터·트러블슈팅은 구현별 가이드가 갖는다 — [GripperActionNode](GripperActionNode_Guide.md) / [Robotiq2FGripperNode](Robotiq2FGripperNode_Guide.md).
 
-> **이 문서는 설계안이다.** 아래 인터페이스는 현행 구현과 다르다. 무엇이 달라지고 왜 그렇게 정했는지가 이 문서의 내용이며, 반영 범위는 §7 에 있다.
+> **설계안으로 시작해 2026-09-02 에 전부 반영됐다.** 무엇이 달라졌고 왜 그렇게 정했는지가 이 문서의 내용이며, 이전 구현과의 차이는 §7, 반영 범위는 §8 에 있다.
 
 ---
 
@@ -315,7 +315,65 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 ---
 
-## 5. 데이터셋에서 어떻게 읽히나
+## 5. 소비자가 쓰는 법
+
+**구현을 몰라도 된다.** 두 채널과 `at_goal` 하나면 된다 — 액션 스택이든 관절 지령
+스택이든 같은 코드가 돈다.
+
+### 5.1 명령을 보낸다
+
+```python
+from rdfp_msgs.msg import GripperCommand
+
+# ⚠️ 퍼블리셔는 **기동 시점에 만들어 둔다.** 만들자마자 publish 하면 DDS 매칭 전이라
+#    구독자가 없어 **첫 명령이 조용히 버려진다.** 로그에도 남지 않는다.
+self._pub = node.create_publisher(GripperCommand, '/gripper_cmds', 10)
+
+msg = GripperCommand()
+# ⚠️ **stamp 를 반드시 채운다.** 비우면 epoch 0 에 적재되어 어느 에피소드에도
+#    속하지 못한다. 로봇은 정상 동작하므로 데이터를 열어보기 전까지 드러나지 않는다.
+msg.header.stamp = node.get_clock().now().to_msg()
+msg.goal = 'grasp'          # 숫자는 싣지 않는다 — GripperNode 의 targets 가 푼다
+self._pub.publish(msg)
+```
+
+모르는 심볼은 노드가 **거부한다**(§3.1-1). 보낼 수 있는 심볼은 그 노드의 `targets`
+파라미터가 정하므로, 늘리려면 노드 쪽을 함께 고친다.
+
+### 5.2 결과를 본다
+
+```python
+from rdfp_msgs.msg import GripperState
+
+def on_state(msg: GripperState) -> None:
+    if msg.goal == 'grasp' and msg.at_goal:
+        print('파지 성공')
+
+# ⚠️ 구독은 **명령을 보내기 전에** 만들어 둔다. 명령 직후에 만들면 DDS 매칭 동안
+#    상태가 지나가 버린다.
+node.create_subscription(GripperState, '/gripper_states', on_state, 10)
+```
+
+**`at_goal` 하나만 본다.** `goal` 별 판정식은 노드가 이미 적용했다(§2.3).
+
+`/gripper_states` 는 **주기 발행**이므로 "갱신됐다"가 "명령이 끝났다"를 뜻하지 않는다.
+완료를 기다리는 코드는 `goal` 이 자기 명령과 같고 `at_goal` 이 참인 스냅샷을 기다린다
+— 세대만 보면 그리퍼가 움직이기도 전에 성공을 돌려준다(트윈이 실제로 그랬다).
+
+`TRANSIENT_LOCAL` 이 아니므로 늦게 붙은 구독자는 다음 발행까지 기다린다.
+
+### 5.3 하지 말 것
+
+| | 왜 |
+|---|---|
+| `/joint_states` 의 손가락 관절로 폭을 읽는다 | 백엔드마다 믿을 수 없다 — 펑션베이는 TF 성립용 고정값을 주입해 "항상 열려 있다"고 거짓말한다(§1.2) |
+| `stalled` 만 보고 파지 성공을 판정한다 | **관측이지 판정이 아니다.** 판정 수단이 없는 스택도 `false` 다(§2.2) |
+| `at_goal=false` 를 곧바로 실패로 읽는다 | "진행 중"과 구분되지 않는다 — `width` 를 함께 본다 |
+| 명령에 숫자를 싣는다 | 필드가 없다. 그리고 그것이 §1.1 의 요점이다 |
+
+---
+
+## 6. 데이터셋에서 어떻게 읽히나
 
 두 채널이 학습 데이터의 **action / observation** 짝을 이룬다.
 
@@ -332,7 +390,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 ---
 
-## 6. 현행 구현과 무엇이 다른가
+## 7. 현행 구현과 무엇이 다른가
 
 | | 현행 | 이 설계 |
 |---|---|---|
@@ -348,7 +406,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 ---
 
-## 7. 반영 범위
+## 8. 반영 범위
 
 **코드·설정은 반영됐다 (2026-09-02).** 문서 일부가 남는다.
 
@@ -360,7 +418,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 | writer/reader | ✅ `gripper_command`·`gripper_state` 갱신, `gripper_action_state` 삭제 |
 | 트윈 | ✅ `gripper_state`(`/gripper_states`) 로 이전. **완료 판정을 세대→`at_goal` 로 바꿨다** — 주기 발행 채널에서 "갱신됨"은 "끝남"이 아니다 |
 | 설정 | ✅ `config/recording_topics.list` (`/gripper_cmds`·`/gripper_states`), 트윈 YAML 2개 |
-| 문서 | ⬜ `GripperControlNode_Guide.md`, `docs/INDEX.md`, `CLAUDE.md`, `rdfp_framework_design.md`, `robot_twin_design.md`, `rdfp_msgs/README.md` |
+| 문서 | ✅ 전 범위 반영. 구 `GripperControlNode_Guide.md` 는 **삭제**했다 — 설명하던 노드·메시지가 전부 없어졌고, 남은 소비자 관점은 §5 로 옮겼다 |
 
 **전 구간이 breaking change 다.** 옛 bag·DB 는 이전 필드명으로 남으므로 reader 에 호환 경로를 둘지 결정해야 한다.
 
@@ -374,10 +432,10 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 ---
 
-## 8. 관련 문서
+## 9. 관련 문서
 
-- [GripperControlNode_Guide.md](GripperControlNode_Guide.md) — **현행 구현**의 사용법
-  (CLI · Python · 트러블슈팅). 이 설계가 반영되면 갱신 대상이다.
+- [GripperActionNode_Guide.md](GripperActionNode_Guide.md) — 액션 기반 구현 (mock · Gazebo · Isaac)
+- [Robotiq2FGripperNode_Guide.md](Robotiq2FGripperNode_Guide.md) — Robotiq 2F 직접 구동 (펑션베이)
 - [gripper_action_server_notes.md](gripper_action_server_notes.md) — mock 액션 서버 쪽 사정
 - [../simulation/functionbay_backend_design.md](../simulation/functionbay_backend_design.md)
   §6 — 펑션베이 그리퍼 채널 실측 사양(입출력 형식 · 부호 · mimic 미강제 · 파지 판정)
