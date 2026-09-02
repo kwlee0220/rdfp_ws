@@ -98,13 +98,11 @@ variables:
       position: m
       orientation: quaternion_xyzw
 
-  # 그리퍼 명령의 **결과 채널**. 트윈은 액션을 직접 부르지 않고 명령 토픽으로
-  # 보내므로(설계서 6.14), 액션 result 는 gripper_control_node 가 이 토픽으로
-  # 재발행한 것을 받는다. move_gripper_to_target 의 backend.result_variable 이
-  # 이 변수를 가리킨다.
+  # 그리퍼의 **연속 상태 채널**. GripperNode 가 주기 발행한다.
+  # move_gripper_to_target 의 backend.result_variable 이 이 변수를 가리킨다.
   #
-  # **이벤트성이다** — 명령이 없는 동안 갱신되지 않으므로 연속 상태로 쓰지 않는다.
-  # 현재 그리퍼 폭은 gripper_state.width 에 있다.
+  # **주기 발행이라 '갱신됨'이 '명령이 끝남'을 뜻하지 않는다** — 완료 판정은 세대가
+  # 아니라 at_goal 로 한다 (backends._send_gripper_command).
   - name: gripper_state
     description: >-
       그리퍼의 연속 상태. **성공 판정은 at_goal 하나로 한다** — goal 별 판정식은
@@ -118,15 +116,6 @@ variables:
       msg: rdfp_msgs/msg/GripperState
       qos: { reliability: reliable, durability: volatile, depth: 1 }
     staleness_ms: 500
-    enums:
-      status:
-        0: UNKNOWN
-        1: ACCEPTED
-        2: EXECUTING
-        3: CANCELING
-        4: SUCCEEDED
-        5: CANCELED
-        6: ABORTED
 
   # 연속적인 그리퍼 위치는 /joint_states 의 finger joint 에서 파생한다.
   # (derived 소스는 아직 배선되지 않아 NO_DATA 로 보고된다 — 설계서 9장)
@@ -268,14 +257,12 @@ operations:
   # 파생된다 (config.OperationConfig._derive_target_enum). 두 곳에 적으면 조용히
   # 어긋나고, enum 만 빠지면 jsonschema 설치 여부에 따라 동작이 갈린다.
   #
-  # 목표는 `position`(+ 선택 `max_effort`) 으로만 정의한다. 트윈은 이 값을
-  # rdfp_msgs/GripperCommand 로 만들어 backend.topic 에 발행하고 **결과가 올 때까지
-  # 기다린다** — 그래서 outputs 의 reached_goal/stalled 로 완료를 판정할 수 있다.
+  # 목표는 **심볼**로만 정의한다. 트윈은 이 값을 rdfp_msgs/GripperCommand 로 만들어
+  # backend.topic 에 발행하고 **at_goal 이 설 때까지** 기다린다 (2026-09-01 결정).
   #
-  # position 은 컨트롤러가 물린 관절 하나(panda_finger_joint1)의 목표값이며 손가락
-  # 사이 거리의 **절반**이다. 실기 franka 의 move/grasp 가 쓰는 width 와 2배 차이가
-  # 난다. max_effort 는 생략하면 0 = 드라이버 기본 효과치이며, 실기에서는 0 이 파지
-  # 없는 이동으로 해석될 수 있으므로 물체를 쥐려면 명시한다.
+  # 숫자를 싣지 않는 이유는 그리퍼 종속이기 때문이다 — 목표 폭도, 파지력도 기구가
+  # 바뀌면 틀린 값이 된다. 그 숫자는 GripperNode 의 targets 파라미터에 있다.
+  # 관측되는 width 는 개구 폭(m)이며 관절값이 아니다 (Panda 는 관절값의 2배).
   - name: move_gripper_to_target
     description: >-
       그리퍼를 이름표 목표로 구동한다 — open(벌림) / close(빈손으로 닫음) /
@@ -287,20 +274,22 @@ operations:
     resource: gripper
     idempotent: true
     backend:
-      # 액션을 직접 부르지 않는다 — goal 전송은 서비스라 rosbag2 가 기록하지 못한다.
-      # 명령을 토픽으로 흘려 gripper_control_node 가 액션으로 중계하게 하고, 결과는
-      # 그 노드가 재발행하는 상태 변수로 받는다 (설계서 6.14).
+      # 하드웨어를 직접 다루지 않는다 — 명령을 토픽으로 흘려 GripperNode 가 자기
+      # 백엔드 방식(mock 은 액션, 펑션베이는 관절 토픽)으로 실행하게 한다. 토픽이라야
+      # rosbag2 가 기록해 학습 데이터의 action 채널이 남는다 (설계서 6.14).
       topic: /gripper_cmds
       topic_type: rdfp_msgs/msg/GripperCommand
+      # 완료는 **at_goal 로** 판정한다. 이 변수는 주기 발행이라 '갱신됨'이 '끝남'을
+      # 뜻하지 않는다 — 세대만 보면 다음 틱에 곧바로 성공을 돌려준다.
       result_variable: gripper_state
-      # 보낼 수 있는 **심볼 목록**. 숫자(position/max_effort)는 여기 없다 —
-      # 그리퍼에 종속이라 `gripper_control_node` 의 `targets` 파라미터가 갖는다
-      # (2026-09-01 결정, rdfp_msgs/msg/GripperCommand.msg 참조).
+      # 보낼 수 있는 **심볼 목록**. 숫자는 여기 없다 — 그리퍼에 종속이라 GripperNode 의
+      # `targets` 파라미터가 갖는다 (2026-09-01 결정, rdfp_msgs/msg/GripperCommand.msg).
       #
       #   open   손을 편다
       #   close  빈손으로 닫는다 (힘을 주지 않으므로 파지 용도가 아니다)
-      #   grasp  물체를 쥔다 — 물체에 닿으면 그 힘으로 버티며 멈추므로
-      #          outputs 가 stalled=true / reached_goal=false 로 온다
+      #   grasp  물체를 쥔다 — 물체에 막혀 멈추는 것이 곧 성공이라 at_goal 은
+      #          stalled 로 판정된다. ⚠️ mock 은 stalled 수단이 없어 grasp 가
+      #          at_goal 에 도달하지 못하고 sync_timeout_sec 까지 기다린다.
       labels: [open, close, grasp]
     inputs_schema:
       type: object
@@ -308,7 +297,7 @@ operations:
       properties:
         target: { type: string }      # enum 은 backend.labels 에서 파생된다
       additionalProperties: false
-    # 액션 result 가 돌아올 때까지 기다리므로 넉넉해야 한다. 이 시간 동안
+    # at_goal 이 설 때까지 기다리므로 넉넉해야 한다. 이 시간 동안
     # HTTP 요청이 블록된다 — 그리퍼는 취소 실익이 없어 동기로 둔다 (설계서 6.2).
     sync_timeout_sec: 5.0
 

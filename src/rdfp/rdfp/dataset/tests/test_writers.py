@@ -169,7 +169,7 @@ def test_gripper_command_row_values() -> None:
     sql, params = conn.executed[0]
     assert 'INSERT INTO gripper_cmds' in sql
     # **의도(심볼)만 남는다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
-    # `gripper_control_node` 의 targets 파라미터가 갖는다 (2026-09-01 결정).
+    # `GripperNode` 의 targets 파라미터가 갖는다 (2026-09-01 결정).
     assert params[0] == (3, 11, 100, 500, 'open')
 
 
@@ -189,34 +189,36 @@ def test_gripper_command_without_label_is_stored_empty() -> None:
 
 
 def test_gripper_state_row_values() -> None:
-    from rdfp.dataset.db.writers.gripper_action_state import GripperActionStateWriter
+    from rdfp.dataset.db.writers.gripper_state import GripperStateWriter
 
     conn = _FakeConn()
-    w = GripperActionStateWriter(conn=conn, batch_size=1, topic_id=13)
+    w = GripperStateWriter(conn=conn, batch_size=1, topic_id=13)
     msg = SimpleNamespace(
         header=_header(10, 20),
-        position=0.04, effort=12.5, stalled=False, reached_goal=True, status=4,
+        goal='grasp', width=0.032, stalled=True, at_goal=True,
     )
     w.append(5, msg)
     assert len(conn.executed) == 1
     sql, params = conn.executed[0]
-    assert 'INSERT INTO gripper_action_states' in sql
-    assert params[0] == (5, 13, 10, 20, 0.04, 12.5, False, True, 4)
+    assert 'INSERT INTO gripper_states' in sql
+    assert params[0] == (5, 13, 10, 20, 'grasp', 0.032, True, True)
 
 
-def test_gripper_state_row_values_without_status() -> None:
-    """status 도입 이전에 녹화된 메시지는 UNKNOWN(0) 으로 적재한다."""
-    from rdfp.dataset.db.writers.gripper_action_state import GripperActionStateWriter
+def test_gripper_state_row_keeps_nan_width() -> None:
+    """width 를 못 구하면 NaN 그대로 적재한다 — 0 은 '닫혀 있다'는 거짓말이 된다."""
+    import math
+
+    from rdfp.dataset.db.writers.gripper_state import GripperStateWriter
 
     conn = _FakeConn()
-    w = GripperActionStateWriter(conn=conn, batch_size=1, topic_id=13)
+    w = GripperStateWriter(conn=conn, batch_size=1, topic_id=13)
     msg = SimpleNamespace(
         header=_header(10, 20),
-        position=0.04, effort=12.5, stalled=False, reached_goal=True,
+        goal='', width=float('nan'), stalled=False, at_goal=False,
     )
     w.append(5, msg)
     _, params = conn.executed[0]
-    assert params[0] == (5, 13, 10, 20, 0.04, 12.5, False, True, 0)
+    assert math.isnan(params[0][5])
 
 
 # --------------------------------------------------------------------------
@@ -242,8 +244,7 @@ def test_registry_contains_new_gripper_types() -> None:
     from rdfp.dataset.db.registry import MESSAGE_TYPE_REGISTRY
 
     assert MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperCommand'].table == 'gripper_cmds'
-    assert (MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperActionState'].table
-            == 'gripper_action_states')
+    assert MESSAGE_TYPE_REGISTRY['rdfp_msgs/msg/GripperState'].table == 'gripper_states'
 
 
 def test_registry_table_matches_writer_class_default() -> None:

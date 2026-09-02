@@ -146,13 +146,12 @@ _BACKEND_PROFILES: dict = {
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
 _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살표 매핑)
 
-# gripper_control_node 가 구독하는 명령 토픽. 이 토픽이 곧 학습 데이터의 action
-# 채널이므로, 키 입력을 **숫자 명령**으로 바꿔 발행한다 (심볼을 보내면 그 의미가
-# 데이터셋 밖에 남는다).
+# GripperNode 가 구독하는 명령 토픽. 이 토픽이 곧 학습 데이터의 action 채널이다.
+# 키 입력을 **심볼**로 바꿔 발행한다 — 숫자는 그리퍼에 종속이라 다른 기구로 옮기면
+# 틀린 값이 된다 (2026-09-01 결정, rdfp_msgs/msg/GripperCommand.msg 참조).
 _GRIPPER_CMD_TOPIC = "/gripper_cmds"
 
-# Panda 손 관례: open = 0.04 m, close = 0.0 m (panda_finger_joint1 기준 half-width).
-# 키보드로 보낼 수 있는 그리퍼 심볼. 숫자는 `gripper_control_node` 의 `targets`
+# 키보드로 보낼 수 있는 그리퍼 심볼. 숫자는 `GripperNode` 의 `targets`
 # 파라미터가 갖는다 — 명령 메시지에는 의도만 실린다.
 #
 # `grasp` 를 넣지 않은 것은 키보드 teleop 이 빈손 개폐가 기본 용도이기 때문이다.
@@ -222,8 +221,8 @@ class TeleopKeyboard(Node):
         self.joint_jog_pub = self.create_publisher(JointJog, _DELTA_JOINT_TOPIC, 10)
 
         # --- Gripper command publisher ---
-        # 액션 호출은 gripper_control_node 가 담당한다. 본 노드는 키 입력을
-        # 숫자 명령으로 바꿔 발행만 한다.
+        # 하드웨어 접점은 GripperNode 가 담당한다. 본 노드는 키 입력을
+        # 심볼로 바꿔 발행만 한다.
         self._gripper_pub = self.create_publisher(GripperCommand, _GRIPPER_CMD_TOPIC, 10)
 
         # --- SessionControlClient (비동기 API 사용) ---
@@ -428,14 +427,14 @@ class TeleopKeyboard(Node):
     # ── Gripper helpers ─────────────────────────────────────────
 
     def _call_gripper(self, command: str) -> None:
-        """키 입력을 심볼 명령으로 `gripper_control_node` 에 발행한다.
+        """키 입력을 심볼 명령으로 `GripperNode` 에 발행한다.
 
-        **숫자를 싣지 않는다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
-        `gripper_control_node` 의 `targets` 파라미터가 갖는다.
+        **숫자를 싣지 않는다.** 목표 폭(m) 은 그리퍼에 종속이라 노드의 `targets`
+        파라미터가 갖는다.
 
-        결과는 기다리지 않는다 — 액션 호출과 result 발행은
-        `gripper_control_node` 의 몫이며, 도달 여부는 `/gripper_control/gripper_action_states`
-        또는 `/joint_states` 의 finger joint 로 확인한다.
+        결과는 기다리지 않는다 — 하드웨어를 다루는 것은 `GripperNode` 의 몫이며,
+        성패는 `/gripper_states` 의 `at_goal` 로 확인한다 (`/joint_states` 의
+        finger joint 는 백엔드에 따라 거짓말을 한다).
         """
         if command not in _GRIPPER_LABELS:
             self.get_logger().warning(f"[gripper] unknown command {command!r}")
@@ -594,7 +593,7 @@ class TeleopKeyboard(Node):
         """Handle keys that fire once per press. Returns True if handled."""
         km = self.keys
 
-        # Gripper — gripper_control_node 가 구독하는 명령 토픽에 발행.
+        # Gripper — GripperNode 가 구독하는 명령 토픽에 발행.
         if key == km.gripper_open:
             self._call_gripper("open")
             return True

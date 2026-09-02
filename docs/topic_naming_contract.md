@@ -24,6 +24,12 @@
 **백엔드 이름이 토픽에 새어 나와 있다** — `/isaac/…`, `/input`·`/output`. 그러면
 상위(수집·트윈·teleop)가 백엔드를 알아야 하고, 백엔드를 바꿀 때마다 설정이 갈라진다.
 
+**새는 방식이 하나 더 있다 — 구현 노드 이름.** 그리퍼 채널이 그랬다. 노드가 `~/` 상대로
+발행해 `/gripper_control/gripper_cmds` 가 되어 있었는데, `gripper_control` 은 논리 채널이
+아니라 **그때 그 노드의 이름**이다. 노드를 갈면(`gripper_control_node` → `MockGripperNode`)
+채널 이름이 따라 바뀌어 녹화 목록과 트윈 설정이 함께 깨진다. 백엔드 이름이 샌 것과 증상은
+같고, 고치는 방법도 같다 — 루트 상대로 두는 것이다(§2.2).
+
 실제로 그렇게 갈라진 흔적이 있다. `rdfp_panda_isaac.launch.py` 는 카메라 토픽을
 `isaac_scene.json` 에서 읽어 넘기고, `rdfp_collect.launch.py` 로 분리해 쓰려면 인자
 네 개를 손으로 맞춰야 한다.
@@ -45,13 +51,25 @@
 | 카메라 압축 이미지 | `camera/image_compressed` | `sensor_msgs/CompressedImage` | |
 | 카메라 정보 | `camera/camera_info` | `sensor_msgs/CameraInfo` | `image_raw` 와 짝 |
 | 그리퍼 상태 | `gripper_states` | `rdfp_msgs/GripperState` | **연속 상태.** `/joint_states` 로 대신할 수 없다 — §2.2 |
-| 씬 물체 | `scene/objects` | `rdfp_msgs/SceneObjects` | **복수** — 메시지가 실제로 배열이다 |
+| scene 물체 | `scene/objects` | `rdfp_msgs/SceneObjects` | **복수** — 메시지가 실제로 배열이다 |
 
 > **단수/복수는 메시지 모양을 따른다.** `ee_pose` 는 값 하나라 단수, `scene/objects` 는
 > `SceneObject[]` 를 담으므로 복수다. `camera_images` 처럼 채널이라는 이유로 복수를
 > 쓰지 않는다 — 그러면 `SceneObjects` 와 규칙이 어긋난다.
 
-### 2.2 `gripper_states` — `/joint_states` 로 대신할 수 없다
+### 2.2 그리퍼 — 채널은 둘, 이름은 루트 상대
+
+| 정규 이름 | 타입 | 방향 |
+|---|---|---|
+| `gripper_cmds` | `rdfp_msgs/GripperCommand` | 명령 |
+| `gripper_states` | `rdfp_msgs/GripperState` | 관측 |
+
+**규약이 아는 그리퍼 채널은 이 둘뿐이다.** 필드의 뜻(개구 폭 단위, `stalled` 와
+`at_goal` 의 차이, 판정 주체)은 [GripperNode_Design.md](moveit/GripperNode_Design.md)
+§2 가 정본이다 — 이름 규약 문서가 함께 설명하면 두 문서가 갈라진다. 아래는 **이름에
+관한 결정**만 적는다.
+
+#### 왜 `/joint_states` 로 대신할 수 없나
 
 손가락 관절이 `/joint_states` 에 실리므로 전용 채널이 불필요해 보이지만, **백엔드마다
 사정이 다르다.**
@@ -62,55 +80,46 @@
 | 펑션베이 | **TF 성립용 고정값** — 없는 것보다 나쁘다 |
 
 펑션베이는 `0.04` 를 주입해 **"항상 열려 있다"고 거짓말**을 하고, 데이터를 열어봐도
-드러나지 않는다. 그래서 값을 실을 수 있는 스택만 발행하고, 못 하는 스택은 채널을
-비운다 — "모른다"가 사실대로 남는다.
+드러나지 않는다. 그래서 별도 채널을 두고, 값을 실을 수 없는 스택은 `width` 를 `NaN`
+으로 둔다 — "모른다"가 사실대로 남는다.
 
-**싣는 값은 개구 폭(m)이며 관절값이 아니다.** 관절값으로 두면 Panda 는 m,
-Robotiq 2F-85 는 rad 가 되어 같은 필드가 다른 것을 뜻한다. 물리량으로 고정하면 같은
-데이터셋의 `scene/objects` 치수와 직접 비교된다 — 5 cm 블록을 4.5 cm 로 쥐었다는 것이
-그대로 읽힌다. 실측 확인 — Panda 손가락 관절 0.0400 → `position` 0.0800 (×2).
+#### `~/` 가 아니라 루트 상대다 (2026-09-02)
 
-> **명령과 반대 방향인 것이 일관적이다.** 명령(`GripperCommand`)은 **심볼**이고 관측은
-> **물리량**이다 — 명령은 "무엇을 원하는가"라 이식되어야 하고, 관측은 "무엇인가"라
-> 정의된 단위로 재야 비교된다. 명령에 숫자를 넣으면 부르는 쪽이 그리퍼를 알아야
-> 하지만, 관측은 재는 쪽이 자기 기구를 이미 안다.
+전에는 노드가 `~/gripper_cmds` 로 발행해 실제 이름이 `/gripper_control/gripper_cmds`
+였다. 지금은 `gripper_cmds` — **루트 상대**다.
 
-`stalled` 판정은 **로봇 스택의 몫**이다. 위치 변화와 힘의 임계값이 그리퍼마다 다르다.
-수단이 없는 스택은 `false` 로 두므로 **`false` 가 "물지 않았다"를 보장하지 않는다.**
+`~/` 는 네임스페이스가 아니라 **노드 이름**을 접두사로 붙인다. 그래서 두 가지가 어긋난다.
 
-#### 그리퍼 채널이 셋인 이유 — `gripper_action_states` 를 남긴 판단
+1. **채널이 구현에 묶인다.** `gripper_control` 은 논리 채널이 아니라 그때 그 노드의
+   이름이라, 노드를 갈아치우면 채널 이름이 따라 바뀐다. 실제로 `gripper_control_node`
+   를 `MockGripperNode` 로 교체하면서 녹화 목록·트윈 설정·DB 주석이 함께 바뀌었다.
+2. **§5 의 네임스페이스가 통하지 않는다.** 루트 상대여야 `PushRosNamespace` 로
+   `/abc/gripper_cmds` 가 된다. `~/` 는 노드명에 묶여 있어 그 경로를 타지 못한다.
 
-`gripper_states` 가 생기면서 `gripper_action_states` 와 **세 필드가 겹친다**
-(`position` · `effort` · `stalled`). 후자만의 것은 `reached_goal` 과 `status` 뿐이다.
+**servo 예외(§2.4)와 헷갈리지 않는다.** `servo_node/delta_twist_cmds` 도 노드 이름을
+달고 있지만 그쪽은 *우리가 짓지 않은 외부 규약*이고 모든 백엔드에서 같다. 그리퍼는
+우리 노드이고 구현마다 갈렸다 — 남길 이유가 없다.
 
-| 채널 | 역할 |
+#### 폐기 기록 — `gripper_action_states` (2026-09-02)
+
+`GripperActionState` 와 `/gripper_control/gripper_action_states` 는 **삭제됐다.**
+`GripperState` 와 필드가 겹쳤고, 남길 근거로 들었던 둘이 모두 해소됐기 때문이다.
+
+| 남길 근거였던 것 | 어떻게 해소됐나 |
 |---|---|
-| `gripper_control/gripper_cmds` | 의도 — 심볼 |
-| `gripper_states` | 연속 관측 — 개구 폭 · 힘 · 물림 |
-| `gripper_control/gripper_action_states` | 명령 완료 신호 (+ Isaac 의 현재 유일한 파지 지표) |
+| 트윈의 명령 완료 신호 (주기 발행인 `gripper_states` 로는 "갱신됨"이 "끝남"을 뜻하지 않는다) | `at_goal` 이 **판정을 값 안에 담는다.** 갱신 여부를 볼 필요가 없어졌다 |
+| Isaac 의 유일한 파지 지표 (`stalled = not reached`) | 해소되지 않았다 — 아래 |
 
-**그래도 남긴다 (2026-09-02).** 이유가 둘이고, 둘 다 한시적이다.
+**남은 부채: Isaac 의 파지 여부가 데이터에서 빠져 있다.** `IsaacGripperNode` 의
+`stalled` 가 미구현이라 `at_goal` 이 `grasp` 에서 늘 `false` 다. 파지 시 effort 를
+실측해 임계값을 잡는 것이 선행 작업이다
+([GripperNode_Design.md](moveit/GripperNode_Design.md) §4).
 
-1. **트윈의 완료 신호다.** `move_gripper_to_target` 이 이 변수의 갱신을 기다려 연산을
-   끝낸다. `gripper_states` 로는 대체할 수 없다 — **주기 발행이라 "갱신됨"이 "명령이
-   끝남"을 뜻하지 않는다.** `/scene/objects` 를 리셋 완료 신호로 못 쓰는 것과 같다.
-2. **Isaac 에서 지금 유일한 파지 지표다.** `gripper_action_bridge` 가
-   `stalled = not reached` 로 채우는 반면, `gripper_states.stalled` 는 아직 항상
-   `false`(미구현)다.
-
-> **학습 신호로서는 둘 다 필요 없다.** 액션은 `gripper_cmds`(의도)가, 결과는
-> `gripper_states`(연속 관측)가 담는다. `reached_goal` / `status` 는 진단값이다.
+> **학습 신호로서는 잃은 것이 없다.** action 은 `gripper_cmds`(의도)가, 관측은
+> `gripper_states` 가 담는다. 사라진 `reached_goal`/`status` 는 진단값이었다.
 >
 > **mock 은 애초에 파지를 관측할 수 없다** — planning scene 물체에 물리가 없어 어느
 > 채널이든 `stalled` 가 무의미하다.
-
-**줄이려면 순서가 있다.**
-
-1. Isaac 의 `gripper_states.stalled` 구현 (파지 시 effort 실측 → 임계값)
-2. 그 뒤에 `GripperActionState` 를 `reached_goal` + `status` 로 축소하거나 녹화 목록에서
-   제거
-
-**1 없이 2 를 하면 Isaac 의 파지 여부가 데이터에서 사라진다.**
 
 ### 2.3 명령 (action)
 
@@ -120,8 +129,7 @@ Robotiq 2F-85 는 rad 가 되어 같은 필드가 다른 것을 뜻한다. 물�
 | 관절 jog | `servo_node/delta_joint_cmds` | `control_msgs/JointJog` | **예외** — §2.4 |
 | 목표 관절값 | `target_joint_cmds` | `sensor_msgs/JointState` | **데이터셋의 action 채널** |
 | 목표 EE 자세 | `target_ee_pose` | `geometry_msgs/PoseStamped` | **단수**. teleop retarget 결과 |
-| 그리퍼 명령 | `gripper_control/gripper_cmds` | `rdfp_msgs/GripperCommand` | |
-| 그리퍼 상태 | `gripper_control/gripper_action_states` | `rdfp_msgs/GripperActionState` | |
+| 그리퍼 명령 | `gripper_cmds` | `rdfp_msgs/GripperCommand` | **심볼만 싣는다** — §2.2 |
 
 ### 2.4 예외 — servo 입력 두 개는 노드 이름을 달고 있다
 
@@ -155,8 +163,13 @@ Robotiq 2F-85 는 rad 가 되어 같은 필드가 다른 것을 뜻한다. 물�
 | 채널 | 정규 이름 | 비고 |
 |---|---|---|
 | 세션 상태 | `session` | `TRANSIENT_LOCAL` |
-| 씬 리셋 | `scene/reset` | **서비스** (`rdfp_msgs/srv/ResetScene`) |
-| 그리퍼 액션 | `panda_hand_controller/gripper_cmd` | `control_msgs/GripperCommand` 액션 |
+| scene 리셋 | `scene/reset` | **서비스** (`rdfp_msgs/srv/ResetScene`) |
+
+> **그리퍼의 하드웨어 접점은 규약에 없다.** mock 은
+> `panda_hand_controller/gripper_cmd` 액션을 부르고, 펑션베이는 관절 토픽을 쓰며,
+> Isaac 은 브릿지를 거친다 — arm 명령을 규약에서 뺀 것과 **같은 이유**다(§3).
+> 그 접점을 아는 것은 `GripperNode` 구현체 하나뿐이고, 상위 계층이 보는 것은
+> `gripper_cmds` / `gripper_states` 둘뿐이다.
 
 ---
 
@@ -212,7 +225,8 @@ Robotiq 2F-85 는 rad 가 되어 같은 필드가 다른 것을 뜻한다. 물�
 | `config/recording_topics.list` | 절대 이름 11종 |
 
 **노드 계층은 이미 대부분 상대다** — `arm_command`, `target_joint_cmds`, `session`,
-`ee_pose`, `image`, `~/gripper_cmds`. 절대화는 launch 의 remap 이 하고 있다.
+`ee_pose`, `image`, `gripper_cmds`, `gripper_states`. 절대화는 launch 의 remap 이
+하고 있다. 그리퍼 둘은 `~/` 였다가 루트 상대로 바꾼 것이다(§2.2).
 
 ---
 

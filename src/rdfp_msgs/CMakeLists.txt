@@ -20,7 +20,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ResetScene.srv"
   "msg/SessionCommand.msg"
   "msg/GripperCommand.msg"
-  "msg/GripperActionState.msg"
   "msg/TargetJointStates.msg"
   "msg/ClutchState.msg"
   "msg/GripperState.msg"

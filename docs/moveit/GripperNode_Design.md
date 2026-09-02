@@ -295,23 +295,24 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 ## 7. 반영 범위
 
-**메시지와 `MockGripperNode` 는 반영됐다 (2026-09-02).** 아래 표의 나머지가 남는다.
+**코드·설정은 반영됐다 (2026-09-02).** 문서 일부가 남는다.
 
 | 대상 | 할 일 |
 |---|---|
-| 메시지 | ✅ `GripperCommand.goal`, `GripperState` 재정의. `GripperActionState` 는 **파일을 남겼다** — 표준은 아니고 mock 구현 사정으로 트윈이 아직 구독한다 |
+| 메시지 | ✅ `GripperCommand.goal`, `GripperState` 재정의. `GripperActionState` 는 **삭제** |
 | 노드 | ✅ `MockGripperNode` (`robot_control/gripper/`). 구 `gripper_control_node`·`gripper_state_publisher` 제거. **`FunctionBayGripperNode` 미구현** — Isaac 은 액션 경로가 같아 당분간 같은 노드를 쓴다 |
-| DB | ✅ `gripper_cmds.goal`, `gripper_states` 를 `goal`/`width`/`stalled`/`at_goal` 로 재정의 |
-| writer/reader | ✅ `gripper_command`·`gripper_state` 갱신 |
-| 트윈 | `gripper_last_command_result` 가 `/gripper_control/gripper_action_states` 의존 → 이전 필요 |
-| 설정 | ⬜ `config/recording_topics.list` — 토픽 이름이 `/gripper/gripper_states` 로 바뀌었다 |
-| 문서 | `GripperControlNode_Guide.md`, `docs/INDEX.md`, `CLAUDE.md` 그리퍼 항목 2개 |
+| DB | ✅ `gripper_cmds.goal`, `gripper_states` 를 `goal`/`width`/`stalled`/`at_goal` 로 재정의. `gripper_action_states` 테이블 삭제 (`drop.sql` 은 구 DB 정리용으로 남겼다) |
+| writer/reader | ✅ `gripper_command`·`gripper_state` 갱신, `gripper_action_state` 삭제 |
+| 트윈 | ✅ `gripper_state`(`/gripper_states`) 로 이전. **완료 판정을 세대→`at_goal` 로 바꿨다** — 주기 발행 채널에서 "갱신됨"은 "끝남"이 아니다 |
+| 설정 | ✅ `config/recording_topics.list` (`/gripper_cmds`·`/gripper_states`), 트윈 YAML 2개 |
+| 문서 | ⬜ `GripperControlNode_Guide.md`, `docs/INDEX.md`, `CLAUDE.md`, `rdfp_framework_design.md`, `robot_twin_design.md`, `rdfp_msgs/README.md` |
 
 **전 구간이 breaking change 다.** 옛 bag·DB 는 이전 필드명으로 남으므로 reader 에 호환 경로를 둘지 결정해야 한다.
 
 ### 미결
 
-- `GripperActionState` 의 `status` 가 갖던 **`CANCELED`(후속 명령에 의한 선점) vs `ABORTED`(실패) 구분**이 표준에서 사라진다. 선점을 실패로 오독하지 않으려면 어딘가에 남아야 하는지 판단이 필요하다.
+- `GripperActionState` 의 `status` 가 갖던 **`CANCELED`(후속 명령에 의한 선점) vs `ABORTED`(실패) 구분**이 사라졌다. `at_goal` 은 둘 다 `false` 로 본다. 선점을 실패로 오독하지 않으려면 어딘가에 남아야 하는지 판단이 필요하다.
+- **트윈의 `move_gripper_to_target grasp` 는 mock 에서 타임아웃한다.** mock 은 `stalled` 판정 수단이 없어 `at_goal` 이 서지 않는다(§4.3). 완료를 정직하게 판정한 대가이며, 대안은 (a) 그대로 두고 mock 에서 grasp 를 쓰지 않기, (b) `sync_timeout_sec` 경과 시 `at_goal=false` 로 성공 반환, (c) mock 에 가짜 stall 을 넣기 — 셋 다 각각의 거짓말이 있어 결정이 필요하다.
 - 펑션베이 `width` 매핑 정확도 — 근사로 갈지 제원을 요청할지.
 - Isaac `stalled` 임계값 — effort 실측이 선행되어야 한다.
 

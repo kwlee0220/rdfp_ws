@@ -93,7 +93,7 @@ def validate_operation_config(op: OperationConfig) -> None:
                 f"operation '{op.name}': backend.labels entries must be non-empty strings, "
                 f'got {raw!r}'
             )
-        # 숫자를 여기 두면 안 된다 — 그리퍼에 종속이라 `gripper_control_node` 의
+        # 숫자를 여기 두면 안 된다 — 그리퍼에 종속이라 `GripperNode` 의
         # `targets` 파라미터가 갖는다 (rdfp_msgs/msg/GripperCommand.msg 참조).
         if isinstance(raw, dict):
             raise ValueError(
@@ -259,8 +259,8 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
 def gripper_labels(op: OperationConfig) -> list:
     """설정이 허용하는 그리퍼 심볼 목록.
 
-    **숫자는 여기 없다.** position(m) / max_effort(N) 은 그리퍼에 종속이라
-    `gripper_control_node` 의 `targets` 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼
+    **숫자는 여기 없다.** 목표 폭(m) 은 그리퍼에 종속이라 `GripperNode` 의
+    `targets` 파라미터가 갖는다 — 트윈은 어떤 의도를 보낼
     수 있는지만 안다(2026-09-01 결정, `GripperCommand.msg` 참조).
 
     목록을 설정에 두는 이유는 `/operations` 카탈로그의 enum 이 여기서 파생되기
@@ -277,7 +277,7 @@ def _make_command(node: Any, label: str) -> Any:
     ROS 의존성을 이 함수 하나에 가둔다 — 호출 흐름(예산 배분, 결과 해석)은 ROS 없이
     테스트할 수 있어야 한다.
 
-    **심볼만 싣는다.** 숫자는 `gripper_control_node` 가 자기 `targets` 로 푼다.
+    **심볼만 싣는다.** 숫자는 `GripperNode` 가 자기 `targets` 로 푼다.
     """
     from rdfp_msgs.msg import GripperCommand
 
@@ -291,18 +291,24 @@ def _make_command(node: Any, label: str) -> Any:
 
 def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
                           label: str, timeout: float) -> dict[str, Any]:
-    """명령 토픽에 발행하고 **결과 변수가 갱신될 때까지** 기다린다.
+    """명령 토픽에 발행하고 **`at_goal` 이 설 때까지** 기다린다.
 
     액션을 직접 부르지 않는 이유는 두 가지다 (설계서 6.14).
 
     1. 액션 goal 전송은 서비스라 **rosbag2 가 기록하지 못한다.** 토픽으로 흘려야
        학습 데이터의 action 채널이 남는다.
-    2. 액션 호출자를 ``gripper_control_node`` 하나로 모아야 결과 채널
-       (``gripper_action_states``)이 생성기마다 갈리지 않는다.
+    2. 그리퍼를 직접 다루는 주체를 ``GripperNode`` 하나로 모아야 상태 채널
+       (``/gripper_states``)이 생성기마다 갈리지 않는다.
 
-    결과는 ``backend.result_variable`` 이 가리키는 상태 변수로 받는다. 이 변수는
-    기동 시점부터 구독되어 있으므로 **발행 직후의 결과를 놓치지 않는다** — 호출 때마다
-    구독을 만들면 DDS 매칭 전에 결과가 지나가 버린다.
+    결과는 ``backend.result_variable`` 이 가리키는 상태 변수(``/gripper_states``)로
+    받는다. 이 변수는 기동 시점부터 구독되어 있으므로 **발행 직후의 결과를 놓치지
+    않는다** — 호출 때마다 구독을 만들면 DDS 매칭 전에 결과가 지나가 버린다.
+
+    **"갱신됨"을 완료로 삼지 않는다.** 이 채널은 주기 발행이라 명령과 무관하게 세대가
+    올라간다 — 세대만 보면 다음 틱에 곧바로 성공을 돌려주고 그리퍼는 아직 움직이지도
+    않았다. 대신 ``goal`` 이 이번 명령과 같고 ``at_goal`` 이 참인 스냅샷을 기다린다.
+    판정식(open/close 는 목표 폭 도달, grasp 는 물림)은 ``GripperNode`` 가 이미
+    적용했으므로 여기서 다시 따지지 않는다.
 
     Returns:
         결과 필드를 그대로 담은 dict. 오차를 근거로 성패를 뒤집지 않는다 (설계서 6.7).
@@ -323,8 +329,8 @@ def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
         )
 
     deadline = time.monotonic() + timeout
-    # 발행 **전에** 현재 세대를 기록한다. 이후 세대가 올라간 스냅샷만 이 명령의
-    # 결과로 인정한다 — 이전 명령의 결과를 자기 것으로 착각하지 않기 위해서다.
+    # 발행 **전에** 현재 세대를 기록한다. 발행 이전 스냅샷은 이전 명령의 것이므로
+    # goal 이 우연히 같아도 (같은 목표를 두 번 보내면 그렇다) 자기 것으로 삼지 않는다.
     before = _snapshot_gen(entry)
     node = runtime._node  # noqa: SLF001 — 런타임 내부 협력자다
     publisher.publish(_make_command(node, label))
@@ -333,13 +339,12 @@ def _send_gripper_command(runtime: 'RobotTwinRuntime', op: OperationConfig, *,
         snap = entry.snapshot
         if snap is not None and snap.gen != before:
             # `Snapshot.msg` 는 원본 ROS 메시지다 — 변환하지 않고 그대로 들고 있다
-            # (설계서 2.2). 필드가 없는 구현을 만나도 죽지 않게 방어한다.
-            result = snap.msg
-            return {'position': float(getattr(result, 'position', 0.0)),
-                    'effort': float(getattr(result, 'effort', 0.0)),
-                    'stalled': bool(getattr(result, 'stalled', False)),
-                    'reached_goal': bool(getattr(result, 'reached_goal', False))}
-        _remaining(deadline, f"{op.name} result on '{topic}'", timeout)
+            # (설계서 2.2).
+            state = snap.msg
+            if str(getattr(state, 'goal', '')) == str(label) and bool(state.at_goal):
+                return {'goal': str(state.goal), 'width': float(state.width),
+                        'stalled': bool(state.stalled), 'at_goal': True}
+        _remaining(deadline, f"{op.name} at_goal on '{topic}'", timeout)
         time.sleep(0.02)
 
 
@@ -362,8 +367,8 @@ def _move_gripper_to_target(runtime: 'RobotTwinRuntime', client: Optional[Any],
                             timeout: float) -> dict[str, Any]:
     """이름 붙은 그리퍼 목표로 이동한다 — **심볼만 보낸다.**
 
-    숫자(position / max_effort)는 `gripper_control_node` 의 `targets` 파라미터가
-    갖는다. 그리퍼가 바뀌면 그쪽만 고치면 되고, 트윈 설정과 데이터셋은 그대로다.
+    숫자(목표 폭)는 `GripperNode` 의 `targets` 파라미터가 갖는다. 그리퍼가 바뀌면
+    그쪽만 고치면 되고, 트윈 설정과 데이터셋은 그대로다.
     """
     del client  # MoveGroup 을 쓰지 않는다
     target = session.inputs.get('target')

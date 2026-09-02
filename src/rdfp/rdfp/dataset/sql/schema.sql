@@ -85,8 +85,8 @@ CREATE INDEX IF NOT EXISTS idx_joint_states_topic    ON joint_states (topic_id);
 CREATE INDEX IF NOT EXISTS idx_joint_states_stamp_ts ON joint_states (stamp_ts);
 
 
--- /gripper_control/gripper_cmds → rdfp_msgs/msg/GripperCommand
--- label 은 'open' / 'close' / 'grasp' 심볼.
+-- /gripper_cmds → rdfp_msgs/msg/GripperCommand
+-- goal 은 'open' / 'close' / 'grasp' 심볼.
 CREATE TABLE IF NOT EXISTS gripper_cmds (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -109,9 +109,8 @@ CREATE INDEX IF NOT EXISTS idx_gripper_cmds_topic    ON gripper_cmds (topic_id);
 CREATE INDEX IF NOT EXISTS idx_gripper_cmds_stamp_ts ON gripper_cmds (stamp_ts);
 
 
--- /gripper_control/gripper_action_states → rdfp_msgs/msg/GripperActionState
 -- /gripper_states → rdfp_msgs/msg/GripperState
--- 그리퍼의 **연속 상태**. gripper_action_states 와 달리 명령과 무관하게 주기 발행된다.
+-- 그리퍼의 **연속 상태**. 명령과 무관하게 주기 발행된다.
 CREATE TABLE IF NOT EXISTS gripper_states (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -138,32 +137,6 @@ CREATE TABLE IF NOT EXISTS gripper_states (
     -- ⚠️ false 는 '실패'와 '진행 중'을 구분하지 못한다 — width 를 함께 본다.
     at_goal         BOOLEAN             NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS gripper_action_states (
-    id              BIGSERIAL           PRIMARY KEY,
-    episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    topic_id        BIGINT              NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
-    stamp_sec       INTEGER             NOT NULL,
-    stamp_nanosec   BIGINT              NOT NULL,
-    stamp_ts        TIMESTAMPTZ         GENERATED ALWAYS AS
-                        (to_timestamp(stamp_sec::double precision
-                                      + stamp_nanosec::double precision / 1e9))
-                        STORED,
-    position        DOUBLE PRECISION    NOT NULL,
-    effort          DOUBLE PRECISION    NOT NULL,
-    stalled         BOOLEAN             NOT NULL,
-    reached_goal    BOOLEAN             NOT NULL,
-    -- 액션 goal 상태. action_msgs/msg/GoalStatus 의 STATUS_* 와 동일한 값이다
-    -- (4=SUCCEEDED, 5=CANCELED, 6=ABORTED, 2=EXECUTING).
-    -- reached_goal=false 라도 status=5 면 실패가 아니라 후속 명령에 의한 선점이다.
-    status          SMALLINT            NOT NULL DEFAULT 0
-);
--- 기존 DB 호환: 위 CREATE TABLE 은 IF NOT EXISTS 이므로 이미 만들어진 테이블에는
--- 컬럼을 추가하지 않는다. status 도입 이전에 생성된 DB 를 위해 명시적으로 더한다.
-ALTER TABLE gripper_action_states ADD COLUMN IF NOT EXISTS status SMALLINT NOT NULL DEFAULT 0;
-CREATE INDEX IF NOT EXISTS idx_gripper_action_states_episode  ON gripper_action_states (episode_id);
-CREATE INDEX IF NOT EXISTS idx_gripper_action_states_topic    ON gripper_action_states (topic_id);
-CREATE INDEX IF NOT EXISTS idx_gripper_action_states_stamp_ts ON gripper_action_states (stamp_ts);
 
 
 -- /target_joint_states → rdfp_msgs/msg/TargetJointStates

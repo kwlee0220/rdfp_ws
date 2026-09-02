@@ -25,9 +25,9 @@ from robot_twin.config import OperationConfig
 
 VALID = {'panda_joint1': 0.0, 'panda_joint4': -1.57}
 
-GRIPPER_BACKEND = {'topic': '/gripper_control/gripper_cmds',
+GRIPPER_BACKEND = {'topic': '/gripper_cmds',
                    'topic_type': 'rdfp_msgs/msg/GripperCommand',
-                   'result_variable': 'gripper_last_command_result'}
+                   'result_variable': 'gripper_state'}
 
 # 그리퍼 목표 표를 가진 최소 연산 정의. 목표 이름도 폭도 코드가 아니라 설정이 정한다.
 GRIPPER_OP = OperationConfig(
@@ -204,7 +204,7 @@ class _FakeVariables:
         self._entry = entry
 
     def entry(self, name: str) -> Any:
-        return self._entry if name == 'gripper_last_command_result' else None
+        return self._entry if name == 'gripper_state' else None
 
 
 class _FakePublisher:
@@ -269,7 +269,7 @@ def test_fake_snapshot_matches_the_real_one() -> None:
     from robot_twin.snapshot import Snapshot
 
     real = Snapshot(msg=object(), received_at=0.0, gen=1)
-    fake = _FakeSnapshot(1, position=0.0)
+    fake = _FakeSnapshot(1, width=0.0)
 
     for attr in ('msg', 'gen'):
         assert hasattr(real, attr) and hasattr(fake, attr)
@@ -279,22 +279,68 @@ def test_command_result_is_reported_as_is(fake_command: None) -> None:
     """오차를 근거로 성패를 뒤집지 않는다 — 결과를 그대로 옮긴다 (설계서 6.7)."""
     from robot_twin.backends import _send_gripper_command
 
-    entry = _FakeEntry(_FakeSnapshot(1, position=0.04, effort=0.0,
-                                     stalled=False, reached_goal=True))
+    entry = _FakeEntry(_FakeSnapshot(1, goal='open', width=0.08,
+                                     stalled=False, at_goal=True))
 
     def _arrive() -> None:
-        # 명령이 나가면 gripper_control_node 가 결과를 재발행한 셈이다.
-        entry.snapshot = _FakeSnapshot(2, position=0.018, effort=30.0,
-                                       stalled=True, reached_goal=False)
+        # 명령이 나가면 GripperNode 가 물린 상태를 발행한 셈이다.
+        entry.snapshot = _FakeSnapshot(2, goal='grasp', width=0.018,
+                                       stalled=True, at_goal=True)
 
     publisher = _FakePublisher(on_publish=_arrive)
     outputs = _send_gripper_command(_FakeRuntime(publisher, entry), GRIPPER_OP,
                                     label='grasp', timeout=1.0)
 
-    assert outputs == {'position': 0.018, 'effort': 30.0,
-                       'stalled': True, 'reached_goal': False}
-    # 발행된 것은 심볼뿐이다 — 숫자는 gripper_control_node 가 푼다.
+    assert outputs == {'goal': 'grasp', 'width': 0.018,
+                       'stalled': True, 'at_goal': True}
+    # 발행된 것은 심볼뿐이다 — 숫자는 GripperNode 가 푼다.
     assert publisher.published == [{'label': 'grasp'}]
+
+
+def test_periodic_tick_alone_does_not_complete_the_command(fake_command: None) -> None:
+    """**갱신됨을 끝남으로 삼지 않는다.**
+
+    `/gripper_states` 는 주기 발행이라 명령과 무관하게 세대가 오른다. 세대만 보면
+    그리퍼가 움직이기도 전에 다음 틱이 성공을 돌려준다 — 완료는 `at_goal` 로 판정한다.
+    """
+    from robot_twin.backends import _send_gripper_command
+
+    entry = _FakeEntry(_FakeSnapshot(1, goal='', width=0.08,
+                                     stalled=False, at_goal=False))
+    gen = [1]
+
+    def _tick() -> None:
+        # 명령을 받아 goal 은 갱신됐지만 아직 가는 중이다.
+        gen[0] += 1
+        entry.snapshot = _FakeSnapshot(gen[0], goal='close', width=0.08,
+                                       stalled=False, at_goal=False)
+
+    publisher = _FakePublisher(on_publish=_tick)
+
+    with pytest.raises(TimeoutError, match='at_goal'):
+        _send_gripper_command(_FakeRuntime(publisher, entry), GRIPPER_OP,
+                              label='close', timeout=0.2)
+
+
+def test_other_goals_state_is_not_taken_as_this_command(fake_command: None) -> None:
+    """다른 목표의 `at_goal` 을 자기 것으로 착각하지 않는다.
+
+    세대만 보면 직전 `open` 의 성공 상태가 `close` 명령의 결과로 둔갑한다.
+    """
+    from robot_twin.backends import _send_gripper_command
+
+    entry = _FakeEntry(_FakeSnapshot(1, goal='', width=0.0,
+                                     stalled=False, at_goal=False))
+
+    def _arrive() -> None:
+        entry.snapshot = _FakeSnapshot(2, goal='open', width=0.08,
+                                       stalled=False, at_goal=True)
+
+    publisher = _FakePublisher(on_publish=_arrive)
+
+    with pytest.raises(TimeoutError, match='at_goal'):
+        _send_gripper_command(_FakeRuntime(publisher, entry), GRIPPER_OP,
+                              label='close', timeout=0.2)
 
 
 def test_stale_result_is_not_mistaken_for_this_command(fake_command: None) -> None:
@@ -304,8 +350,8 @@ def test_stale_result_is_not_mistaken_for_this_command(fake_command: None) -> No
     """
     from robot_twin.backends import _send_gripper_command
 
-    entry = _FakeEntry(_FakeSnapshot(7, position=0.04, effort=0.0,
-                                     stalled=False, reached_goal=True))
+    entry = _FakeEntry(_FakeSnapshot(7, goal='open', width=0.08,
+                                     stalled=False, at_goal=True))
     publisher = _FakePublisher()   # 결과가 영영 갱신되지 않는다
 
     with pytest.raises(TimeoutError, match='no time left'):
@@ -318,8 +364,8 @@ def test_missing_publisher_fails_fast(fake_command: None) -> None:
     """기동 시 퍼블리셔가 만들어지지 않았으면 명령을 보낼 수 없다."""
     from robot_twin.backends import BackendUnavailable, _send_gripper_command
 
-    entry = _FakeEntry(_FakeSnapshot(1, position=0.0, effort=0.0,
-                                     stalled=False, reached_goal=True))
+    entry = _FakeEntry(_FakeSnapshot(1, goal='open', width=0.08,
+                                     stalled=False, at_goal=True))
     runtime = _FakeRuntime(None, entry)
 
     with pytest.raises(BackendUnavailable, match='no publisher'):

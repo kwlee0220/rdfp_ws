@@ -27,7 +27,7 @@ def test_read_schema_sql_contains_expected_tables() -> None:
     text = read_schema_sql()
     for table in ('sessions', 'pose_stampeds', 'twist_stampeds',
                   'joint_states', 'target_joint_states',
-                  'gripper_cmds', 'gripper_action_states'):
+                  'gripper_cmds', 'gripper_states'):
         assert f'CREATE TABLE IF NOT EXISTS {table}' in text
 
 
@@ -35,7 +35,7 @@ def test_read_drop_sql_drops_known_tables() -> None:
     text = read_drop_sql()
     for table in ('sessions', 'pose_stampeds', 'twist_stampeds',
                   'joint_states', 'target_joint_states',
-                  'gripper_cmds', 'gripper_action_states'):
+                  'gripper_cmds', 'gripper_states'):
         assert f'DROP TABLE IF EXISTS {table}' in text
 
 

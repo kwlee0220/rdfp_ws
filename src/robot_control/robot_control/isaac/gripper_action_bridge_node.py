@@ -1,14 +1,14 @@
 """``control_msgs/GripperCommand`` 액션 → 관절 위치 토픽 브리지.
 
 Isaac 백엔드에는 ros2_control 이 없어 `panda_hand_controller`(GripperActionController)
-가 제공하던 **액션 서버가 존재하지 않는다.** 그래서 `gripper_control_node` 가
-액션을 부르는 순간 응답 없이 멈춘다.
+가 제공하던 **액션 서버가 존재하지 않는다.** 그래서 `GripperNode` 가 액션을 부르는
+순간 응답 없이 멈춘다.
 
 이 노드가 그 자리를 대신한다 — 같은 이름의 액션 서버를 열고, 받은 목표를
 `sensor_msgs/JointState` 로 시뮬레이터에 발행한다.
 
-    /gripper_control/gripper_cmds  (rdfp_msgs/GripperCommand)
-        └ gripper_control_node
+    /gripper_cmds  (rdfp_msgs/GripperCommand)
+        └ GripperNode
             └ /panda_hand_controller/gripper_cmd  (control_msgs/GripperCommand 액션)
                 └ **이 노드**
                     └ /isaac/gripper_command  (sensor_msgs/JointState)
