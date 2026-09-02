@@ -64,6 +64,7 @@
 | [moveit/servo_client_programmers_guide.md](moveit/servo_client_programmers_guide.md) | `ServoClient` — `/servo_node` 시작/정지/상태 확인 유틸리티. **Node 가 아님**에 따른 사용 제약, `ServoStatus` 상태 전이, 무인 스택용 `servo_auto_start_node`, 실제 사용처 4곳 | 현행 |
 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) | `GripperControlNode` — `control_msgs/GripperCommand` 액션을 `std_srvs/Trigger` 서비스로 감싼 그리퍼 제어 노드. 서비스/토픽 인터페이스, 예제, 에러 처리, 트러블슈팅 | 현행 |
 | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) | **⭐ 그리퍼 인터페이스 설계 (2026-09-02)**. `GripperCommand`(심볼)/`GripperState`(물리량) 계약과 `GripperNode` 노드 계약. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적인 이유 — 숫자는 그리퍼에 종속이라 기구를 바꾸면 틀린 값이 된다. `width` 는 관절값이 아니라 **개구 폭(m)**(Panda 는 2배), 못 구하면 NaN. **`at_goal` 은 위치 도달이 아니라 "시킨 일을 이뤘는가"** — `open`/`close` 는 목표 폭 도달 AND NOT `stalled`, `grasp` 는 `stalled` 다(목표 폭에 닿으면 오히려 헛닫힘). 소비자는 `at_goal` 하나만 본다. `effort` 를 넣지 않은 근거, 백엔드별 실현 가능성(펑션베이 `width` 매핑 미결 · Isaac `stalled` 미구현 · **mock 은 `grasp` 를 영영 성공으로 기록하지 못한다**), 반영 범위와 미결 | 현행 |
+| [moveit/MockGripperNode_Guide.md](moveit/MockGripperNode_Guide.md) | **`GripperNode` 계약의 액션 기반 구현** (`robot_control`, 실행 파일 `mock_gripper_node`, 노드 이름 `gripper`). 채널·QoS(`gripper_states` 는 **`TRANSIENT_LOCAL` 이 아니다**), 파라미터 7종과 기동 시 `ValueError` 로 죽는 조건, 심볼→액션 goal 변환과 **모르는 심볼 거부**(거부한 명령은 `goal` 에 싣지 않는다), 액션 결과를 상태로 쓰지 않는 이유(명령당 1건 · `at_goal` 은 매 주기 재평가), `targets`(관절값)와 `width`(개구 폭)의 **단위 변환**과 그것을 빠뜨려 `open` 판정이 뒤집혔던 회귀. **mock 은 `effort` state interface 자체가 없어 `grasp` 가 영영 성공으로 기록되지 않는다** — 트윈 타임아웃·데이터셋 공백으로 나타난다. Isaac 이 같은 노드를 쓰는 이유, 증상별 트러블슈팅 표 | 현행 |
 | [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) | **`/panda_hand_controller/gripper_cmd` 액션 서버 계층**. `GripperActionController` 파라미터, `position` 이 gap 이 아닌 이유(mimic 관절), 관절 한계 미검사, mock 환경에서 feedback 이 오지 않는 문제, 진단 명령. ⚠️ `status`(선점 vs 실패 구분)를 싣던 `GripperActionState` 토픽은 삭제됐다 | 현행 |
 
 ## 4. 카메라
@@ -215,6 +216,7 @@
 | 그리퍼를 연다/닫는다 | [moveit/GripperControlNode_Guide.md](moveit/GripperControlNode_Guide.md) |
 | 그리퍼가 안 움직인다 / 상태가 안 온다 | [moveit/gripper_action_server_notes.md](moveit/gripper_action_server_notes.md) |
 | 그리퍼 메시지 필드의 뜻을 안다 (`width`/`stalled`/`at_goal`) | [moveit/GripperNode_Design.md](moveit/GripperNode_Design.md) |
+| 그리퍼 노드를 띄우고 파라미터를 조정한다 | [moveit/MockGripperNode_Guide.md](moveit/MockGripperNode_Guide.md) |
 | 카메라 영상을 토픽으로 낸다 | [camera/camera_node_guide.md](camera/camera_node_guide.md) |
 | 카메라 영상을 JPEG 압축으로만 낸다 | [camera/image_capture_node_guide.md](camera/image_capture_node_guide.md) |
 | 영상을 MP4 로 녹화한다 | 서비스 제어 → [recorder/image_recorder_node_guide.md](recorder/image_recorder_node_guide.md) / 세션 자동 → [recorder/rdfp_image_recorder_node_guide.md](recorder/rdfp_image_recorder_node_guide.md) |

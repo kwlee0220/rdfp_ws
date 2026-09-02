@@ -383,5 +383,6 @@ ros2 topic echo /panda_hand_controller/gripper_cmd/_action/feedback
 ## 관련 문서
 
 - [GripperNode_Design.md](GripperNode_Design.md) — 이 액션을 감싼 `GripperNode` 인터페이스 설계 (메시지 계약, `at_goal` 판정식, 백엔드별 실현 가능성)
+- [MockGripperNode_Guide.md](MockGripperNode_Guide.md) — 이 액션을 실제로 부르는 노드의 사용법·파라미터·트러블슈팅
 - [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) — JGPC 스택에서 arm 은 왜 다른가 (그리퍼는 영향 없음)
 - [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 컨트롤러 순차 기동 순서

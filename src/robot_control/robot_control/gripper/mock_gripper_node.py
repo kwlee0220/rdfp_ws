@@ -42,7 +42,7 @@ targets.<goal>              open/close/grasp 아래 참조  심볼 → [position
 finger_joint                panda_finger_joint1        폭을 계산할 손가락 관절
 width_scale                 2.0                        관절값 → 개구 폭 배수 (대칭 평행 조)
 width_tolerance             0.005                      `at_goal` 판정의 폭 허용오차 (m)
-publish_rate                10.0                       `~/gripper_states` 발행 Hz
+publish_rate                10.0                       `gripper_states` 발행 Hz
 =========================== ========================= ===============================
 
 ``targets`` 의 숫자가 이 노드에 있는 이유는 **그리퍼에 종속**이기 때문이다. 명령에는

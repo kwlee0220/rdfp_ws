@@ -193,11 +193,15 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 이름은 백엔드 접두사를 붙인다 — `MockSceneStateNode` / `IsaacSceneStateNode` 와 같은
 관례다.
 
-| 구현 | 실행 경로 | 상태 취득 |
-|---|---|---|
-| `MockGripperNode` | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | 액션 feedback·result + `/joint_states` |
-| `IsaacGripperNode` | Isaac 그리퍼 명령 채널 | Isaac 관절 보고 |
-| `FunctionBayGripperNode` | `/input/gripper_joint` (`Float64MultiArray`, 6축 목표각) | `/output/gripper_joint` (`JointState`, 6축 q/v/f) |
+| 구현 | 실행 경로 | 상태 취득 | 상태 |
+|---|---|---|:-:|
+| [`MockGripperNode`](MockGripperNode_Guide.md) | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | `/joint_states` 만 — 액션 결과는 로그로만 남긴다 | ✅ |
+| `IsaacGripperNode` | 액션 경로가 mock 과 같다 (`isaac_gripper_bridge` 가 서버를 연다) | Isaac 관절 보고 | ⬜ `MockGripperNode` 로 대체 중 |
+| `FunctionBayGripperNode` | `/input/gripper_joint` (`Float64MultiArray`, 6축 목표각) | `/output/gripper_joint` (`JointState`, 6축 q/v/f) | ⬜ 미구현 |
+
+**`MockGripperNode` 가 액션 결과로 상태를 만들지 않는 것에 주의한다.** 결과는 명령당
+1 건이라 "지금 어떤 상태인가"에 답할 수 없고, `at_goal` 은 매 주기 재평가여야 하기
+때문이다 — 구현 상세는 [MockGripperNode_Guide.md](MockGripperNode_Guide.md).
 
 ---
 
