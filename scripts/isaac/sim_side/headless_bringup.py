@@ -99,6 +99,22 @@ def main() -> int:
     from isaacsim import SimulationApp
 
     workspace = WORKSPACE
+    # 로그에 이 경고가 한 번 나오는데 **무해하며, 끄려는 시도는 이미 실패했다**:
+    #
+    #     [omni.rtx] DLSS increasing input dimensions: Render resolution of
+    #     (320, 240) is below minimal input resolution of 300.
+    #
+    # 뷰포트가 아니라 우리 카메라(`.../HydraTextures/Replicator`)에 붙은 것으로,
+    # 640x480 출력을 절반 해상도에서 DLSS 로 올리다가 최소 입력(300)에 못 미쳐
+    # **DLSS 가 스스로 입력을 키운다**는 뜻이다. 2026-09-02 실측:
+    #
+    #   * `SimulationApp(anti_aliasing=0)`, `--/rtx/post/aa/op=0`,
+    #     `--/rtx-defaults/post/aa/op=0` 을 **모두** 줘도 경고와 동작이 그대로다 —
+    #     런치 인자까지 전달되는 것을 확인했다. 이 경로는 끌 수 없다.
+    #   * 이미지 차이도 없다. 라플라시안 분산이 정지 174.6(DLSS)/176.2(끔),
+    #     팔을 흔드는 중 145.0/145.3 으로 0.2~0.9% — 잡음 수준이다.
+    #
+    # 그래서 노브를 두지 않는다. 없는 노브를 다시 만들지 않도록 여기 남긴다.
     app = SimulationApp({"headless": HEADLESS})
     _log(f"window: {'off (headless)' if HEADLESS else 'on'}")
 

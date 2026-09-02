@@ -264,6 +264,41 @@ EOF
 자세를 고칠 때는 **look-at 으로 세 축을 다 잡는다** — 축 하나만 돌리면 시선은 맞아도
 화면이 돌아간다. 계산식은 `isaac_scene.json` 의 `_camera_comment` 에 있다.
 
+### 기동 로그의 경고 — 무시해도 되는 것
+
+`--headless` / `--gui` 출력에 매번 나오지만 **손댈 필요가 없는** 줄들이다. 다 아는
+것으로 적어 두는 이유는, 이 중 하나를 쫓다가 반나절을 쓴 적이 있어서다.
+
+| 줄 | 뜻 | 조치 |
+|---|---|---|
+| `[ROS2 Publish Joint State] Reading from targetPrim is deprecated` | 그래프가 구식 입력 방식을 쓴다 | 없음. 동작한다 |
+| `OgnROS2PublishTransformTree: using targetPrims ... deprecated` | 같은 종류 | 없음 |
+| `OgnROS2CameraInfoHelper: frameSkipCount deprecated` | `omni:sensor:tickRate` 로 옮기라는 안내 | **없음.** 옮겨 봤고 5 Hz 가 9.9 Hz 로 깨진다 (`setup_graph.py` 주석) |
+| `Deprecated: direct use of ITimeline callbacks` | Kit 내부 | 없음 |
+| `[omni.rtx] DLSS increasing input dimensions: Render resolution of (320, 240) is below minimal input resolution of 300.` | 카메라 렌더에 DLSS 가 붙는다 | **없음 — 아래** |
+
+DLSS 줄만 설명이 필요하다. 뷰포트가 아니라 **우리 카메라**
+(`/Render/OmniverseKit/HydraTextures/Replicator`)에 붙은 것으로, 640×480 출력을 절반
+해상도에서 올리려다 DLSS 최소 입력(300)에 못 미쳐 **DLSS 가 스스로 입력을 키운다**는
+뜻이다. 2026-09-02 에 두 가지를 재 보았다.
+
+* **끌 수 없다.** `SimulationApp(anti_aliasing=0)` 과 런치 인자
+  `--/rtx/post/aa/op=0` · `--/rtx-defaults/post/aa/op=0` 을 **모두** 줘도(인자가
+  전달되는 것까지 확인) 경고와 동작이 그대로다.
+* **끌 이유도 없다.** 라플라시안 분산이 정지 174.6(DLSS) / 176.2(끔), 팔을 흔드는
+  중 145.0 / 145.3 으로 0.2~0.9% 차이 — 잡음 수준이다.
+
+그래서 노브를 두지 않았다. `headless_bringup.py` 주석에 같은 내용이 있다.
+
+**한때 여기 있다가 고쳐진 줄**: `Forcing fy to fx (753.39 != 733.00) ... as renderer
+assumes square pixels`. 이건 무해하지 않았다 — `setup_scene.py` 가 초점거리만 넣고
+조리개는 USD 기본값(20.955 × 15.2908, 비율 1.3704)에 맡겨 640×480(1.3333)과 어긋나
+있었고, 그래서 **prim 이 적어 놓은 세로 화각과 실제로 렌더된 화각이 4% 달랐다.**
+이미지는 멀쩡해 보이므로 경고를 읽지 않으면 드러나지 않는다. 지금은 세로 조리개를
+해상도에서 유도하고 가로 기본값을 21.0 으로 두어(20.955 는 float32 에서 마지막 자리가
+갈라진다) `fx == fy` 가 정확히 성립한다. `camera_info` 의 `fx` 는 733.0 에서 731.4 로
+바뀌었다. 회귀 검사: `robot_control/tests/test_isaac_camera_intrinsics.py`.
+
 ### 로봇이 원점에 있어야 한다
 
 ROS 쪽 static TF 가 `world → panda_link0 = 항등변환`으로 못박혀 있다. 자산을 드래그해

@@ -190,8 +190,9 @@ def _make_camera(stage, spec: dict) -> str:
     USD 카메라는 **-Z 방향을 본다.** JSON 의 orientation 은 그 규약 그대로이며,
     ROS 규약 xyzw 로 적고 여기서 USD 의 wxyz 로 뒤집는다 (물체와 같은 처리다).
 
-    카메라 파라미터(초점거리·클리핑)는 prim 에 두고, **해상도는 여기 두지 않는다** —
-    해상도는 렌더 프로덕트가 정하므로 `setup_graph.py` 쪽에서 준다.
+    카메라 파라미터(초점거리·조리개·클리핑)는 prim 에 두고, **픽셀 수는 여기서 정하지
+    않는다** — 그것은 렌더 프로덕트의 몫이라 `setup_graph.py` 가 준다. 다만 세로 조리개는
+    화면 비율을 따라야 해서 같은 `resolution` 값을 읽는다 (아래).
     """
     from pxr import Gf, UsdGeom
 
@@ -207,6 +208,31 @@ def _make_camera(stage, spec: dict) -> str:
     xform.AddOrientOp().Set(Gf.Quatf(qw, Gf.Vec3f(qx, qy, qz)))
 
     camera.CreateFocalLengthAttr(float(spec.get("focal_length", 24.0)))
+
+    # **조리개는 해상도 비율에 맞춰 준다.** 픽셀 수는 렌더 프로덕트가 정하지만, 세로
+    # 조리개는 prim 이 갖는다 — USD 기본값(20.955 x 15.2908)의 비율 1.3704 가
+    # 640x480(1.3333)과 어긋나 렌더러가 말없이 정사각 픽셀로 강제하고 한 줄만 남긴다:
+    #
+    #     Forcing fy to fx (753.39 != 733.00) ... as renderer assumes square pixels
+    #
+    # 그러면 **렌더된 세로 화각이 prim 에 적힌 값과 다르다.** `camera_info` 는 렌더러가
+    # 실제로 쓴 값(fx=fy)을 실으므로 이미지와는 맞지만, prim 만 보고 화각을 계산하는
+    # 쪽(캘리브레이션 대조, 시선 검증)은 4% 틀린 값을 얻는다.
+    #
+    # 해상도와 같은 키에서 유도하므로 `setup_graph.py` 의 렌더 프로덕트 크기와 자동으로
+    # 함께 움직인다 — 해상도만 바꾸고 조리개를 잊는 일이 생기지 않는다.
+    #
+    # **가로 조리개 기본값이 USD 표준 20.955 가 아니라 21.0 인 이유**: USD 는 조리개를
+    # float32 로 저장하고 Isaac 은 `fx == fy` 를 **정확히** 비교한다. 20.955 를 쓰면
+    # 20.955*3/4 = 15.716249942... 가 float32 에 정확히 담기지 않아 fx 와 fy 가
+    # 마지막 자리에서 갈라지고(2e-5), 비율을 맞춰 놓고도 경고가 계속 나온다. 21.0 은
+    # 21.0 과 15.75 가 둘 다 float32 에 정확해 4:3·16:9 어디서도 정확히 일치한다
+    # (848x480 같은 비표준 비율은 여전히 어긋난다). 화각 차이는 0.2% 로 무의미하다.
+    width, height = spec.get("resolution", [640, 480])
+    h_aperture = float(spec.get("horizontal_aperture", 21.0))
+    camera.CreateHorizontalApertureAttr(h_aperture)
+    camera.CreateVerticalApertureAttr(h_aperture * float(height) / float(width))
+
     near, far = spec.get("clipping_range", [0.05, 10.0])
     camera.CreateClippingRangeAttr(Gf.Vec2f(float(near), float(far)))
     return path

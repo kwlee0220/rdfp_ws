@@ -108,7 +108,7 @@ cd src/robot_twin   && PYTHONPATH=.:$PYTHONPATH python3 -m pytest robot_twin/tes
 shell where `install/setup.bash` was sourced, and ROS-dependent modules fail at collection
 with `ModuleNotFoundError`. Appending keeps both.
 
-Test layout — colocated suites across three packages, **869 tests total** (`robot_control` 240 / `robot_twin` 227 / `rdfp` 402):
+Test layout — colocated suites across three packages, **935 tests total** (`robot_control` 299 / `robot_twin` 234 / `rdfp` 402):
 
 | package | suites |
 |---|---|
