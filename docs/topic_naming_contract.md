@@ -26,7 +26,7 @@
 
 **새는 방식이 하나 더 있다 — 구현 노드 이름.** 그리퍼 채널이 그랬다. 노드가 `~/` 상대로
 발행해 `/gripper_control/gripper_cmds` 가 되어 있었는데, `gripper_control` 은 논리 채널이
-아니라 **그때 그 노드의 이름**이다. 노드를 갈면(`gripper_control_node` → `MockGripperNode`)
+아니라 **그때 그 노드의 이름**이다. 노드를 갈면(`gripper_control_node` → `GripperActionNode`)
 채널 이름이 따라 바뀌어 녹화 목록과 트윈 설정이 함께 깨진다. 백엔드 이름이 샌 것과 증상은
 같고, 고치는 방법도 같다 — 루트 상대로 두는 것이다(§2.2).
 
@@ -92,7 +92,7 @@
 
 1. **채널이 구현에 묶인다.** `gripper_control` 은 논리 채널이 아니라 그때 그 노드의
    이름이라, 노드를 갈아치우면 채널 이름이 따라 바뀐다. 실제로 `gripper_control_node`
-   를 `MockGripperNode` 로 교체하면서 녹화 목록·트윈 설정·DB 주석이 함께 바뀌었다.
+   를 `GripperActionNode` 로 교체하면서 녹화 목록·트윈 설정·DB 주석이 함께 바뀌었다.
 2. **§5 의 네임스페이스가 통하지 않는다.** 루트 상대여야 `PushRosNamespace` 로
    `/abc/gripper_cmds` 가 된다. `~/` 는 노드명에 묶여 있어 그 경로를 타지 못한다.
 
@@ -110,7 +110,7 @@
 | 트윈의 명령 완료 신호 (주기 발행인 `gripper_states` 로는 "갱신됨"이 "끝남"을 뜻하지 않는다) | `at_goal` 이 **판정을 값 안에 담는다.** 갱신 여부를 볼 필요가 없어졌다 |
 | Isaac 의 유일한 파지 지표 (`stalled = not reached`) | 해소되지 않았다 — 아래 |
 
-**남은 부채: Isaac 의 파지 여부가 데이터에서 빠져 있다.** `IsaacGripperNode` 의
+**남은 부채: Isaac 의 파지 여부가 데이터에서 빠져 있다.** `GripperActionNode` 의
 `stalled` 가 미구현이라 `at_goal` 이 `grasp` 에서 늘 `false` 다. 파지 시 effort 를
 실측해 임계값을 잡는 것이 선행 작업이다
 ([GripperNode_Design.md](moveit/GripperNode_Design.md) §4).

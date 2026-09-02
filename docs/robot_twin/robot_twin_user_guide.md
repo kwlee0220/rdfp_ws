@@ -532,7 +532,7 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 
 **갈리는 지점은 백엔드 노드가 어느 패키지에 있느냐 하나다.** 세션/에피소드 연산 넷은
 `rdfp` 의 `session_control_node` 에 중계되고, 그 노드는 `rdfp_panda_mock` 만 띄운다.
-나머지는 `robot_control` 의 노드(`mock_gripper_node`, `mock_scene_state_node`)나
+나머지는 `robot_control` 의 노드(`gripper_action_node`, `mock_scene_state_node`)나
 MoveIt 을 직접 쓰므로 제어 스택만으로 충분하다.
 
 `reset_scene` 이 "제어" 인 것이 헷갈릴 수 있다 — **수집을 위한 연산이지만 구현은 제어
@@ -815,7 +815,7 @@ m 가 아니다. 그 숫자는 **로봇 쪽 설정**인 `GripperNode` 의 `targe
 | 응답 | 원인 |
 |---|---|
 | `FAILED` + 메시지 `no publisher for topic` | 기동 시 퍼블리셔가 만들어지지 않았다 — `backend.topic` / `topic_type` 설정 확인 |
-| `FAILED` + `TIMEOUT` (결과 없음) | `GripperNode`(`mock_gripper_node`) 또는 컨트롤러(`panda_hand_controller`) 미기동. **mock 의 `grasp` 는 정상 동작에서도 타임아웃한다** |
+| `FAILED` + `TIMEOUT` (결과 없음) | `GripperNode`(`gripper_action_node`) 또는 컨트롤러(`panda_hand_controller`) 미기동. **mock 의 `grasp` 는 정상 동작에서도 타임아웃한다** |
 | `FAILED` + `TIMEOUT` | `sync_timeout_sec`(기본 5초) 안에 `at_goal` 이 서지 않았다. **명령은 이미 나갔으므로 결과를 모른다** — `gripper_state.width` 로 확인한다 |
 | `409 RESOURCE_BUSY` | `gripper` 자원 점유 중 (`arm` 과는 독립이다 — 4.4) |
 

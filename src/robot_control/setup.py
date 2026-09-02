@@ -50,7 +50,7 @@ setup(
             'target_joint_states_publisher = robot_control.moveit.target_joint_states_publisher:main',
             'target_joint_states_executor = robot_control.moveit.target_joint_states_executor:main',
             # gripper — GripperNode 계약 구현 (docs/moveit/GripperNode_Design.md)
-            'mock_gripper_node = robot_control.gripper.mock_gripper_node:main',
+            'gripper_action_node = robot_control.gripper.gripper_action_node:main',
             # scene
             'mock_scene_state_node = robot_control.scene.mock_scene_state_node:main',
             # functionbay 백엔드 브리지

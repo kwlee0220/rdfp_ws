@@ -5,7 +5,7 @@
 코드는 포함하지 않는다.
 
 `rdfp` 와 `robot_control` 의 노드 (`session_control_node`, `image_recorder_node`,
-`MockGripperNode`, `target_joint_cmds_publisher` 등) 와 데이터셋 파이프라인이 본
+`GripperActionNode`, `target_joint_cmds_publisher` 등) 와 데이터셋 파이프라인이 본
 패키지를 참조하므로 함께 빌드해야 한다.
 
 ## 빌드

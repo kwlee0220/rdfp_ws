@@ -35,7 +35,7 @@ ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진
 
 ### `panda_mock.launch.py`
 
-`static_tf` + `robot_state_publisher` + `ros2_control_node` + controller spawner 3종을 순차 기동한 뒤 `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `mock_gripper_node`, `mock_scene_state_node` 를 일괄 spawn 한다.
+`static_tf` + `robot_state_publisher` + `ros2_control_node` + controller spawner 3종을 순차 기동한 뒤 `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_action_node`, `mock_scene_state_node` 를 일괄 spawn 한다.
 순서와 근거는 §4.
 
 ### `panda_jgpc_mock.launch.py`
@@ -85,7 +85,7 @@ Robotiq 2F-85 라 Panda Hand 전제와 어긋나 **아직 연동하지 않는다
 | 인자 | 기본 | 켜면 |
 |---|---|---|
 | — | — | Phase 0·1: `/clock`·`/joint_states`·MoveIt·팔 명령 |
-| `enable_gripper` | `false` | `gripper_action_bridge` + `mock_gripper_node` (Phase 2) |
+| `enable_gripper` | `false` | `gripper_action_bridge` + `gripper_action_node` (Phase 2) |
 | `enable_scene` | `false` | `isaac_scene_state_node` — `/scene/objects` 발행 (Phase 3) |
 | `enable_servo` | `false` | `servo_node` + `servo_auto_start` + `isaac_servo_bridge`. **teleop 두 경로가 모두 여기로 수렴**한다 |
 | `enable_rviz` | `true` | VRAM 이 빠듯한 호스트에서는 false 를 권한다 |
@@ -304,7 +304,7 @@ panda_mock.launch.py
  ├─ 카메라           (launch_helpers/camera.py)
  │   └─ camera_node
  ├─ 그리퍼           (launch_helpers/gripper.py)
- │   └─ mock_gripper_node
+ │   └─ gripper_action_node
  └─ scene            (launch_helpers/scene.py)
      └─ mock_scene_state_node
 ```
@@ -326,7 +326,7 @@ ros2_control_node start
 
 | launch | post_hand_actions |
 |---|---|
-| `panda_mock.launch.py` | `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `mock_gripper_node`, `mock_scene_state_node` |
+| `panda_mock.launch.py` | `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_action_node`, `mock_scene_state_node` |
 | `panda_jgpc_mock.launch.py` | 위와 동일 (컨트롤러 타입만 다름) |
 
 ### scene 노드는 기본 on 이다
@@ -355,7 +355,7 @@ from robot_control.launch_helpers.common import build_moveit_config
 | `camera.py` | 카메라 argument 선언 + `camera_node` 생성 |
 | `image_pipeline.py` | **`config/image_pipeline.yaml` 로더 + camera / image_viewer / image_recorder argument 선언.** 카메라를 띄우는 launch 가 여섯이라 기본값을 한 곳에 모은 모듈 |
 | `ee_pose.py` | EE pose argument 선언 + `ee_pose_node` 생성 |
-| `gripper.py` | `mock_gripper_node` 생성 (argument 없음). **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [GripperNode_Design.md](../../../docs/moveit/GripperNode_Design.md) |
+| `gripper.py` | `gripper_action_node` 생성 (argument 없음). **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [GripperNode_Design.md](../../../docs/moveit/GripperNode_Design.md) |
 | `scene.py` | `enable_scene` / `scene_publish_rate` 선언 + `create_mock_scene_node()`. **팩토리는 아직 mock 용 하나뿐이다** — Isaac 은 launch 안에서 직접 만든다 |
 | `gazebo.py` | Gazebo 백엔드 전용 — gz-sim 기동, 스폰, 브리지 |
 

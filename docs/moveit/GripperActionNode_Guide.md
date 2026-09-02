@@ -1,18 +1,24 @@
-# MockGripperNode — mock 스택의 `GripperNode` 구현
+# GripperActionNode — 액션 기반 `GripperNode` 구현
 
 [GripperNode 설계](GripperNode_Design.md)가 정한 계약을 **`control_msgs/GripperCommand`
-액션 서버가 있는 스택**에서 실현한 노드다. 계약이 무엇을 요구하는지는 설계서가, 이
-문서는 **그 요구를 어떻게 만족시켰고 무엇을 만족시키지 못하는지**를 다룬다.
+액션**으로 실현한 노드다. 계약이 무엇을 요구하는지는 설계서가, 이 문서는 **그 요구를
+어떻게 만족시켰고 무엇을 만족시키지 못하는지**를 다룬다.
 
 | | |
 |---|---|
 | 패키지 | `robot_control` |
-| 실행 파일 | `mock_gripper_node` |
+| 실행 파일 | `gripper_action_node` |
 | 노드 이름 | `gripper` (launch 가 지정) |
-| 소스 | [mock_gripper_node.py](../../src/robot_control/robot_control/gripper/mock_gripper_node.py) |
+| 소스 | [gripper_action_node.py](../../src/robot_control/robot_control/gripper/gripper_action_node.py) |
 
-> **이름이 `Mock` 이지만 mock 전용이 아니다.** 액션 서버만 있으면 되므로 Isaac 도 이
-> 노드를 쓴다 (§7). 반대로 액션 서버가 없는 펑션베이에는 쓸 수 없다.
+**백엔드가 아니라 실행 수단으로 이름 붙였다.** 액션 서버만 있으면 되므로 mock 과
+Isaac 이 같은 노드를 쓰고(§7), 액션 서버가 없는 펑션베이는 쓸 수 없다.
+
+> **예전 이름은 `MockGripperNode` 였다 (2026-09-02 개명).** `MockSceneStateNode` /
+> `IsaacSceneStateNode` 처럼 백엔드 접두사를 붙이는 관례를 따랐는데, 그리퍼는
+> **갈리는 축이 백엔드가 아니라 실행 수단**이라 Isaac 이 이 노드를 쓰는 순간 이름이
+> 거짓이 됐다. scene 은 백엔드마다 물체를 얻는 방법이 근본적으로 달라 그 관례가
+> 맞지만, 그리퍼는 액션 서버만 있으면 백엔드가 무엇이든 같은 코드다.
 
 ---
 
@@ -22,7 +28,7 @@
   /gripper_cmds  (rdfp_msgs/GripperCommand)      심볼 'open' / 'close' / 'grasp'
       │
       ▼
-  ┌──────────────────────── MockGripperNode ────────────────────────┐
+  ┌─────────────────────── GripperActionNode ───────────────────────┐
   │  targets 파라미터로 심볼 → (관절값, 힘)                          │
   │                                                                 │
   │  /joint_states 의 finger joint × width_scale → 개구 폭          │
@@ -157,38 +163,43 @@ def _target_width(self, goal):
 
 ---
 
-## 5. mock 의 한계 — `grasp` 는 성공으로 기록되지 않는다
+## 5. `stalled` 은 아직 판정하지 않는다 — `grasp` 가 성공으로 기록되지 않는다
 
-`_stalled()` 는 **항상 `False`** 를 돌려준다. 판정 수단이 없기 때문이다.
+`_stalled()` 는 **항상 `False`** 를 돌려준다. `grasp` 의 판정식이 곧 `stalled` 이므로
+**`grasp` 의 `at_goal` 도 항상 `False`** 다. 계약대로다 — `false` 는 "물지 않았다"가
+아니라 **"모른다"** 는 뜻이다.
 
-근거는 하드웨어 기술에 있다 —
-[panda_hand.ros2_control.xacro](../../src/robot_control/description/panda_hand.ros2_control.xacro)
-가 손가락 관절에 선언하는 state interface 는 `position` 과 `velocity` 뿐이고
-**`effort` 가 없다.** 따라서 `joint_state_broadcaster` 가 내는 `/joint_states` 의
-`effort` 배열은 비어 있고, "힘을 내는데 안 움직인다"를 관측할 방법이 없다.
+**이유가 백엔드마다 다르다는 점이 중요하다.**
 
-`grasp` 의 판정식이 곧 `stalled` 이므로 **`grasp` 의 `at_goal` 도 항상 `False`** 다.
+| 백엔드 | 왜 | 고칠 수 있나 |
+|---|---|:-:|
+| mock | [panda_hand.ros2_control.xacro](../../src/robot_control/description/panda_hand.ros2_control.xacro) 가 손가락에 선언하는 state interface 가 `position`/`velocity` 뿐이라 `/joint_states` 의 `effort` 가 비어 있다. 게다가 planning scene 물체는 물리를 갖지 않아 파지에 실패해도 pose 가 그대로다 | ❌ 원리적으로 불가 |
+| Isaac | effort 를 실을 수 있는데 **임계값을 아직 실측하지 않았다** | ✅ 실측하면 |
 
-**이것이 옳다.** mock 의 물체는 물리를 갖지 않아 파지에 실패해도, 굴러떨어져도 pose 가
-그대로다 — **애초에 성패를 관측할 수 없는 백엔드**다. 위치 기준으로 정의했다면 목표
-폭 0.0 에 도달해 `True` 가 됐겠지만, 그것은 "성공했다"는 거짓말이 데이터에 쌓이는
-길이다. 기동 시 이 사실을 경고로 남긴다.
+mock 에서 위치 기준으로 정의했다면 목표 폭 0.0 에 도달해 `True` 가 됐겠지만, 그것은
+"성공했다"는 거짓말이 데이터에 쌓이는 길이다. 기동 시 이 사실을 경고로 남긴다.
 
 ```text
-[WARN] stalled is always False on mock (no force sensing) — therefore
-       'grasp' never reports at_goal=True. mock cannot observe grasp success.
+[WARN] stalled is not judged yet — always False, therefore 'grasp' never
+       reports at_goal=True. On mock this is unfixable (no effort state
+       interface); on Isaac it needs a measured threshold.
 ```
+
+### 구현할 때는 서브클래스가 아니라 파라미터다
+
+Isaac 전용 노드를 따로 만들면 **액션 경로가 같은 코드가 두 벌**이 된다 — 실제로
+달라야 하는 것은 임계 effort 하나뿐이다. 임계값 파라미터를 더하고 기본값을 "판정
+안 함"으로 두면, mock 은 지금 동작 그대로이고 Isaac 은 값만 주면 켜진다.
 
 ### 파급 — 두 곳에서 증상으로 나타난다
 
 | 어디서 | 무슨 일이 | 대응 |
 |---|---|---|
-| 트윈 `move_gripper_to_target grasp` | `at_goal` 을 기다리다 `sync_timeout_sec`(기본 5 초) 타임아웃 | mock 에서는 `open`/`close` 만 쓴다 |
-| 데이터셋 `gripper_states.at_goal` | `grasp` 구간이 전부 `false` | mock 수집분으로 파지 성패를 학습 신호로 쓰지 않는다 |
+| 트윈 `move_gripper_to_target grasp` | `at_goal` 을 기다리다 `sync_timeout_sec`(기본 5 초) 타임아웃 | 지금은 `open`/`close` 만 쓴다 |
+| 데이터셋 `gripper_states.at_goal` | `grasp` 구간이 전부 `false` | 파지 성패를 학습 신호로 쓰지 않는다 |
 
-`stalled` 을 실제로 판정하려면 백엔드가 힘을 실을 수 있어야 한다. 펑션베이는 관절
-토크로 가능하고(파지 17 N·m vs 빈손 0.004 N·m), Isaac 은 가능하지만 임계값을 아직
-실측하지 않았다 ([설계서](GripperNode_Design.md) §4).
+참고로 펑션베이는 관절 토크로 판정 가능하다 (파지 17 N·m vs 빈손 0.004 N·m) — 다만
+액션 서버가 없어 이 노드를 쓸 수 없다 ([설계서](GripperNode_Design.md) §4).
 
 ---
 
@@ -199,7 +210,7 @@ def _target_width(self, goal):
 launch 가 띄우므로 직접 실행할 일은 드물다.
 
 ```bash
-ros2 run robot_control mock_gripper_node --ros-args -r __node:=gripper
+ros2 run robot_control gripper_action_node --ros-args -r __node:=gripper
 ```
 
 **띄우는 launch** — `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`,
@@ -248,15 +259,24 @@ create_gripper_node({'targets.pinch': [0.015, 10.0]})
 
 ---
 
-## 7. Isaac 도 이 노드를 쓴다
+## 7. Isaac 도 이 노드를 쓴다 — 이름이 그래서 `Action` 이다
 
 Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다. 대신
 `isaac_gripper_bridge` 가 **같은 이름의 액션 서버**를 열고 받은 목표를 관절 위치
 토픽으로 바꾼다. 명령 경로가 mock 과 동일해지므로 이 노드를 그대로 쓴다.
 
-**`IsaacGripperNode` 는 미구현이다.** 달라야 하는 것은 `stalled` 판정 하나뿐이고
-(Isaac 은 effort 를 실을 수 있다), 임계값 실측이 선행 작업이다. 그때까지 Isaac 의
-파지 여부는 데이터에 남지 않는다.
+```text
+mock    /gripper_cmds → GripperActionNode → gripper_cmd 액션 → panda_hand_controller
+Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → isaac_gripper_bridge
+                                                                → /isaac/gripper_command
+```
+
+**갈리는 축이 백엔드가 아니라 실행 수단**이라는 것이 이 그림이다. 두 스택은 액션
+서버를 누가 제공하느냐만 다르고, 그 위는 같은 코드다. 백엔드별로 노드를 나누는
+`MockSceneStateNode`/`IsaacSceneStateNode` 관례가 그리퍼에는 맞지 않는 이유다.
+
+남은 차이는 `stalled` 판정 하나이며, 그것도 서브클래스가 아니라 파라미터로 다룰
+일이다 (§5).
 
 ---
 

@@ -190,18 +190,26 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 
 ### 3.2 구현체
 
-이름은 백엔드 접두사를 붙인다 — `MockSceneStateNode` / `IsaacSceneStateNode` 와 같은
-관례다.
+**이름은 백엔드가 아니라 실행 수단으로 붙인다.**
 
-| 구현 | 실행 경로 | 상태 취득 | 상태 |
+scene 계열은 `MockSceneStateNode` / `IsaacSceneStateNode` 처럼 백엔드로 가른다 —
+물체 목록을 얻는 방법이 근본적으로 다르기 때문이다. **그리퍼는 그렇지 않다.**
+`control_msgs/GripperCommand` 액션 서버만 있으면 백엔드가 무엇이든 같은 코드이고,
+실제로 Isaac 이 `isaac_gripper_bridge` 로 그 서버를 열어 mock 과 같은 노드를 쓴다.
+처음에 `MockGripperNode` 로 이름 붙였다가 Isaac 이 쓰는 순간 거짓이 되어
+**2026-09-02 에 `GripperActionNode` 로 고쳤다.**
+
+| 구현 | 실행 경로 | 쓰는 백엔드 | 상태 |
 |---|---|---|:-:|
-| [`MockGripperNode`](MockGripperNode_Guide.md) | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | `/joint_states` 만 — 액션 결과는 로그로만 남긴다 | ✅ |
-| `IsaacGripperNode` | 액션 경로가 mock 과 같다 (`isaac_gripper_bridge` 가 서버를 연다) | Isaac 관절 보고 | ⬜ `MockGripperNode` 로 대체 중 |
-| `FunctionBayGripperNode` | `/input/gripper_joint` (`Float64MultiArray`, 6축 목표각) | `/output/gripper_joint` (`JointState`, 6축 q/v/f) | ⬜ 미구현 |
+| [`GripperActionNode`](GripperActionNode_Guide.md) | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | mock · Gazebo · Isaac(브리지 경유) | ✅ |
+| (토픽 기반 구현) | `/input/gripper_joint` (`Float64MultiArray`, 6축 목표각) ← `/output/gripper_joint` | 펑션베이 | ⬜ 미구현 |
 
-**`MockGripperNode` 가 액션 결과로 상태를 만들지 않는 것에 주의한다.** 결과는 명령당
+**`stalled` 판정은 구현을 가르는 축이 아니다.** 임계 effort 하나가 다를 뿐이라
+서브클래스로 나누면 액션 경로가 같은 코드가 두 벌이 된다 — **파라미터로 다룬다.**
+
+**`GripperActionNode` 가 액션 결과로 상태를 만들지 않는 것에 주의한다.** 결과는 명령당
 1 건이라 "지금 어떤 상태인가"에 답할 수 없고, `at_goal` 은 매 주기 재평가여야 하기
-때문이다 — 구현 상세는 [MockGripperNode_Guide.md](MockGripperNode_Guide.md).
+때문이다 — 구현 상세는 [GripperActionNode_Guide.md](GripperActionNode_Guide.md).
 
 ---
 
@@ -304,7 +312,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 | 대상 | 할 일 |
 |---|---|
 | 메시지 | ✅ `GripperCommand.goal`, `GripperState` 재정의. `GripperActionState` 는 **삭제** |
-| 노드 | ✅ `MockGripperNode` (`robot_control/gripper/`). 구 `gripper_control_node`·`gripper_state_publisher` 제거. **`FunctionBayGripperNode` 미구현** — Isaac 은 액션 경로가 같아 당분간 같은 노드를 쓴다 |
+| 노드 | ✅ `GripperActionNode` (`robot_control/gripper/`, 실행 파일 `gripper_action_node`). 구 `gripper_control_node`·`gripper_state_publisher` 제거. **펑션베이용 토픽 기반 구현은 미구현** — Isaac 은 액션 경로가 같아 같은 노드를 쓴다 |
 | DB | ✅ `gripper_cmds.goal`, `gripper_states` 를 `goal`/`width`/`stalled`/`at_goal` 로 재정의. `gripper_action_states` 테이블 삭제 (`drop.sql` 은 구 DB 정리용으로 남겼다) |
 | writer/reader | ✅ `gripper_command`·`gripper_state` 갱신, `gripper_action_state` 삭제 |
 | 트윈 | ✅ `gripper_state`(`/gripper_states`) 로 이전. **완료 판정을 세대→`at_goal` 로 바꿨다** — 주기 발행 채널에서 "갱신됨"은 "끝남"이 아니다 |
@@ -317,6 +325,7 @@ mock 은 `stalled` 판정 수단이 없어 항상 `false` 이므로, §2.3 의 �
 
 - `GripperActionState` 의 `status` 가 갖던 **`CANCELED`(후속 명령에 의한 선점) vs `ABORTED`(실패) 구분**이 사라졌다. `at_goal` 은 둘 다 `false` 로 본다. 선점을 실패로 오독하지 않으려면 어딘가에 남아야 하는지 판단이 필요하다.
 - **트윈의 `move_gripper_to_target grasp` 는 mock 에서 타임아웃한다.** mock 은 `stalled` 판정 수단이 없어 `at_goal` 이 서지 않는다(§4.3). 완료를 정직하게 판정한 대가이며, 대안은 (a) 그대로 두고 mock 에서 grasp 를 쓰지 않기, (b) `sync_timeout_sec` 경과 시 `at_goal=false` 로 성공 반환, (c) mock 에 가짜 stall 을 넣기 — 셋 다 각각의 거짓말이 있어 결정이 필요하다.
+- **`stalled` 임계값을 파라미터로 여는 일이 남았다.** Isaac 실측이 선행이며, 기본값은 '판정 안 함'이어야 mock 동작이 그대로다 (§3.2).
 - 펑션베이 `width` 매핑 정확도 — 근사로 갈지 제원을 요청할지.
 - Isaac `stalled` 임계값 — effort 실측이 선행되어야 한다.
 

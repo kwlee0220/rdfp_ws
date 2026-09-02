@@ -1,4 +1,4 @@
-"""mock 백엔드용 `GripperNode` — `control_msgs/GripperCommand` 액션으로 실행한다.
+"""`control_msgs/GripperCommand` **액션**으로 실행하는 `GripperNode` 구현.
 
     /gripper_cmds (rdfp_msgs/GripperCommand)   심볼 'open'/'close'/'grasp'
         -> [본 노드] targets 로 풀어 액션 goal 전송
@@ -7,6 +7,11 @@
     /joint_states + 액션 result
         -> [본 노드]
         -> /gripper_states (rdfp_msgs/GripperState)  주기 발행
+
+**백엔드가 아니라 실행 수단으로 이름 붙였다.** 액션 서버만 있으면 되므로 mock 과
+Isaac 이 같은 노드를 쓴다 — Isaac 은 ros2_control 이 없지만 `isaac_gripper_bridge` 가
+같은 이름의 액션 서버를 연다. 액션 서버가 없는 펑션베이는 별도 구현이 필요하다.
+(예전 이름 `MockGripperNode` 는 Isaac 이 쓰는 순간 거짓이 됐다.)
 
 **명령을 받는 노드가 상태도 낸다.** `GripperState.goal` 때문이다 — 명령을 아는 쪽이
 상태를 내면 목표가 자연히 손에 있고 경합도 없다. 나누면 상태 발행자가 명령 토픽을 따로
@@ -21,16 +26,23 @@
   * `at_goal` 은 **의도의 달성 여부**이지 위치 도달이 아니다. 판정식은 §2.3.
   * 명령이 없어도 주기 발행한다 — 연속 상태 채널이다.
 
-mock 의 한계
-------------
+`stalled` 은 아직 판정하지 않는다
+--------------------------------
 
-**`stalled` 을 판정할 수단이 없다.** `/joint_states` 의 effort 가 채워지지 않으므로
 항상 ``False`` 이고, 따라서 §2.3 의 판정식에 의해 **`grasp` 의 `at_goal` 도 항상
-``False``** 다.
+``False``** 다. 이유는 백엔드마다 다르다.
 
-이것이 옳다. mock 의 물체는 물리를 갖지 않아 파지에 실패해도 굴러떨어져도 pose 가
-그대로이므로 **애초에 성패를 관측할 수 없는 백엔드**다. 여기서 `at_goal=True` 를 내면
-"성공했다"는 거짓말이 데이터에 쌓인다.
+  * **mock 은 원리적으로 불가능하다.** ``panda_hand.ros2_control.xacro`` 가 손가락에
+    선언하는 state interface 가 ``position``/``velocity`` 뿐이라 ``/joint_states`` 에
+    effort 가 실리지 않는다. 게다가 planning scene 물체는 물리를 갖지 않아 파지에
+    실패해도 pose 가 그대로다 — **애초에 성패를 관측할 수 없는 백엔드**다.
+  * **Isaac 은 가능한데 미구현이다.** effort 를 실을 수 있으므로 임계값만 정하면 된다.
+
+계약대로 ``False`` 를 돌려준다 — **"물지 않았다"가 아니라 "모른다"는 뜻이다.** 여기서
+``True`` 를 내면 "성공했다"는 거짓말이 데이터에 쌓인다.
+
+구현할 때는 **파라미터 하나(임계 effort)를 더하는 쪽이 맞다.** 별도 서브클래스로
+가르면 액션 경로가 같은 코드가 두 벌이 된다 — 다른 것은 임계값뿐이다.
 
 파라미터
 --------
@@ -91,8 +103,8 @@ _DEFAULT_TARGETS = {
 }
 
 
-class MockGripperNode(Node):
-    """`GripperNode` 계약의 mock 구현."""
+class GripperActionNode(Node):
+    """`GripperNode` 계약의 액션 기반 구현."""
 
     def __init__(self) -> None:
         super().__init__('gripper')
@@ -125,7 +137,7 @@ class MockGripperNode(Node):
         self.create_timer(1.0 / publish_rate, self._on_timer)
 
         self.get_logger().info(
-            f'MockGripperNode started: {_CMD_TOPIC} -> {_GRIPPER_ACTION_NAME}, '
+            f'GripperActionNode started: {_CMD_TOPIC} -> {_GRIPPER_ACTION_NAME}, '
             f'{_STATE_TOPIC} @ {publish_rate} Hz')
         self.get_logger().info(
             f'  width: {self._finger_joint} x{self._width_scale} '
@@ -133,8 +145,9 @@ class MockGripperNode(Node):
         self.get_logger().info(
             f'  targets: { {k: list(v) for k, v in self._targets.items()} }')
         self.get_logger().warning(
-            '  stalled is always False on mock (no force sensing) — therefore '
-            "'grasp' never reports at_goal=True. mock cannot observe grasp success.")
+            '  stalled is not judged yet — always False, therefore '
+            "'grasp' never reports at_goal=True. On mock this is unfixable "
+            '(no effort state interface); on Isaac it needs a measured threshold.')
 
     # ── 명령 ────────────────────────────────────────────────────
 
@@ -230,9 +243,9 @@ class MockGripperNode(Node):
     def _at_goal(self) -> bool:
         """§2.3 판정식. **의도의 달성 여부**이지 위치 도달이 아니다.
 
-        `grasp` 는 `stalled` 에 딸리는데 mock 은 그것을 판정할 수 없어 항상 ``False``
-        다. 위치 기준이었다면 목표 폭에 도달해 ``True`` 가 됐을 텐데, 물리가 없는
-        백엔드에서 그것은 거짓말이다.
+        `grasp` 는 `stalled` 에 딸리는데 그것을 아직 판정하지 않아 항상 ``False`` 다.
+        위치 기준이었다면 목표 폭에 도달해 ``True`` 가 됐을 텐데, 파지를 관측하지
+        못하는 스택에서 그것은 거짓말이다.
         """
         if not self._goal or math.isnan(self._width):
             return False
@@ -244,10 +257,11 @@ class MockGripperNode(Node):
         return abs(self._width - target_width) <= self._width_tolerance and not self._stalled()
 
     def _stalled(self) -> bool:
-        """mock 은 힘을 관측할 수 없다.
+        """아직 판정하지 않는다 — 계약대로 ``False`` 를 돌려준다.
 
-        `/joint_states` 의 effort 가 채워지지 않으므로 판정 수단이 없다. 계약대로
-        ``False`` 를 돌려준다 — **"물지 않았다"는 뜻이 아니라 "모른다"는 뜻이다.**
+        **"물지 않았다"는 뜻이 아니라 "모른다"는 뜻이다.** mock 에서는 원리적으로
+        불가능하고(effort state interface 자체가 없다), Isaac 에서는 임계값 실측이
+        선행 작업이다. 모듈 docstring 참조.
         """
         return False
 
@@ -264,7 +278,7 @@ class MockGripperNode(Node):
 
 def main(args: Optional[list] = None) -> int:
     rclpy.init(args=args)
-    node = MockGripperNode()
+    node = GripperActionNode()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

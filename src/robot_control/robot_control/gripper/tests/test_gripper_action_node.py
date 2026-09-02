@@ -1,4 +1,4 @@
-"""`MockGripperNode` 의 판정 로직을 고정한다.
+"""`GripperActionNode` 의 판정 로직을 고정한다.
 
 `Node.__init__` 을 피하고 판정 메서드만 빌려 쓴다 — ROS 없이도 돌아야 하는 것은
 아니지만(rclpy 를 import 한다), 액션 서버·토픽 없이 로직만 검증하기 위해서다.
@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from robot_control.gripper.mock_gripper_node import MockGripperNode  # noqa: E402
+from robot_control.gripper.gripper_action_node import GripperActionNode  # noqa: E402
 
 
 class _Stub:
@@ -26,9 +26,9 @@ class _Stub:
         self._targets = {'open': (0.035, 10.0), 'close': (0.0, 10.0), 'grasp': (0.0, 30.0)}
         self._width_scale = 2.0
 
-    _at_goal = MockGripperNode._at_goal
-    _stalled = MockGripperNode._stalled
-    _target_width = MockGripperNode._target_width
+    _at_goal = GripperActionNode._at_goal
+    _stalled = GripperActionNode._stalled
+    _target_width = GripperActionNode._target_width
 
 
 def test_open_reaches_goal_at_target_width():
@@ -51,8 +51,8 @@ def test_close_reaches_goal_when_fully_closed():
     assert _Stub('close', 0.0)._at_goal() is True
 
 
-def test_grasp_never_succeeds_on_mock():
-    """mock 은 `stalled` 을 판정할 수 없으므로 `grasp` 의 `at_goal` 이 항상 false 다.
+def test_grasp_never_succeeds_without_stall_sensing():
+    """`stalled` 을 판정하지 않으므로 `grasp` 의 `at_goal` 이 항상 false 다.
 
     **이것이 옳다.** mock 의 물체는 물리를 갖지 않아 파지 성패를 관측할 수 없다.
     위치 기준 정의였다면 목표 폭(0.0)에 도달해 true 가 됐을 텐데, 물리가 없는
@@ -78,6 +78,6 @@ def test_unknown_goal_is_not_at_goal():
     assert _Stub('pinch', 0.035)._at_goal() is False
 
 
-def test_stalled_is_always_false_on_mock():
+def test_stalled_is_always_false_for_now():
     """'물지 않았다'가 아니라 **'모른다'** 는 뜻이다."""
     assert _Stub('grasp', 0.0)._stalled() is False

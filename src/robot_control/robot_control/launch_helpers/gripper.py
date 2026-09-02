@@ -18,17 +18,18 @@ from robot_control.launch_helpers.common import extra_parameter_list
 
 
 def create_gripper_node(extra_parameters: Optional[dict] = None) -> Node:
-    """`GripperNode` 를 생성한다 (액션 기반 구현).
+    """`GripperActionNode` 를 생성한다.
 
     `control_msgs/GripperCommand` 액션 서버가 있는 스택에서 쓴다 — mock 은
     `panda_hand_controller` 가, Isaac 은 `isaac_gripper_bridge` 가 제공한다.
+    **백엔드가 아니라 실행 수단으로 갈린다.**
 
-    **펑션베이에는 쓸 수 없다.** 액션 서버가 없고 명령 채널이 토픽이라
-    `FunctionBayGripperNode` 가 따로 필요하다 (미구현).
+    **펑션베이에는 쓸 수 없다.** 액션 서버가 없고 명령 채널이 토픽이라 토픽 기반
+    구현이 따로 필요하다 (미구현).
     """
     return Node(
         package="robot_control",
-        executable="mock_gripper_node",
+        executable="gripper_action_node",
         name="gripper",
         output="screen",
         emulate_tty=True,
