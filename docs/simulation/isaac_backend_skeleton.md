@@ -196,16 +196,26 @@ Windows 머신                          Ubuntu 머신
 > | 1 팔 명령 | ⚠️ **4/5** | τ 59.9 ms (기준 ≤50). `tune_drive.py` 로 177→60 ms. 정착 오차는 0.0001 rad 로 통과 |
 > | 2 그리퍼 | ✅ **6/6** | |
 > | 3 scene 객체 | ✅ **5/5** | 검사 쪽 수정 후 (아래) |
-> | 4 카메라 | ❌ **크래시** | Play 시 segfault (아래) |
+> | 4 카메라 | ✅ **5/5** | 4.57 Hz · 640×480 rgb8 · camera_info. 크래시는 재현되지 않았다 (아래) |
 > | 6 물리 파지 | ✅ **6/6** | 폭 0.0251 m·`stalled`, +9.8 cm 들어올림, 3초 유지 낙하 0.6 mm |
 >
 > **pick-and-place 는 Isaac 6.0 에서 동작한다.** 카메라만 별도 작업이다.
 >
-> **① Phase 4 카메라가 Play 에서 segfault 한다.** 크래시는 렌더 프로덕트를 붙이는
-> 중이고 파이썬 스레드는 전부 idle 이라 네이티브 쪽이다. 직전 경고가 단서다 —
-> `OgnROS2CameraHelper: The frameSkipCount input is deprecated`. `setup_graph.py` 는
-> 60→5 fps 를 `frameSkipCount=11` 로 만드는데 6.0 에서 그 배관이 대체됐다.
-> **`PHASE` 를 3 으로 낮춰 뒀다** — 조작 계열(0~3·6)은 카메라가 필요 없다.
+> **① Phase 4 카메라 — 크래시는 재현되지 않았고, 카메라는 정상이다.**
+> 처음에는 "Play 시 segfault" 로 판단해 `PHASE` 를 3 으로 낮췄다. 그 크래시는
+> `isaacsim.exp.full.kit` GUI 세션에서 **한 번** 났을 뿐이고, 스크립트 기동에서는
+> **헤드리스와 창 모드 둘 다 PHASE=4 로 통과**한다. 검사도 5/5 다 (4.57 Hz,
+> 640×480 rgb8, camera_info fx=733). `PHASE` 기본값을 4 로 되돌렸다.
+>
+> 다만 크래시가 났던 것 자체는 사실이다 — 로그의 마지막 활동이 렌더 프로덕트 attach
+> 였고 파이썬 스레드는 전부 idle 이었다. 전체 GUI 앱에서 다시 겪으면 `--phase 3` 으로
+> 조작 계열만 돌릴 수 있다.
+>
+> **`frameSkipCount` deprecation 은 그대로 둔다.** 경고가 안내하는 대체 수단
+> (`omni:sensor:tickRate` + `frameSkipCount=0`)을 실측했는데 **듣지 않았다** —
+> `tickRate=5.0` 인데 5 Hz 가 아니라 9.9 Hz 가 나왔다(매 프레임 발행으로 파이프라인
+> 포화). Isaac 트리에서도 그 속성은 라이다·음향 센서에만 쓰이고 `UsdGeom.Camera` 에는
+> 배선돼 있지 않다.
 >
 > **② 로봇 배치가 자동화돼 있지 않다.** §7 은 "asset browser 에서 올린다"는 수동
 > 단계로만 적어 두었고 경로가 없어, 스크립트만으로는 스테이지를 재현할 수 없다.

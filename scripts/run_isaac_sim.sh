@@ -6,7 +6,7 @@
 #
 #   ./scripts/run_isaac_sim.sh                 GUI. 스테이지 구성은 Script Editor 로
 #   ./scripts/run_isaac_sim.sh --headless      GUI 없이 **전 과정 자동** (검사·CI 용)
-#   ./scripts/run_isaac_sim.sh --headless --phase 4    카메라까지 (⚠️ 6.0 에서 크래시)
+#   ./scripts/run_isaac_sim.sh --headless --phase 3    카메라 없이 (조작 계열만)
 #
 # 뜨고 나면 ROS 쪽 스택을 따로 올린다:
 #
@@ -49,7 +49,7 @@ ISAAC_ROOT="${ISAAC_ROOT:-$HOME/isaacsim}"
 ISAAC_ROS="$ISAAC_ROOT/exts/isaacsim.ros2.core/humble"
 WORKSPACE="${RDFP_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DOMAIN="${ROS_DOMAIN_ID:-31}"
-PHASE="${ISAAC_PHASE:-3}"
+PHASE="${ISAAC_PHASE:-4}"
 HEADLESS=0
 
 while [[ $# -gt 0 ]]; do
