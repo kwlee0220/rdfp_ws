@@ -183,7 +183,8 @@ Windows 머신                          Ubuntu 머신
 
 > ## Isaac Sim 6.0 · Ubuntu 재검증 — 2026-09-02
 >
-> **기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다** —
+> **기동 절차는 [isaac_bringup_runbook.md](isaac_bringup_runbook.md) 에 따로 있다.**
+> 기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다 —
 > 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②).
 >
 > | | |

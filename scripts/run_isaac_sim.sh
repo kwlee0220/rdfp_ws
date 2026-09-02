@@ -46,6 +46,7 @@
 #
 # ── 3. 관련 문서 ─────────────────────────────────────────────────────────────
 #
+#   docs/simulation/isaac_bringup_runbook.md    **기동 절차 전체** (스크립트 목록·확인·정리)
 #   docs/simulation/isaac_backend_skeleton.md   Phase 0~10, 배포 구성, 6.0 재검증 결과
 #   docs/scene/isaac_scene_reset.md             /scene/reset 경로와 선행 조건
 set -euo pipefail
