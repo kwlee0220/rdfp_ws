@@ -2,15 +2,11 @@
 
 MoveIt2 스택(계획·실행·서보) 관련 문서 3개의 진입점이다. **하려는 일부터 고른다.**
 
-> **그리퍼는 여기 없다 (2026-09-02 이동).** MoveIt 이 아니라 ros2_control·시뮬레이터
-> 계층이라 [../gripper/](../gripper/) 로 옮겼다.
-
 | 하려는 일 | 문서 |
 |---|---|
 | 로봇을 계획해서 움직인다 (Cartesian / named target / joint 목표값) | [MoveGroupClient_UserGuide.md](MoveGroupClient_UserGuide.md) |
 | JGPC 스택(`panda_jgpc_mock`)에서 움직인다 / 명령을 직접 스트리밍한다 | [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) |
 | 텔레옵·replay 에서 servo 를 켜고 상태를 확인한다 | [servo_client_programmers_guide.md](servo_client_programmers_guide.md) |
-| 그리퍼를 다룬다 | [../gripper/README.md](../gripper/README.md) |
 
 ## 전체 그림
 
@@ -41,14 +37,14 @@ MoveIt2 스택(계획·실행·서보) 관련 문서 3개의 진입점이다. **
 - **JGPC 스택을 쓴다면** 위 문서의 「구현별 API 가용성」 표로 무엇이 되고 안 되는지 확인한 뒤
   `MoveGroupJgpcClient_UserGuide` 로 넘어간다. 두 문서는 역할을 나눠 가진다 —
   공통 인터페이스와 JTC 는 앞 문서, JGPC 전용 API 와 스트리밍 상세는 뒤 문서다.
-- **그리퍼는** [../gripper/README.md](../gripper/README.md) 가 진입점이다.
 
 ## 여기 없는 것
 
-`robot_control/moveit/` 의 모듈이지만 **쓰이는 문맥이 다른 서브시스템**이라 다른 폴더에 문서가 있다.
+MoveIt 스택과 함께 뜨지만 **쓰이는 문맥이 다른 서브시스템**이라 다른 폴더에 문서가 있다.
 
 | 모듈 | 문서 |
 |---|---|
+| 그리퍼 (`robot_control/gripper/`) | [../gripper/README.md](../gripper/README.md) — ros2_control·시뮬레이터 계층이라 MoveIt 과 무관하다 |
 | `ee_pose_publisher`, `ee_twist_publisher` | [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md), [../teleop/](../teleop/) |
 | `target_joint_cmds_publisher` / `_executor` | [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) |
 | `servo_auto_start_node` | [servo_client_programmers_guide.md](servo_client_programmers_guide.md) (개요) + [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) (launch 연동) |
