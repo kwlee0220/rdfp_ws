@@ -30,7 +30,7 @@ LLM 에이전트가 **프로그램을 작성하지 않고** 대화만으로 로�
 Claude Code / Desktop
         │  MCP (stdio)
         ▼
-  robot-twin-mcp          ~/development/mdtpy/robot-twin
+  robot-twin-mcp          ~/development/mdtpy/robot-twin-client
         │  HTTP
         ▼
    robot_twin             rdfp_ws (ROS 노드)
@@ -50,7 +50,7 @@ MCP 서버는 **트윈의 클라이언트일 뿐**이며 ROS 를 알지 못한�
 MCP 서버는 stdio 로 말하므로 **클라이언트가 프로세스를 띄운다.** 사람이 실행하는 것이 아니라 Claude Code 에 등록해 두는 것이다.
 
 ```bash
-cd ~/development/mdtpy/robot-twin
+cd ~/development/mdtpy/robot-twin-client
 ./sbin/register_mcp_server.sh          # 기본 user scope — 모든 프로젝트에서 잡힌다
 ```
 
@@ -68,7 +68,7 @@ cd ~/development/mdtpy/robot-twin
 // ~/development/ros/rdfp_ws/.mcp.json
 { "mcpServers": {
     "robot-twin": {
-      "command": "/home/kwlee/development/mdtpy/robot-twin/.venv/bin/robot-twin-mcp",
+      "command": "/home/kwlee/development/mdtpy/robot-twin-client/.venv/bin/robot-twin-mcp",
       "args": ["--port", "8803", "--twin-id", "panda_functionbay"] } } }
 ```
 
@@ -114,13 +114,13 @@ rdfp_env
 | `tools fetch failed` | 터미널 B 의 트윈이 떠 있는지 |
 | 도구는 보이는데 팔이 안 움직임 | 터미널 A 의 스택 — 트윈 로그에 `MoveGroup client ready` 가 찍혔는지 |
 
-한 번에 좁히려면 `~/development/mdtpy/robot-twin` 에서 다음을 실행한다. 서버 기동과 도구 조회를 각각 판정해 어디가 끊겼는지 알려준다.
+한 번에 좁히려면 `~/development/mdtpy/robot-twin-client` 에서 다음을 실행한다. 서버 기동과 도구 조회를 각각 판정해 어디가 끊겼는지 알려준다.
 
 ```bash
 ./sbin/run_mcp_server.sh --check
 ```
 
-> 전체 사용법은 `~/development/mdtpy/robot-twin/README.md` 의 "MCP 서버" 절에 있다. **여기에는 최소 경로만 두고 나머지는 위임한다** — 기동 절차는 경로·extra 이름·클라이언트 종류에 따라 자주 바뀌어, 두 곳에 두면 어긋난다.
+> 전체 사용법은 `~/development/mdtpy/robot-twin-client/README.md` 의 "MCP 서버" 절에 있다. **여기에는 최소 경로만 두고 나머지는 위임한다** — 기동 절차는 경로·extra 이름·클라이언트 종류에 따라 자주 바뀌어, 두 곳에 두면 어긋난다.
 
 ---
 
@@ -225,7 +225,7 @@ class OperationConfig(_Base):
 
 ## 3. MCP 서버 쪽 변경
 
-프로젝트: `~/development/mdtpy/robot-twin`
+프로젝트: `~/development/mdtpy/robot-twin-client`
 
 ### 3.1 기존 자산의 재사용
 
@@ -607,4 +607,4 @@ mock 은 물리가 없어 물체가 움직이지 않으므로 `stalled` 가 서�
 - [robot_twin_design.md](robot_twin_design.md) — 트윈 자체의 설계 근거
 - [auto_episode_collection_draft.md](auto_episode_collection_draft.md) — 세션/에피소드
   경계와 `reset_scene` 의 설계 경위
-- `~/development/mdtpy/robot-twin/README.md` — 설치·등록·사용법 (최소 기동 경로는 §1.4)
+- `~/development/mdtpy/robot-twin-client/README.md` — 설치·등록·사용법 (최소 기동 경로는 §1.4)

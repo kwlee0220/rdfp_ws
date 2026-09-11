@@ -3,7 +3,7 @@
     "이 워크스페이스에서 쓰는 MCP 서버.",
     "",
     "`robot-twin` 은 **로봇 트윈(REST)을 도구·프롬프트로 감싼 것**이다. 구현은 별도",
-    "저장소에 있다: /home/kwlee/development/mdtpy/robot-twin",
+    "저장소에 있다: /home/kwlee/development/mdtpy/robot-twin-client (github.com/kwlee0220/robot-twin-client)",
     "",
     "== 인자를 반드시 줘야 한다 ==",
     "",
@@ -35,7 +35,7 @@
 
   "mcpServers": {
     "robot-twin": {
-      "command": "/home/kwlee/development/mdtpy/robot-twin/.venv/bin/robot-twin-mcp",
+      "command": "/home/kwlee/development/mdtpy/robot-twin-client/.venv/bin/robot-twin-mcp",
       "args": ["--port", "8803", "--twin-id", "panda_functionbay"]
     }
   }

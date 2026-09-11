@@ -1304,7 +1304,7 @@ if not check['reached']:
 > **고정 대기로는 얼마를 줘야 하는지 알 수 없다.** 2026-09-11 에 3 초를 줬더니 하강 뒤
 > 오차를 **7.55 mm** 로 읽었는데 실제로는 **0.04 mm** 였고, 그 잘못 읽은 값으로 다음
 > 목표를 만들어 **삽입이 실패했다.** `ee_pose` 가 **멈출 때까지** 기다린다 — 구현 예는
-> `mdtpy/robot-twin` 의 `robot_twin_client.ops.wait_until_still` 이다 (`quiet_sec` 동안
+> `mdtpy/robot-twin-client` 의 `robot_twin_client.ops.wait_until_still` 이다 (`quiet_sec` 동안
 > `tol_m` 안에 머물면 멈춘 것으로 보고, 상한 안에 못 멈추면 `None` 을 준다 — 움직이는
 > 중의 값을 도달로 넘기지 않는다).
 >

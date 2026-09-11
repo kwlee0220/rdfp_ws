@@ -33,14 +33,14 @@
 ```
 자연어 프롬프트
       ↓
-MCP 서버        /home/kwlee/development/mdtpy/robot-twin/src/robot_twin_client/mcp_server.py
+MCP 서버        /home/kwlee/development/mdtpy/robot-twin-client/src/robot_twin_client/mcp_server.py
       ↓ REST
 로봇 트윈        src/robot_twin/          (rdfp_ws)
       ↓ ROS
 제어 스택        robot_control            (rdfp_ws)
 ```
 
-MCP 서버는 **별도 저장소**(`mdtpy/robot-twin`)에 있고 트윈의 `/variables` ·
+MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈의 `/variables` ·
 `/operations` 카탈로그를 읽어 도구 목록을 자동 생성한다. 설계서:
 [mcp_server_design.md](mcp_server_design.md) (구현 완료 v1).
 
@@ -292,7 +292,7 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin`)에 있고 트윈의 `/var
 
 ### 4단계 — 클라이언트 절차
 
-**만들 것** `mdtpy/robot-twin/src/robot_twin_client/peg_in_hole.py`
+**만들 것** `mdtpy/robot-twin-client/src/robot_twin_client/peg_in_hole.py`
 
 **하는 일** — `fb_move_peg.py` 의 절차를 트윈 REST 로 옮긴다
 
@@ -650,14 +650,14 @@ peg 을 놓는 순간 물체를 잃는다 — **도구 이름을 대어 막는�
 | Q2 | 고정물 노출 | **트윈 상태 변수 `fixtures`** (2.3 A안) | 없으면 에이전트가 *"다른 hole"* 을 해석할 수 없다 — `scene_objects` 에는 `peg` 뿐이다 |
 | Q3 | MCP 도구 입도 | **셋 다** — `pick_peg` · `place_peg` · `move_peg` | *"뽑아줘"* 처럼 절반만 하는 지시가 실제로 있다 |
 | Q4 | 실패 시 기본 행동 | **쥔 채 정지** | 안 앉은 채 놓으면 **물체를 영구히 잃고** 시뮬레이터 재시작이 필요하다 |
-| Q5 | MCP 저장소 범위 | **포함** — `/home/kwlee/development/mdtpy/robot-twin` | 4·5·6단계가 그쪽이다 |
+| Q5 | MCP 저장소 범위 | **포함** — `/home/kwlee/development/mdtpy/robot-twin-client` | 4·5·6단계가 그쪽이다 |
 
 ### 두 저장소를 함께 다룬다
 
 | 저장소 | 단계 | 비고 |
 |---|---|---|
 | `rdfp_ws` | **1 · 2 · 3** | 트윈 설정·프레임·고정물 |
-| `mdtpy/robot-twin` | **4 · 5 · 6** | 클라이언트 절차·MCP 도구·프롬프트 |
+| `mdtpy/robot-twin-client` | **4 · 5 · 6** | 클라이언트 절차·MCP 도구·프롬프트 |
 | 양쪽 | **7** | 실증 |
 
 ---
@@ -683,4 +683,4 @@ peg 을 놓는 순간 물체를 잃는다 — **도구 이름을 대어 막는�
 - [../simulation/functionbay_checklist.md](../simulation/functionbay_checklist.md) §B-18 — peg-in-hole 왕복 실측
 - [../gripper/grasp_center_frame.md](../gripper/grasp_center_frame.md) — `grasp_center` ≠ 손끝, 149 mm
 - `scripts/functionbay/fb_move_peg.py` — 옮겨야 할 절차의 원본
-- `mdtpy/robot-twin/src/robot_twin_client/` — `mcp_server.py` · `pick_n_place.py` · `ops.py`
+- `mdtpy/robot-twin-client/src/robot_twin_client/` — `mcp_server.py` · `pick_n_place.py` · `ops.py`

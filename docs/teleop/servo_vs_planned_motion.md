@@ -188,7 +188,7 @@ ros2 launch robot_control panda_isaac.launch.py \
 | 정해진 자세로 복귀한다 | `move_to_named_target` (`teleop_keyboard` 의 `/`) |
 
 트윈으로 집고 옮기는 전 과정은 [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md)
-를 본다. 외부 저장소 `mdtpy/robot-twin` 의 `robot-twin-stack` 이 그 흐름을 그대로
+를 본다. 외부 저장소 `mdtpy/robot-twin-client` 의 `robot-twin-stack` 이 그 흐름을 그대로
 구현한 예다 — 거기에는 **쥔 뒤 손끝과 물체 중심의 실제 차이를 재서** 놓을 좌표를
 보정하는 부분이 있다. 파지 미끄러짐이 실측에서 12 mm / 1.0 mm / −3.2 mm 로 매번
 달랐으므로 상수로는 잡을 수 없다.
@@ -294,12 +294,12 @@ ros2 launch robot_control panda_isaac.launch.py \
 시작·정지는 측정 스크립트가 직접 한다. 이미 떠 있다면 내리고
 `ros2 service call /servo_node/stop_servo std_srvs/srv/Trigger` 로 세운다.
 
-**트윈 클라이언트.** 파지는 `mdtpy/robot-twin` 의 `pick_n_place` 로 만든다 — 물체 중심에
+**트윈 클라이언트.** 파지는 `mdtpy/robot-twin-client` 의 `pick_n_place` 로 만든다 — 물체 중심에
 TCP 오프셋 10.3 cm 와 `panda_link8` 의 45° yaw 를 보정하는 일을 이미 하고 있다. 그 저장소에서
 `uv run python` 으로 아래 스니펫을 돌린다.
 
 ```bash
-cd ~/development/mdtpy/robot-twin
+cd ~/development/mdtpy/robot-twin-client
 uv run python -c "from robot_twin_client import RobotTwinClient; print(RobotTwinClient(port=8802, twin_id='panda_isaac').health())"
 ```
 
@@ -308,7 +308,7 @@ uv run python -c "from robot_twin_client import RobotTwinClient; print(RobotTwin
 트윈으로 물체를 놓고 집는다. `place` 는 부르지 않는다 — **쥔 채로** 멈춰야 한다.
 
 ```bash
-# ~/development/mdtpy/robot-twin 에서
+# ~/development/mdtpy/robot-twin-client 에서
 uv run python - <<'PY'
 from robot_twin_client import RobotTwinClient
 from robot_twin_client.pick_n_place import pick, grasp_pose_of, above_of
