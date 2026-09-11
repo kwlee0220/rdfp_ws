@@ -120,8 +120,7 @@ class ReplayControlNode(Node):
         # 컨트롤러 판별은 생성 시점에 한 번만 한다. init_exec_mode 파라미터로
         # 강제할 수 있으며, 'auto' 면 명령 토픽 존재 여부로 판별한다.
         self._move_group = create_move_group_client(
-            self, mode=_INIT_EXEC_MODE_TO_CLIENT_MODE[self._init_exec_mode],
-            arm_command_topic=_ARM_COMMAND_TOPIC
+            self, mode=_INIT_EXEC_MODE_TO_CLIENT_MODE[self._init_exec_mode]
         )
 
         # --- ServoClient (replay 시작 직전마다 servo 를 start 하기 위한 핸들).

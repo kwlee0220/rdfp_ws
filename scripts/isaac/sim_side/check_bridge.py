@@ -17,14 +17,14 @@ Isaac 이 쓰는 내부 rclpy 로 같은 도메인을 들여다보므로 판정�
 
 import os as _os
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 #
 #   환경변수 RDFP_WORKSPACE / RDFP_LOG_DIR 가 있으면 그것을 쓴다. **Isaac 머신과
 #   스택 머신이 다른 구성(§1 C·D)에서는 반드시 지정한다** — 그때는 Isaac 쪽에
 #   저장소 사본이 따로 있고, 로그도 Isaac 머신에 떨어진다.
 #
 #   없으면 같은 머신을 가정한 기본값을 쓴다.
-#     Windows : UNC 로 WSL 파일시스템 (§1 A)
+#     Windows : UNC 로 WSL 파일시스템 (§1 부록)
 #     Linux   : 로컬 경로 (§1 B)
 _IS_WINDOWS = _os.name == "nt"
 _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
@@ -87,7 +87,7 @@ def main() -> None:
         for name in topics:
             _log(f"[bridge]   {name}")
 
-        for name in ("/clock", "/joint_states", "/tf"):
+        for name in ("/clock", "/isaac_joint_states", "/tf"):
             count = node.count_publishers(name)
             _log(f"[bridge] publishers on {name}: {count}")
     finally:

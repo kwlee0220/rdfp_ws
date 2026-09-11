@@ -25,5 +25,5 @@ def create_session_control_client(node: Node, *, wait_timeout_sec: float = 0.0) 
     Returns:
         `SessionControlClient` 인스턴스.
     """
-    from rdfp.session.session_control_client import SessionControlClient
+    from rdfp.session import SessionControlClient
     return SessionControlClient(node, wait_timeout_sec=wait_timeout_sec)

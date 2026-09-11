@@ -163,6 +163,12 @@ ros2 launch rdfp rdfp_collect.launch.py          # 터미널 2 — 수집
 
 ---
 
+> **백엔드마다 인자 기본값이 어떻게 다른지**는 제어 계열 README 의
+> [§2.0 백엔드 횡단표](../../robot_control/launch/README.md#20-백엔드-횡단표--같은-인자가-스택마다-어떻게-다른가)
+> 를 본다. `rdfp_*` 는 그 백엔드 launch 를 include 하므로 거기 값이 그대로 바닥에 깔린다
+> (이 계층이 덮어쓰는 것만 아래 §3 표에 있다). 그 표는 손으로 맞추지 않고
+> `test_backend_argument_matrix.py` 가 네 launch 를 실제로 만들어 대조한다.
+
 ## 2. Launch 인자 — `--show-args` 가 쓸모없다
 
 > ⚠️ **이 계열에서는 `--show-args` 를 믿으면 안 된다.** `config_file` 이
@@ -218,7 +224,7 @@ camera.fps          ◀▶ image_recorder.fps  (어긋나면 프레임 drop)
 
 | YAML 블록 | 키 | launch argument | 현재 YAML 값 | 비고 |
 |---|---|---|---|---|
-| `camera` | `enabled` | `enable_camera_node` | `true` | |
+| `camera` | `enabled` | `enable_camera` | `true` | **raw 이미지 발행자를 둘 것인가.** 무엇이 뜨는지는 백엔드 프로파일의 `camera.source` 가 정한다 (`device`→`camera_node` / `compressed`→`republish` / `native`→없음). 압축 백엔드에서는 기본값이 raw 소비자(뷰어·`rawvideo` 레코더)에서 파생된다 — [설계](../../../docs/camera/compressed_image_pipeline_design.md) |
 | | `id` | `camera_id` | `…/data/shibuya_7_8.mp4` | 장치 인덱스 또는 파일/URI |
 | | `image_topic` | `camera_image_topic` | `/camera/image_raw` | 뷰어·레코더도 같이 remap 된다 |
 | | `info_topic` | `camera_info_topic` | `/camera/camera_info` | |
@@ -227,7 +233,7 @@ camera.fps          ◀▶ image_recorder.fps  (어긋나면 프레임 drop)
 | | `resolution` | `camera_resolution` | `1280x720` | **`image_recorder` 가 그대로 쓴다** |
 | | `frame_id` | `camera_frame_id` | `camera_link` | |
 | | `compress_image` | `camera_compress_image` | `false` | `rdfp_camera_node` 는 미지원 |
-| `image_viewer` | `enabled` | `enable_image_viewer_node` | `true` | 헤드리스면 `false` |
+| `image_viewer` | `enabled` | `enable_image_viewer` | `true` | 헤드리스면 `false` |
 | `image_recorder` | `enabled` | `enable_image_recorder_node` | `true` | |
 | | `fps` | `image_recorder_fps` | `10` | **`camera.fps` 와 맞춘다** |
 | | `output_dir` | `image_recorder_output_dir` | `/tmp/recordings` | |
@@ -297,8 +303,8 @@ teleop 만 시험할 때 로그를 줄이는 조합:
 
 ```bash
 ros2 launch rdfp rdfp_panda_jgpc_mock.launch.py \
-    enable_camera_node:=false \
-    enable_image_viewer_node:=false \
+    enable_camera:=false \
+    enable_image_viewer:=false \
     enable_image_recorder_node:=false
 ```
 
@@ -312,7 +318,7 @@ ros2 launch rdfp rdfp_panda_jgpc_mock.launch.py \
 | *(최상위)* | `log_level` | `log_level` | `info` | `move_group` / `servo` |
 | `ee_pose` | `base_frame` | `base_frame` | `panda_link0` | `ee_pose_node` 는 안 띄우지만 `ee_twist` 가 프레임을 쓴다 |
 | | `ee_frame` | `ee_frame` | `panda_hand` | |
-| `image_viewer` | `enabled` | `enable_image_viewer_node` | `true` | |
+| `image_viewer` | `enabled` | `enable_image_viewer` | `true` | |
 | | `image_topic` | `camera_image_topic` | `/camera/image_raw` | 재생된 이미지 토픽. argument 이름은 호환 위해 유지 |
 | `replay` | `arm_path` | `replay_arm_path` | `ee_twist` | arm 구동 경로 **배타 선택**. `ee_twist` \| `target_joint_cmds` \| `none` |
 | `replay.ee_twist` | `source_topic` | `ee_twist_source_topic` | `/ee_pose` | 미분 대상 PoseStamped 입력 |
@@ -406,7 +412,7 @@ ros2 launch rdfp rdfp_advanced.launch.py config_file:=$HOME/my_camera.yaml
 |---|---|:-:|:-:|
 | `log_level` | 하드코딩 `info` | ✅ | ✅ |
 | `camera_*` 9종 | `image_pipeline.yaml` | 토픽 remap 용 | 노드 파라미터로도 사용 |
-| `enable_image_viewer_node` | `image_pipeline.yaml` | ✅ | ✅ |
+| `enable_image_viewer` | `image_pipeline.yaml` | ✅ | ✅ |
 | `enable_image_recorder_node` / `_fps` / `_output_dir` | `image_pipeline.yaml` | ✅ | ✅ |
 | `image_recorder_auto_start` | `image_pipeline.yaml` | ✅ | **미선언** |
 | `config_file` | — | ✅ | ✅ |
@@ -459,7 +465,7 @@ replay_panda_mock.launch.py
  ├─ ros2_control 스택 (joint_state_broadcaster 포함 — 재생 결과 관측용)
  ├─ move_group / servo_node / rviz2
  ├─ gripper_action_node              (항상)
- ├─ rdfp_image_viewer_node            (enable_image_viewer_node)
+ ├─ rdfp_image_viewer_node            (enable_image_viewer)
  └─ arm 어댑터 — replay_arm_path 로 택일
      ├─ ee_twist_publisher + servo_auto_start (ee_twist, 기본)
      ├─ target_joint_cmds_executor            (target_joint_cmds)
@@ -505,7 +511,21 @@ replay_panda_mock.launch.py
 | `rdfp_panda_jgpc_mock` | `robot_control panda_jgpc_mock` + `rdfp_collect arm_cmd_source:=float64_multi_array` | **완전 일치** ✅ |
 | `rdfp_panda_gazebo` | `robot_control panda_gazebo` + `rdfp_collect` (인자 필요, 아래) | **불일치** — 인자를 맞춰야 한다 |
 | `rdfp_panda_isaac` | `robot_control panda_isaac` + `rdfp_collect` (인자 필요) | **불일치** — 카메라 3종 + `arm_cmd_source` |
-| `rdfp_panda_functionbay` | `panda_functionbay` + 수집 4종. **시뮬레이터가 먼저 떠 있어야 한다.** 카메라 값의 공유 정의 파일이 없어 launch 상수로 둔다 — `image_recorder_fps` 기본 `5` 는 **목표값이고 실측 소스는 9.606 Hz** 라 소스를 맞추기 전에는 영상 시간축이 어긋난다 |
+| `rdfp_panda_functionbay` | `panda_functionbay` + 수집 4종. **시뮬레이터가 먼저 떠 있어야 한다** | **미검증** — 카메라 값의 공유 정의 파일이 없어 launch 상수로 둔다. `image_recorder_fps` 기본 `5` 는 **목표값이고 실측 소스는 9.606 Hz** 라 소스를 맞추기 전에는 영상 시간축이 어긋난다 |
+
+> **`enable_image_viewer` 는 뷰어와 `camera_republish` 를 함께 켠다** (2026-09-08).
+> 시뮬레이터가 `sensor_msgs/CompressedImage` 로 발행하고 뷰어는 `sensor_msgs/Image` 만
+> 구독하므로, `image_transport/republish` 가 중간에서 raw(`camera_image_topic`)로
+> 되살린다. 그 노드가 없으면 **타입이 달라 ROS 2 가 연결만 안 하고 오류도 내지 않아**
+> 증상이 "빈 창"뿐이다.
+>
+> ⚠️ **include 된 launch 는 부모의 argument 값을 물려받는다** — 자기
+> `DeclareLaunchArgument` 의 기본값으로 되돌아가지 않는다 (실측). 두 계층이 같은
+> `enable_image_viewer` 이름을 쓰므로, `rdfp_panda_functionbay` · `rdfp_panda_isaac` 은
+> 백엔드에 **`enable_image_viewer:=false` 를 명시적으로 넘겨** 제어 계층의 평범한 뷰어를
+> 끈다. 넘기지 않으면 `:=true` 가 새어 들어가 **같은 영상을 띄우는 창이 두 개** 뜨고,
+> 오류는 없다. 이 계층의 뷰어는 세션 상태를 오버레이하는 `rdfp_image_viewer_node` 다
+> (`rdfp/camera/tests/test_functionbay_viewer_wiring.py` 가 이 계약을 고정한다).
 
 ```bash
 # JTC — 완전 동등
@@ -547,7 +567,7 @@ ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
 |---|---|---|
 | `camera_resolution` | `640x480` | `1280x720` |
 | `image_recorder_auto_start` | `false` | `true` |
-| `enable_image_viewer_node` | `false` | `true` |
+| `enable_image_viewer` | `false` | `true` |
 | `enable_image_recorder_node` | `false` | `true` |
 | `camera_image_topic` · `image_recorder_fps` · `image_recorder_output_dir` · `target_joint_cmds_input_topic` | — | 동일 ✅ |
 
@@ -557,7 +577,7 @@ ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
 ros2 launch robot_control panda_gazebo.launch.py
 ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
     camera_resolution:=640x480 image_recorder_auto_start:=false \
-    enable_image_viewer_node:=false enable_image_recorder_node:=false
+    enable_image_viewer:=false enable_image_recorder_node:=false
 ```
 
 `use_sim_time:=true` 는 필수다. Gazebo 백엔드는 `/clock` 을 쓰므로 수집 노드만

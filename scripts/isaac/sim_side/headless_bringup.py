@@ -47,7 +47,7 @@ import time
 # `robot_control/tests/test_isaac_sim_side_scripts.py` 가 Isaac 없이 이 파일을 읽어
 # 경로 계약을 검사하기 때문이다. 최상위에 두면 그 검사가 통째로 깨진다.
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 # **같은 블록이 이 폴더의 모든 스크립트에 복사돼 있다** — Isaac 쪽에서는
 # `robot_control` 을 import 할 수 없어 공용 헬퍼로 뽑을 수 없기 때문이다. 하나를
 # 고치면 나머지도 함께 고친다 (test_isaac_sim_side_scripts.py 가 그것을 잡는다).

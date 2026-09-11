@@ -33,9 +33,13 @@ ERROR_LOG_INTERVAL_SEC = 5.0
 
 
 class ImageCaptureNode(Node):
-    """
-    USB 카메라에서 직접 이미지를 캡처하고 JPEG으로 압축하여 발행하는 노드.
-    재연결 로직은 ReconnectingCamera에 위임한다.
+    """카메라 이미지를 **JPEG 으로만** 발행하는 노드 — 재연결을 스스로 한다.
+
+    ``camera_node`` 와 갈리는 축은 둘이다: 출력이 ``CompressedImage`` 뿐이고
+    (raw ``Image`` 는 내지 않는다), 끊김을 supervisor 가 아니라 ``ReconnectingCamera``
+    가 복구한다. 세션 결합은 여기에도 없다.
+
+    선택 표: ``docs/camera/README.md``.
     """
 
     def __init__(self):

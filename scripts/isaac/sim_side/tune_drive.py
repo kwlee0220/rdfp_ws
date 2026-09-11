@@ -33,14 +33,14 @@ B 는 √K 에 비례해 올린다 — K 를 ``STIFFNESS_SCALE`` 배 하면 B �
 
 import os as _os
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 #
 #   환경변수 RDFP_WORKSPACE / RDFP_LOG_DIR 가 있으면 그것을 쓴다. **Isaac 머신과
 #   스택 머신이 다른 구성(§1 C·D)에서는 반드시 지정한다** — 그때는 Isaac 쪽에
 #   저장소 사본이 따로 있고, 로그도 Isaac 머신에 떨어진다.
 #
 #   없으면 같은 머신을 가정한 기본값을 쓴다.
-#     Windows : UNC 로 WSL 파일시스템 (§1 A)
+#     Windows : UNC 로 WSL 파일시스템 (§1 부록)
 #     Linux   : 로컬 경로 (§1 B)
 _IS_WINDOWS = _os.name == "nt"
 _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"

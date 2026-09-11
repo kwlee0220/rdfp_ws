@@ -27,7 +27,8 @@ from __future__ import annotations
 
 from launch import LaunchDescription
 
-from robot_control.launch_helpers.camera import declare_camera_arguments, create_camera_node
+from robot_control.launch_helpers.camera import (
+    create_raw_image_source_node, declare_camera_arguments)
 from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
@@ -37,6 +38,7 @@ from robot_control.launch_helpers.controller import (
 from robot_control.launch_helpers.controller_startup import create_controller_startup_handlers
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node, declare_ee_pose_arguments
 from robot_control.launch_helpers.gripper import create_gripper_node
+from robot_control.backends import get_backend
 from robot_control.launch_helpers.common import (
     MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
@@ -50,6 +52,9 @@ from robot_control.launch_helpers.common import (
     declare_ros2_control_hardware_type_argument,
 )
 from robot_control.launch_helpers.scene import create_mock_scene_node, declare_scene_arguments
+
+
+_BACKEND = get_backend("mock")
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -69,7 +74,8 @@ def generate_launch_description() -> LaunchDescription:
     move_group_node = create_move_group_node(moveit_config)
     servo_node = create_servo_node(moveit_config, servo_params)
     rviz_node = create_rviz_node(moveit_config)
-    camera_node = create_camera_node()
+    # raw 출처는 프로파일이 정한다 (`camera.source: device` → OpenCV camera_node).
+    camera_node = create_raw_image_source_node(_BACKEND)
     ee_pose_node = create_ee_pose_node()
     gripper_node = create_gripper_node()
     # scene 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
@@ -87,7 +93,10 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription(
         [
-            declare_ros2_control_hardware_type_argument(),
+            # 백엔드 프로파일이 분기 이름을 갖는다 (헬퍼 기본값과 같지만,
+            # '이 launch 가 어느 백엔드인가' 를 코드가 말하게 한다).
+            declare_ros2_control_hardware_type_argument(
+                default_value=_BACKEND.hardware_type),
             declare_log_level_argument(),
             *declare_ee_pose_arguments(),
             *declare_camera_arguments(),

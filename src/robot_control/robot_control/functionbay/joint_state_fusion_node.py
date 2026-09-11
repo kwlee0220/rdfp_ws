@@ -1,22 +1,34 @@
 """펑션베이 관절 보고 → `/joint_states` 변환 노드.
 
-펑션베이는 `sensor_msgs/JointState` 를 발행하지만 **`name` 을 채우지 않는다** —
-배열 순서가 곧 계약이다. 이 노드가 순서에 이름을 부여해 ROS 관례에 맞는
-`/joint_states` 로 바꾼다.
+펑션베이 스택에는 ros2_control 이 없어 `joint_state_broadcaster` 도 없다. 즉
+`/joint_states` 를 만들어 줄 주체가 없다. 이 노드가 그 자리를 대신해
+`/output/panda_joint` 를 ROS 관례에 맞는 `/joint_states` 로 바꾼다.
 
 왜 필요한가
 -----------
-`robot_state_publisher` 는 URDF 의 non-fixed joint 를 **이름으로** 찾는다. 이름이
-없으면 TF 트리가 만들어지지 않아 RViz 표시 · MoveIt 충돌검사 · `ee_pose_node`
-가 전부 동작하지 않는다.
-
-또 펑션베이는 팔 7축만 보고한다. Panda URDF 에는 `panda_finger_joint1` 도
-non-fixed 이므로 이것까지 채워야 TF 가 손끝까지 이어진다
-(`panda_finger_joint2` 는 URDF 에서 `<mimic>` 이라 rsp 가 파생한다).
+단순 remap 으로는 안 된다. 시뮬레이터는 **팔 7축만 보고**하는데 Panda URDF 에는
+`panda_finger_joint1` 도 non-fixed 이므로, 메시지에 그 관절을 덧붙여야 TF 가
+손끝까지 이어진다 (`panda_finger_joint2` 는 URDF 에서 `<mimic>` 이라 rsp 가
+파생한다). `robot_state_publisher` 는 URDF 의 non-fixed joint 를 **이름으로**
+찾으므로, 빠지면 TF 트리가 끊겨 RViz 표시 · MoveIt 충돌검사 · `ee_pose_node` 가
+전부 동작하지 않는다.
 
 그리퍼는 아직 연동하지 않는다 (실물이 Robotiq 2F-85 라 Panda Hand 를 전제한
 URDF/SRDF 와 기구학이 다르다). 그때까지는 `extra_joint_positions` 의 고정값으로
-TF 만 성립시킨다.
+TF 만 성립시킨다. **따라서 이 노드가 싣는 손가락 관절값은 실제 개폐와 무관한
+더미다** — 그리퍼 상태는 `/gripper_states` 를 본다.
+
+시각(stamp) 도 여기서 정리한다. 펑션베이는 시뮬 시간을 쓰지 않고 입력 stamp 가
+0 인 경우가 있는데, 그대로 흘리면 TF 버퍼가 받지 않는다.
+
+이름(`name`) 처리
+-----------------
+설계 당시에는 입력이 `name` 을 비워 보내 **배열 순서가 곧 계약**인 상황을
+전제했고, `joint_names` 파라미터로 순서에 이름을 부여하는 것이 이 노드의 주업
+이었다. **2026-09-01 실측에서 시뮬레이터가 `panda_joint1`~`7` 을 채워 보내는
+것이 확인됐다.** `_resolve_names()` 가 `if msg.name:` 을 먼저 보므로 입력의 이름이
+우선이고, `joint_names` 는 입력이 이름을 비웠을 때만 쓰이는 fallback 으로
+남았다. 어느 쪽이 쓰였는지는 첫 메시지에서 한 번 로깅한다.
 
 파라미터
 --------
@@ -25,7 +37,7 @@ TF 만 성립시킨다.
 ======================== ============================ ==================================
 input_topic              /output/panda_joint          시뮬레이터 관절 보고
 output_topic             /joint_states                변환 결과
-joint_names              panda_joint1..7              **입력 배열 순서와 일치해야 한다**
+joint_names              panda_joint1..7              입력이 `name` 을 비웠을 때만 쓰인다
 extra_joint_names        [panda_finger_joint1]        입력에 없지만 URDF 가 요구하는 관절
 extra_joint_positions    [0.04]                       위 관절에 채울 고정값
 stamp_source             auto                         auto | incoming | now

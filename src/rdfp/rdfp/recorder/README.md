@@ -22,7 +22,7 @@ subprocess 로 MP4 파일을 생성한다.
 ```python
 import numpy as np
 from rdfp.recorder import FFMpegMp4Recorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 with FFMpegMp4Recorder(
     fps=30, resolution=Resolution(640, 480),

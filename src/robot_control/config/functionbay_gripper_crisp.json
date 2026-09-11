@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "펑션베이 **그리퍼 규약** — Crisp(서울대) 솔버(`t1` 씬) 기준.",
+    "",
+    "⚠️ **이 값들은 2026-09-10 에 재확인하지 않았다.** 문서에 남은 2026-09-04 측정",
+    "(체크리스트 B-12~B-14)에서 옮겨 적은 것이며, 그때 이 규약으로 8회 개폐에 잔차",
+    "0.00006~0.00029 rad 이 나왔다. t1 씬을 다시 띄우면 `axis_count` 대조로 최소한",
+    "축 수는 즉시 검증된다.",
+    "",
+    "r2(RecurDyn) 과 다른 점은 셋이다 — 관절 6개, 라디안, 위치만 나열.",
+    "씬 XML 근거: `t1__Gripper6_1_vm.xml` 이 6관절(`finger_joint`,",
+    "`left_inner_knuckle_joint`, `left_inner_finger_joint`, `right_outer_knuckle_joint`,",
+    "`right_inner_knuckle_joint`, `right_inner_finger_joint`)에 Kp=200 을 걸고,",
+    "`t1__panda_robotiq_ref_1_vm.xml` 이 `<Gripper Number=\"18\">`(=6x3) 이다.",
+    "",
+    "**6축을 한꺼번에 채워 보낸다** — 시뮬레이터가 mimic 을 강제하지 않으므로 구동",
+    "관절 하나만 보내면 나머지가 안 따라오고, 시뮬레이터는 그것을 거부하지 않는다",
+    "(open_work §7 ④)."
+  ],
+
+  "solver": "Crisp",
+  "scene": "t1",
+  "measured_on": "2026-09-04",
+  "build": "Crisp-260907",
+
+  "axis_count": 6,
+  "axis_signs": [1.0, 1.0, -1.0, -1.0, -1.0, 1.0],
+  "command_units": "rad",
+  "command_packing": "position",
+
+  "targets": { "open": 0.0, "close": 0.725, "grasp": 0.725 },
+
+  "_gain_note": [
+    "실측 파지 17.19~17.25 N·m / 빈손 0.004 N·m. 잔차 0.0859~0.0862 x Kp 200 과 맞는다.",
+    "**r2 와 값이 다른 것은 결함이 아니라 모델 차이다** — 관절 수와 링키지가 달라 같은",
+    "peg 에 대한 관절 잔차가 다르다. `effort = Kp x 잔차` 라는 관계 자체는 같다."
+  ],
+  "gain_kp": 200.0,
+  "stall_effort": 1.0,
+  "stall_velocity": 0.001,
+  "position_tolerance": 0.005
+}

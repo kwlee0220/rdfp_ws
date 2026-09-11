@@ -61,6 +61,8 @@ class OpenCvCamera:
         self._resolution: Optional[Resolution] = parsed_resolution
         self._fps = fps
         self._last_read_fail_log_ts: float = 0.0
+        # 파일 소스의 되감기 판단에 쓴다 — 한 프레임도 못 읽은 소스는 되감지 않는다
+        self._frames_read: int = 0
 
     @property
     def is_opened(self) -> bool:
@@ -169,6 +171,9 @@ class OpenCvCamera:
             return None
 
         ret, frame = self._cap.read()
+        if (not ret or frame is None) and self._rewind_if_file_ended():
+            ret, frame = self._cap.read()
+
         if not ret or frame is None:
             self._last_read_fail_log_ts = log_periodic(
                 self._logger.warning,
@@ -178,7 +183,35 @@ class OpenCvCamera:
             )
             return None
 
+        self._frames_read += 1
         return frame
+
+    def _rewind_if_file_ended(self) -> bool:
+        """파일 소스가 끝에 닿았으면 처음으로 되감는다.
+
+        **파일 끝은 '연결 끊김'이 아니다.** OpenCV 는 EOF 에서도 ``isOpened()`` 를 참으로
+        두므로 되감지 않으면 노드가 살아 있는 채 아무것도 못 내고 초당 fps 회의 경고만
+        남긴다 — 증상이 "카메라가 조용하다"뿐이라 원인이 안 보인다. mock 스택이 mp4 를
+        카메라로 쓰므로(``config/image_pipeline.yaml``) 영상 길이가 곧 스택의 수명이 된다.
+
+        Returns:
+            되감았으면 True. 파일이 아니거나 한 프레임도 못 읽었으면 False.
+        """
+        if self._cap is None or self._frames_read == 0:
+            # **한 프레임도 못 읽은 소스는 되감지 않는다.** 깨진 파일에서 되감기와 실패를
+            # 무한히 반복하게 된다.
+            return False
+
+        # 라이브 소스(장치·RTSP)는 프레임 수가 0 이나 음수로 온다 — 되감을 것이 없다.
+        if self._cap.get(cv2.CAP_PROP_FRAME_COUNT) <= 0:
+            return False
+
+        if not self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0):
+            self._logger.warning(f'Rewind failed (camera_id={self._camera_id})')
+            return False
+
+        self._logger.info(f'End of file reached; looping (camera_id={self._camera_id})')
+        return True
 
     def release(self) -> None:
         """카메라 리소스를 해제한다."""

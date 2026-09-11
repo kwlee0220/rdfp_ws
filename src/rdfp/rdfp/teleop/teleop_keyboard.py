@@ -7,43 +7,23 @@ Extends the base keyboard teleop (panda_servo_teleop) with:
 - Task selection (1-5) and outcome marking (=/-).
 """
 import sys
-import select
-import termios
-import tty
 from dataclasses import dataclass
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from geometry_msgs.msg import TwistStamped
 from control_msgs.msg import JointJog
+from std_msgs.msg import Int8
 from rdfp_msgs.msg import GripperCommand
 
-from robot_control.moveit import create_move_group_client
+from robot_control.moveit import backends, create_move_group_client
+from std_srvs.srv import Trigger
+
 from robot_control.moveit.servo_client import ServoClient
 from robot_control.ros2_utils import get_parameter, parse_float, parse_str, parse_str_list
-from ..session.session_control_client import SessionControlClient
-
-
-class TerminalRawMode:
-    """Context manager for safely handling terminal raw mode.
-
-    Automatically restores terminal settings when exiting the context,
-    even if exceptions occur.
-    """
-
-    def __enter__(self):
-        self._stdin_fd = sys.stdin.fileno()
-        self._old_term = termios.tcgetattr(self._stdin_fd)
-        tty.setcbreak(self._stdin_fd)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Restore terminal settings regardless of how we exit."""
-        try:
-            termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, self._old_term)
-        except Exception:
-            # Fail silently if terminal restoration fails
-            pass
+from ..session import SessionControlClient
+from .key_hold import HoldKeyTracker, TerminalRawMode
 
 
 @dataclass
@@ -76,8 +56,12 @@ class KeyMapping:
 
     # Gripper
     # '=' 는 벌어진 간격(open), '-' 는 줄어든 간격(close) 의미로 매핑한다.
+    # '\\' 는 grasp — close 와 **판정이 다르다**. close 는 목표 자세 도달로,
+    # grasp 는 `stalled`(물체에 막혀 더 안 닫힘)로 성공을 판정한다. 물건을 집을
+    # 때는 grasp 를 써야 `at_goal` 이 제대로 선다 (docs/gripper/GripperNode_Design.md).
     gripper_open: str = "="
     gripper_close: str = "-"
+    gripper_grasp: str = "\\"
 
     # Session (calls start_session / stop_session services).
     # '<' / '>' 는 Shift 조합, ',' / '.' 는 Shift 없이도 쓸 수 있도록 alias 로 제공한다.
@@ -102,7 +86,7 @@ Keyboard Twist Teleop (forgeflow)
     ;/': panda_joint1 -/+
     r/f: roll    t/g: pitch   y/h: yaw
   Gripper:
-    =: open   -: close
+    =: open   -: close   \\: grasp (물체를 집을 때)
   Session (split services on session_control):
     < or ,: start_session   > or .: stop_session
     [: start_episode   ]: stop_episode
@@ -112,6 +96,8 @@ Keyboard Twist Teleop (forgeflow)
   Control:
     SPACE: deadman   x: stop   /: move to 'ready' pose   Ctrl-C: quit
   Note: Servo auto-starts on initialization
+  Note: If keys stop moving the arm, read the 'servo status' warning below —
+        servo halts on joint limits and singularities. '/' recovers (MoveIt, not servo).
 ─────────────────────────────────────"""
 
 _DEFAULT_TASK_LIST = ["touch", "pick_and_place", "push", "stack", "wipe"]
@@ -120,30 +106,38 @@ _DELTA_TWIST_TOPIC = "/servo_node/delta_twist_cmds"  # Default topic for TwistSt
 # JGPC 기본 명령 토픽. auto 판별도 이 토픽의 유무를 본다.
 _DEFAULT_ARM_COMMAND_TOPIC = "/panda_arm_controller/commands"
 # JTC 실행 경로의 액션. 서버 부재 확인에 쓴다.
-_JTC_ACTION_NAME = "/panda_arm_controller/follow_joint_trajectory"
 
 # 백엔드별 arm 명령 채널 프로파일.
 #
-# `auto` 판별은 `/panda_arm_controller/commands` 토픽의 유무만 보므로 **mock 계열
-# 에서만 맞는다.** 펑션베이·Isaac 은 명령 채널 이름이 아예 달라(`/input/panda_joint`,
-# `/isaac/arm_command`) 알려주지 않으면 찾을 방법이 없고, 그러면 JTC 로 오판해
-# `/`(ready 이동)가 `CONTROL_FAILED`(-4) 로 실패한다 — 계획은 되고 실행만 안 된다.
+# `auto` 판별은 `/panda_arm_controller/commands` 토픽의 유무만 본다. 그 이름을 쓰지
+# 않는 백엔드(펑션베이의 `/input/panda_joint`)는 알려주지 않으면 찾을 방법이 없고,
+# 그러면 JTC 로 오판해 `/`(ready 이동)가 `CONTROL_FAILED`(-4) 로 실패한다 — 계획은
+# 되고 실행만 안 된다.
 #
 # 그래서 값 세 개를 매번 손으로 주는 대신 `backend` 하나로 고른다.
-_BACKEND_PROFILES: dict = {
-    # mock / jgpc_mock — 토픽 이름이 표준이라 auto 판별이 옳게 동작한다.
-    "auto": {},
-    "mock": {"arm_command_mode": "auto"},
-    "functionbay": {"arm_command_mode": "jgpc",
-                    "arm_command_topic": "/input/panda_joint",
-                    "arm_command_format": "joint_state",
-                    "arm_command_joint_names": [f"panda_joint{i}" for i in range(1, 8)]},
-    "isaac": {"arm_command_mode": "jgpc",
-              "arm_command_topic": "/isaac/arm_command",
-              "arm_command_format": "joint_state",
-              "arm_command_joint_names": [f"panda_joint{i}" for i in range(1, 8)]},
-}
 _DELTA_JOINT_TOPIC = "/servo_node/delta_joint_cmds"  # JointJog topic for joint-level servo
+
+# servo 가 매 주기 내는 자기 진단(`moveit_servo/StatusCode`). **이것을 안 보면
+# 특이점·관절한계로 servo 가 스스로 멈춘 상황이 "키가 죽었다"로만 보인다** —
+# 실제로 Isaac 파지 자세(`panda_joint6` 하한 -0.0873 에 근접)에서 그렇게 오진했다.
+# 명령을 넣는 동안에만 갱신되므로 `ros2 topic echo --once` 로 확인하면 직전 값이
+# latch 된 것을 보게 된다. 그래서 노드가 상시 구독해 전이 시점에 알린다.
+_SERVO_STATUS_TOPIC = "/servo_node/status"
+
+# 코드별 (이름, 조치). 조치가 비어 있으면 이름만 알린다.
+_SERVO_STATUS_TEXT: dict = {
+    -1: ("INVALID", "servo reported an invalid state"),
+    1: ("DECELERATE_FOR_APPROACHING_SINGULARITY",
+        "motion is scaled down near a singularity and may deviate from the commanded "
+        "direction; press '/' to return to 'ready'"),
+    2: ("HALT_FOR_SINGULARITY", "servo stopped at a singularity; press '/' to return to 'ready'"),
+    3: ("DECELERATE_FOR_COLLISION", "motion is scaled down near a collision"),
+    4: ("HALT_FOR_COLLISION", "servo stopped at a collision; press '/' to return to 'ready'"),
+    5: ("JOINT_BOUND",
+        "a joint reached its limit and servo halts ALL motion, including jogs away from "
+        "the limit; press '/' to return to 'ready'"),
+    6: ("DECELERATE_FOR_LEAVING_SINGULARITY", "motion is scaled down while leaving a singularity"),
+}
 _JOINT1_NAME = "panda_joint1"  # 조인트 단위 서보 대상 (좌/우 화살표 매핑)
 
 # GripperNode 가 구독하는 명령 토픽. 이 토픽이 곧 학습 데이터의 action 채널이다.
@@ -156,7 +150,9 @@ _GRIPPER_CMD_TOPIC = "/gripper_cmds"
 #
 # `grasp` 를 넣지 않은 것은 키보드 teleop 이 빈손 개폐가 기본 용도이기 때문이다.
 # 필요하면 키를 하나 더 배정하고 여기에 추가한다.
-_GRIPPER_LABELS = ("open", "close")
+# `GripperNode` 가 받는 심볼. **여기 없으면 발행 자체가 안 되고 경고만 남는다.**
+# 노드 쪽 `targets.<goal>` 과 짝이 맞아야 한다 — 모르는 심볼은 노드가 거부한다.
+_GRIPPER_LABELS = ("open", "close", "grasp")
 
 _DEFAULT_RATE_HZ = 100.0
 # deadman TTL 기본값. 마지막 모션 키 입력(자동반복 포함) 이후 이 시간만큼만
@@ -170,12 +166,17 @@ _DEFAULT_DEADMAN_TTL_SEC = 0.06
 class TeleopKeyboard(Node):
     """Publishes TwistStamped, gripper commands, and dataset/task events."""
 
-    # Safety velocity limits (absolute maximum values)
-    MAX_LINEAR_VELOCITY = 0.5   # m/s - maximum safe linear velocity
+    # 안전 상한. **단위가 m/s 가 아니다** — servo 를 `command_in_type: unitless` 로
+    # 쓰므로 twist 성분은 [-1, 1] 의 무차원 비율이고, 실제 속도는 servo 의
+    # `scale.linear` 가 정한다 (Isaac 0.4 에서 입력 1.0 이 130 mm/s — 2026-09-07 래칫
+    # 수정 후 값. 수정 전엔 되읽기가 이동량을 먹어 47.5 였다. CLAUDE.md 참조).
+    # 상한이 기본값과 같으면 값을 올리는 순간 `_validate_parameters` 가 ValueError 로
+    # 노드를 죽이므로, 무차원 천장(1.0) 아래에 여유를 두고 잡는다.
+    MAX_LINEAR_VELOCITY = 0.8   # unitless - 경고/검증 임계
     MAX_ANGULAR_VELOCITY = 1.57  # rad/s - maximum safe angular velocity (π/2)
 
     # Emergency limits (even more conservative)
-    EMERGENCY_LINEAR_LIMIT = 1.0   # m/s - absolute emergency stop limit
+    EMERGENCY_LINEAR_LIMIT = 1.0   # unitless - servo 의 무차원 입력 천장, 하드 클램프
     EMERGENCY_ANGULAR_LIMIT = 3.14  # rad/s - absolute emergency stop limit (π)
 
     def __init__(self):
@@ -184,36 +185,37 @@ class TeleopKeyboard(Node):
         # --- Parameters ---
         self.declare_parameter("frame_id", "panda_link0")
         self.declare_parameter("rate_hz", _DEFAULT_RATE_HZ)
-        self.declare_parameter("linear_step", 0.5)
-        self.declare_parameter("angular_step", 0.50)
+        # 기본 0.25 (2026-09-07). servo 의 래칫을 끊자 같은 입력에 직선 2.7배·회전 2.3배
+        # 빨라져서(docs/teleop/servo_vs_planned_motion.md §4.1) 0.6 이던 것을 되맞췄다 —
+        # 0.25 는 직선 32 mm/s · 회전 2.9 °/s 로 수정 전 체감(28.5 mm/s · 3.0 °/s)에 가깝다.
+        # `scale.linear` 쪽을 낮추지 않는 이유: 비례가 유지되고, 그쪽은 servo 재기동이 필요하며,
+        # 다른 servo 소비자(ee_twist·teleop_retarget)의 보정이 함께 흔들린다.
+        self.declare_parameter("linear_step", 0.25)
+        self.declare_parameter("angular_step", 0.25)
         self.declare_parameter("deadman_ttl_sec", _DEFAULT_DEADMAN_TTL_SEC)
         self.declare_parameter("tasks", _DEFAULT_TASK_LIST)
         # 빈 값이 "미설정" 이다 — 프로파일이 채우게 두고, 명시하면 그것이 이긴다.
-        self.declare_parameter("backend", "auto")
-        self.declare_parameter("arm_command_mode", "")
-        self.declare_parameter("arm_command_topic", "")
-        self.declare_parameter("arm_command_format", "")
-        self.declare_parameter("arm_command_joint_names", [""])
+        # **기본값이 없다.** 어느 스택에 붙는지는 사람이 안다 — 짐작하게 두면
+        # 틀린 짐작이 조용히 통과하고, 증상은 "'/' 키가 안 먹는다" 로만 보인다.
+        self.declare_parameter("backend", Parameter.Type.STRING)
 
         self.frame_id = get_parameter(self, "frame_id", parse_str, default="panda_link0")
         self.rate_hz = get_parameter(self, "rate_hz", parse_float, default=_DEFAULT_RATE_HZ)
-        self.linear_step = get_parameter(self, "linear_step", parse_float, default=0.5)
-        self.angular_step = get_parameter(self, "angular_step", parse_float, default=0.50)
+        self.linear_step = get_parameter(self, "linear_step", parse_float, default=0.25)
+        self.angular_step = get_parameter(self, "angular_step", parse_float, default=0.25)
         self.deadman_ttl_sec = get_parameter(self, "deadman_ttl_sec", parse_float,
                                              default=_DEFAULT_DEADMAN_TTL_SEC)
         self.tasks = get_parameter(self, "tasks",  parse_str_list, default=_DEFAULT_TASK_LIST)
 
         # --- arm 명령 채널 ('/' = ready 이동에 쓰인다) ---
-        # **기본 'auto' 는 mock 계열에서만 맞는다.** auto 판별은
-        # `/panda_arm_controller/commands` 토픽의 유무만 보므로, 그 토픽이 없는
-        # 펑션베이 스택을 JTC 로 오판한다. 그런데 그 스택에는 ros2_control 컨트롤러가
-        # 없어 `FollowJointTrajectory` 액션 서버도 없다 — 계획은 되고 **실행만 조용히
-        # 안 되는** 상태가 된다. 백엔드마다 아래 값을 넘긴다.
+        # **`backend` 하나로 끝난다.** 어느 스택이 JTC 인가와 명령 채널은
+        # `robot_control.moveit.BACKEND_PROFILES` 가 갖고, 오판 경고도 팩토리가 낸다.
         #
-        #   펑션베이: mode=jgpc topic=/input/panda_joint  format=joint_state
-        #   Isaac   : mode=jgpc topic=/isaac/arm_command  format=joint_state
-        #   jgpc mock: mode=auto (토픽이 있어 올바로 판별된다)
-        self._resolve_arm_command_channel()
+        # 채널을 개별로 받던 파라미터 넷은 걷어냈다 — 실제로 값을 넣던 곳이 모두
+        # 프로파일과 같은 값을 손으로 다시 적고 있었고, 그것이 표를 둔 이유를
+        # 무너뜨린다. 새 스택은 프로파일에 한 항목을 더한다.
+        self.backend = self._require_backend()
+        self.get_logger().info(f"arm command channel: backend={self.backend}")
 
         # --- Publishers ---
         self.twist_pub = self.create_publisher(TwistStamped, _DELTA_TWIST_TOPIC, 10)
@@ -225,12 +227,18 @@ class TeleopKeyboard(Node):
         # 심볼로 바꿔 발행만 한다.
         self._gripper_pub = self.create_publisher(GripperCommand, _GRIPPER_CMD_TOPIC, 10)
 
+        # --- servo 자기 진단 구독 ---
+        # servo 는 매 주기 status 를 내므로 **전이 시점에만** 알린다. 매번 찍으면
+        # 100 Hz 로 도배되어 오히려 안 보인다.
+        self._servo_status = 0
+        self.create_subscription(Int8, _SERVO_STATUS_TOPIC, self._on_servo_status, 10)
+
         # --- SessionControlClient (비동기 API 사용) ---
         # **없어도 뜬다.** `session_control_node` 는 수집 계층(rdfp) 소속이라 제어
         # 스택만 띄운 경우에는 존재하지 않는다. 그래도 텔레오퍼레이션 자체는 아무
         # 문제가 없으므로 세션 키만 비활성으로 두고 나머지는 그대로 쓴다.
         #
-        # `create()` 의 기본 동작은 6 개 서비스를 기다리다 `RuntimeError` 를 내는
+        # `create()` 의 기본 동작은 5 개 서비스를 기다리다 `RuntimeError` 를 내는
         # 것이라, 대기를 끄고 `wait_until_ready` 로 예외 없이 확인한다.
         session_wait_sec = float(
             self.declare_parameter("session_wait_sec", 2.0).value)
@@ -298,9 +306,11 @@ class TeleopKeyboard(Node):
         period = 1.0 / self.rate_hz if self.rate_hz > 0 else 0.01
         self.timer = self.create_timer(period, self._on_timer)
 
-        # --- Deadman state ---
-        self._deadman_ttl = 0.0
-        self._last_key = None
+        # --- 홀드(누른 동안만 움직임) ---
+        # 터미널은 '키를 뗐다'를 안 알려 준다. 그 추정과 만료 시 0 을 한 번 보내는
+        # 규칙을 `HoldKeyTracker` 가 갖는다 (`key_hold.py` 모듈 설명 참조).
+        self._holds = HoldKeyTracker(self.motion_keys, ttl_sec=self.deadman_ttl_sec,
+                                     hold_keys=(self.keys.deadman,))
 
         # Validate all parameters
         self._validate_parameters()
@@ -312,47 +322,6 @@ class TeleopKeyboard(Node):
         super().destroy_node()
 
     # ── Keyboard input ──────────────────────────────────────────
-
-    def _read_key_nonblocking(self):
-        dr, _, _ = select.select([sys.stdin], [], [], 0.0)
-        if not dr:
-            return None
-        ch = sys.stdin.read(1)
-        # ESC 수신 시 화살표 등 escape sequence (\x1b[X) 일 가능성이 있으므로
-        # 뒤따르는 바이트를 추가로 읽어 합쳐 반환한다. 타임아웃이 너무 짧으면
-        # OS 스케줄링/터미널 버퍼 타이밍으로 인해 3 바이트가 분리 수신되어
-        # '[' 가 episode_start 키로, 'D' 가 unknown key 로 오인식될 수 있다.
-        # 50ms 로 두면 분리 수신 확률이 크게 낮아진다.
-        if ch == "\x1b":
-            dr2, _, _ = select.select([sys.stdin], [], [], 0.05)
-            if not dr2:
-                return ch
-            ch2 = sys.stdin.read(1)
-            if ch2 != "[":
-                return ch + ch2
-            dr3, _, _ = select.select([sys.stdin], [], [], 0.05)
-            if not dr3:
-                return ch + ch2
-            ch3 = sys.stdin.read(1)
-            return ch + ch2 + ch3
-        return ch
-
-    def _read_all_keys(self):
-        """이번 틱에 입력 버퍼에 쌓인 키를 모두 읽어 순서대로 반환한다.
-
-        터미널 자동반복(typematic)으로 버퍼에 누적된 문자가 한 틱에 하나씩만
-        소비되면, 키를 물리적으로 뗀 뒤에도 잔여 문자가 매 틱 deadman TTL 을
-        갱신하여 로봇이 멈추지 않는다. 매 틱 버퍼를 완전히 비워 '가장 최근
-        입력'만 모션에 반영되도록 한다. 버퍼가 비면 :meth:`_read_key_nonblocking`
-        이 None 을 반환하므로 루프가 즉시 종료된다.
-        """
-        keys = []
-        while True:
-            key = self._read_key_nonblocking()
-            if key is None:
-                break
-            keys.append(key)
-        return keys
 
     # ── Twist helpers ───────────────────────────────────────────
 
@@ -449,70 +418,31 @@ class TeleopKeyboard(Node):
 
     # ── Home helpers (MoveIt named target 'ready' 이동) ─────────────
 
-    def _resolve_arm_command_channel(self) -> None:
-        """`backend` 프로파일과 명시 파라미터로 arm 명령 채널을 정한다.
+    def _require_backend(self) -> str:
+        """`backend` 파라미터를 읽는다. **없으면 뜨지 않는다.**
 
-        우선순위는 **명시 파라미터 > 프로파일 > 전역 기본값** 이다. 빈 문자열이
-        "미설정" 을 뜻하므로, 프로파일만 주고 한 값만 덮어쓰는 것도 된다.
+        기본값을 두면 틀린 짐작이 조용히 통과한다 — 예컨대 jgpc mock 스택에서 JTC 로
+        잡히면 계획은 되고 실행만 안 되어 "'/' 키가 안 먹는다" 로만 보인다.
         """
-        backend = str(self.get_parameter("backend").value or "auto")
-        if backend not in _BACKEND_PROFILES:
+        try:
+            value = self.get_parameter("backend").value
+        except Exception:       # noqa: BLE001 — 미설정이면 rclpy 가 예외를 던진다
+            value = None
+        if not value:
             raise ValueError(
-                f"backend must be one of {sorted(_BACKEND_PROFILES)}, got {backend!r}")
-        profile = _BACKEND_PROFILES[backend]
-
-        def pick(name: str, fallback):
-            explicit = self.get_parameter(name).value
-            if isinstance(explicit, str) and explicit.strip():
-                return explicit.strip()
-            if isinstance(explicit, list) and [v for v in explicit if v]:
-                return [v for v in explicit if v]
-            return profile.get(name, fallback)
-
-        self.arm_command_mode = pick("arm_command_mode", "auto")
-        self.arm_command_topic = pick("arm_command_topic", _DEFAULT_ARM_COMMAND_TOPIC)
-        self.arm_command_format = pick("arm_command_format", "float64_multi_array")
-        self.arm_command_joint_names = pick("arm_command_joint_names", [])
-        self.get_logger().info(
-            f"arm command channel: backend={backend} mode={self.arm_command_mode} "
-            f"topic={self.arm_command_topic} format={self.arm_command_format}")
+                f"the 'backend' parameter is required; pick one of {list(backends())} "
+                "(e.g. --ros-args -p backend:=isaac)")
+        if value not in backends():
+            raise ValueError(f"backend must be one of {list(backends())}, got {value!r}")
+        return str(value)
 
     def _create_move_group(self):
-        """arm 명령 채널 파라미터로 MoveGroup 클라이언트를 만든다.
+        """`backend` 프로파일로 MoveGroup 클라이언트를 만든다.
 
-        서버가 없는 조합을 **기동 시점에 알린다.** JTC 로 결정됐는데
-        `FollowJointTrajectory` 액션 서버가 없으면 `/` 를 눌러도 계획만 되고 실행이
-        일어나지 않는데, 그 상태가 "키가 안 먹는다"로만 보여 원인을 찾기 어렵다.
+        **어느 스택이 JTC 인가는 `robot_control.moveit` 이 안다** — 프로파일 표와
+        JTC 오판 경고가 모두 팩토리에 있다. 여기서는 이름만 넘긴다.
         """
-        kwargs = {"mode": self.arm_command_mode, "arm_command_topic": self.arm_command_topic}
-        if self.arm_command_joint_names:
-            kwargs["arm_command_joint_names"] = list(self.arm_command_joint_names)
-        # `arm_command_format` 은 JGPC 클라이언트 전용이다. auto 로 두면 JTC 로
-        # 결정될 수 있고 그 생성자는 이 인자를 모른다 — 명시적 jgpc 일 때만 넘긴다.
-        if self.arm_command_mode == "jgpc":
-            kwargs["arm_command_format"] = self.arm_command_format
-
-        client = create_move_group_client(self, **kwargs)
-
-        if type(client).__name__ == "MoveGroupJtcClient" and not self._jtc_server_present():
-            self.get_logger().error(
-                "arm command path resolved to JTC but no FollowJointTrajectory action "
-                f"server is running on '{_JTC_ACTION_NAME}' — "
-                f"'{KeyMapping.home}' (move to "
-                "'ready') will plan but never execute — MoveGroup returns CONTROL_FAILED "
-                "(-4). Pick a backend profile: backend:=functionbay or backend:=isaac.")
-        return client
-
-    def _jtc_server_present(self) -> bool:
-        """`FollowJointTrajectory` 액션 서버의 존재를 그래프에서 확인한다.
-
-        액션 서버는 내부적으로 `<action>/_action/status` 토픽을 발행하므로 그것으로
-        판단한다. **`ros2 action list` 에 이름이 보이는 것만으로는 부족하다** — 클라이언트만
-        있어도 목록에 나온다(`moveit_simple_controller_manager` 가 그 경우다).
-        """
-        # `_action/status` 는 **숨김 토픽**이라 `get_topic_names_and_types()` 에
-        # 나오지 않는다. 이름을 직접 세는 편이 확실하다.
-        return self.count_publishers(f"{_JTC_ACTION_NAME}/_action/status") > 0
+        return create_move_group_client(self, backend=self.backend)
 
     def _call_home(self) -> None:
         """MoveIt SRDF 의 'ready' named target 으로 이동 요청을 보낸다.
@@ -528,14 +458,45 @@ class TeleopKeyboard(Node):
         # 이동 동안 servo 입력이 컨트롤러를 방해하지 않도록 twist/joint_jog 를 0 으로 초기화.
         self._zero_twist()
         self._zero_joint_jog()
+
+        # **발행을 멈추는 것만으로는 부족하다 — servo 자체를 정지시켜야 한다.**
+        # 명령이 끊기면 servo 는 `incoming_command_timeout`(0.1s) 뒤 halt 궤적을
+        # `num_outgoing_halt_msgs_to_publish`(4)회 **스스로 발행한다.** 그 궤적이
+        # 같은 컨트롤러 토픽으로 가서 **move_group 궤적을 선점**하므로, 키로 팔을
+        # 움직인 직후에 '/' 를 누르면 ready 로 가지 않는다 (실측: servo 를 멈추지
+        # 않으면 복귀가 반복 실패, 멈추면 전부 성공).
+        #
+        # 서비스 호출은 **비동기**여야 한다. `ServoClient.stop()` 은 내부에서
+        # `rclpy.spin_once` 를 돌리는데 여기는 타이머 콜백 안이라 재진입이 된다.
+        # `pause`/`unpause` 는 쓰지 않는다 — `unpause_servo` 가 성공을 반환하면서도
+        # 발행을 되살리지 못한다(scripts/isaac/is_recover.py).
+        stop_cli = self.servo_utils.stop_client
+        if stop_cli.service_is_ready():
+            stop_cli.call_async(Trigger.Request()).add_done_callback(
+                lambda _f: self._start_home_move())
+        else:
+            self.get_logger().warning("[home] stop_servo not available; moving anyway")
+            self._start_home_move()
+
+    def _start_home_move(self) -> None:
+        """servo 정지 뒤 실제 이동을 건다."""
         try:
             future = self._move_group.move_to_named_target_async("ready")
         except Exception as e:   # noqa: BLE001
             self._home_in_progress = False
+            self._resume_servo()
             self.get_logger().error(f"[home] failed to start: {e}")
             return
         future.add_done_callback(self._on_home_done)
         self.get_logger().info("[home] moving to 'ready' pose...")
+
+    def _resume_servo(self) -> None:
+        """이동이 끝났으니 servo 를 되살린다 (비동기, fire-and-forget)."""
+        start_cli = self.servo_utils.start_client
+        if start_cli.service_is_ready():
+            start_cli.call_async(Trigger.Request())
+        else:
+            self.get_logger().warning("[home] start_servo not available; 이동 키가 안 먹을 수 있다")
 
     def _on_home_done(self, future) -> None:
         """'ready' 이동 완료 콜백. 결과를 로그에 남기고 플래그를 해제한다."""
@@ -548,9 +509,23 @@ class TeleopKeyboard(Node):
         except Exception as e:   # noqa: BLE001
             self.get_logger().error(f"[home] callback error: {e}")
         finally:
+            self._resume_servo()
             self._home_in_progress = False
 
     # ── Session 서비스 완료 콜백 ──────────────────────────────────
+
+    def _on_servo_status(self, msg: Int8) -> None:
+        """servo status 가 바뀔 때만 알린다."""
+        code = int(msg.data)
+        if code == self._servo_status:
+            return
+        previous, self._servo_status = self._servo_status, code
+        if code == 0:
+            self.get_logger().info("servo status cleared (NO_WARNING)")
+            return
+        name, advice = _SERVO_STATUS_TEXT.get(code, (f"UNKNOWN({code})", ""))
+        detail = f" — {advice}" if advice else ""
+        self.get_logger().warning(f"servo status: {name}{detail} (was {previous})")
 
     def _on_trigger_done(self, label: str, success: bool, message: str) -> None:
         """Trigger 서비스(start/stop session/episode) 비동기 호출 완료 콜백."""
@@ -599,6 +574,9 @@ class TeleopKeyboard(Node):
             return True
         if key == km.gripper_close:
             self._call_gripper("close")
+            return True
+        if key == km.gripper_grasp:
+            self._call_gripper("grasp")
             return True
 
         # Home — MoveIt 'ready' named target 으로 이동
@@ -668,66 +646,53 @@ class TeleopKeyboard(Node):
     def _on_timer(self):
         """Timer callback with comprehensive exception handling."""
         try:
-            # Update deadman timer
             dt = self.timer.timer_period_ns * 1e-9
-            self._deadman_ttl = max(0.0, self._deadman_ttl - dt)
+            state = self._holds.tick(dt)
 
-            # Read ALL buffered keys this tick. 자동반복으로 버퍼에 누적된 문자가
-            # 틱을 넘겨 잔존하면 키를 뗀 뒤에도 deadman TTL 이 계속 갱신되므로,
-            # 매 틱 버퍼를 비우고 '가장 최근 모션 키'만 반영한다. one-shot 키
-            # (그리퍼/에피소드/세션/태스크/Home)는 배치 내 모두 처리한다.
-            motion_key = None
-            for key in self._read_all_keys():
+            # 모션·홀드 키가 아닌 것은 트래커가 그대로 넘겨준다 — 순서를 유지한다.
+            for key in state.other_keys:
                 try:
-                    # One-shot keys (gripper, episode, task) are handled immediately
                     if self._handle_oneshot_key(key):
                         continue
 
-                    # Check if this is a valid motion or control key
-                    valid_keys = self._get_all_valid_keys()
-                    if key not in valid_keys:
+                    if key not in self._get_all_valid_keys():
                         self._handle_unknown_key(key)
-                        continue  # Don't process unknown keys further
+                        continue
 
-                    # Stop key: publish zero once and end this tick immediately
+                    # 정지 키: 홀드를 끊고 0 을 직접 한 번 보낸 뒤 이번 틱을 끝낸다.
+                    # 트래커의 `just_released` 로 또 보내면 0 이 두 번 나가 servo 의
+                    # 정지 판정이 오히려 늦어지므로 `cancel()` 이 그것을 막는다.
                     if key == self.keys.stop:
-                        self._last_key = key
-                        self._zero_twist()
-                        self._zero_joint_jog()
-                        self._publish_twist_safely()
-                        self._publish_joint_jog_safely()
+                        self._holds.cancel()
+                        self._publish_zero()
                         return
-
-                    # SPACE(deadman) 또는 모션 키: 배치 내 마지막 것만 유효
-                    if key == self.keys.deadman or key in self.motion_keys:
-                        motion_key = key
 
                 except Exception as e:
                     self.get_logger().warning(f"Failed to process key '{key}': {e}")
                     # Continue execution - don't let key processing errors stop the timer
 
-            # 이번 틱에 모션/deadman 키가 있었을 때만 그것을 반영하고 TTL 을 갱신한다.
-            # 버퍼가 비어 있으면(키를 뗀 상태) TTL 은 갱신되지 않고 곧 만료되어 멈춘다.
-            if motion_key is not None:
-                self._last_key = motion_key
-                self._deadman_ttl = self.deadman_ttl_sec
-
-            if self._deadman_ttl <= 0.0:
-                return
-
-            # Home 이동 중에는 servo 명령 발행을 중단하여 move_group trajectory 와
-            # 충돌하지 않게 한다.
+            # **Home 이동 중에는 servo 로 아무것도 보내지 않는다.** 0 이라도 보내면
+            # servo 가 깨어나 같은 컨트롤러 토픽에 궤적을 내고 **move_group 궤적을
+            # 선점한다** — '/' 를 눌러도 ready 로 안 가는 증상이 된다. 그래서 아래
+            # 홀드 처리보다 **먼저** 걸러야 한다.
             if self._home_in_progress:
                 return
 
-            # Deadman active: generate twist / joint_jog from last motion key
+            if state.just_released:
+                # 침묵하지 않고 0 을 **한 번** 보낸다. 근거는 `key_hold` 모듈 설명.
+                self._publish_zero()
+                return
+            if not state.active:
+                return
+
+            # 홀드 중: 마지막 모션 키를 명령으로 바꾼다. `key` 가 None 이면 홀드 키
+            # (SPACE)만 눌린 상태이므로 0 을 유지한다.
             try:
-                cmd_key = self._last_key
-                if cmd_key is None or cmd_key == self.keys.deadman:
+                if state.key is None:
                     self._zero_twist()
                     self._zero_joint_jog()
                 else:
-                    self._apply_key_to_motion(cmd_key)
+                    self._apply_key_to_motion(state.key)
 
                 self._publish_twist_safely()
                 self._publish_joint_jog_safely()
@@ -736,10 +701,7 @@ class TeleopKeyboard(Node):
                 self.get_logger().warning(f"Failed to generate/publish motion: {e}")
                 # Publish zero twist + joint_jog as safety fallback
                 try:
-                    self._zero_twist()
-                    self._zero_joint_jog()
-                    self._publish_twist_safely()
-                    self._publish_joint_jog_safely()
+                    self._publish_zero()
                 except Exception as fallback_e:
                     self.get_logger().error(f"Critical: Even safety fallback failed: {fallback_e}")
 
@@ -747,6 +709,13 @@ class TeleopKeyboard(Node):
             # Catch-all for any other unexpected errors
             self.get_logger().error(f"Critical timer callback error: {e}")
             # Don't re-raise - let the timer continue running
+
+    def _publish_zero(self):
+        """twist 와 joint_jog 를 0 으로 채워 함께 발행한다."""
+        self._zero_twist()
+        self._zero_joint_jog()
+        self._publish_twist_safely()
+        self._publish_joint_jog_safely()
 
     def _publish_twist_safely(self):
         """Safely publish twist message with proper error handling."""
@@ -784,8 +753,8 @@ class TeleopKeyboard(Node):
                 or abs(linear.y) > self.MAX_LINEAR_VELOCITY
                 or abs(linear.z) > self.MAX_LINEAR_VELOCITY):
             self.get_logger().warning(
-                "High linear velocity detected: "
-                f"[{linear.x:.3f}, {linear.y:.3f}, {linear.z:.3f}] m/s"
+                "High linear command detected: "
+                f"[{linear.x:.3f}, {linear.y:.3f}, {linear.z:.3f}] (unitless)"
             )
 
         if (abs(angular.x) > self.MAX_ANGULAR_VELOCITY
@@ -820,7 +789,7 @@ class TeleopKeyboard(Node):
             # Control keys
             km.deadman, km.stop, km.home,
             # Gripper keys
-            km.gripper_open, km.gripper_close,
+            km.gripper_open, km.gripper_close, km.gripper_grasp,
             # Session keys (primary + alt)
             km.session_start, km.session_stop,
             km.session_start_alt, km.session_stop_alt,
@@ -843,7 +812,7 @@ class TeleopKeyboard(Node):
             return "motion"
         elif key in [km.deadman, km.stop]:
             return "control"
-        elif key in [km.gripper_open, km.gripper_close]:
+        elif key in [km.gripper_open, km.gripper_close, km.gripper_grasp]:
             return "gripper"
         elif key in [km.session_start, km.session_stop,
                      km.session_start_alt, km.session_stop_alt]:
@@ -866,8 +835,8 @@ class TeleopKeyboard(Node):
 Valid Keys:
   Motion: j/l (±x), i/k (±y), q/a (±z), ;/' (panda_joint1 ±)
   Angular: r/f (roll), t/g (pitch), y/h (yaw)
-  Control: SPACE (deadman), x (stop)
-  Gripper: = (open), - (close)
+  Control: SPACE (deadman), x (stop), / (move to 'ready')
+  Gripper: = (open), - (close), \\ (grasp)
   Session: < or , (start_session), > or . (stop_session)
   Episode: [ (start_episode), ] (stop_episode)
   Tasks: {task_hint}   0 (clear)
@@ -929,12 +898,12 @@ Valid Keys:
         if self.linear_step > self.MAX_LINEAR_VELOCITY:
             raise ValueError(
                 f"linear_step exceeds safety limit "
-                f"(max {self.MAX_LINEAR_VELOCITY} m/s), got {self.linear_step}"
+                f"(max {self.MAX_LINEAR_VELOCITY}, unitless), got {self.linear_step}"
             )
         if self.linear_step > self.EMERGENCY_LINEAR_LIMIT:
             raise ValueError(
                 f"linear_step exceeds emergency limit "
-                f"(max {self.EMERGENCY_LINEAR_LIMIT} m/s), got {self.linear_step}"
+                f"(max {self.EMERGENCY_LINEAR_LIMIT}, unitless), got {self.linear_step}"
             )
 
         # Validate angular_step against safety limits
@@ -979,7 +948,7 @@ Valid Keys:
 
         self.get_logger().info("Parameters validated successfully:")
         self.get_logger().info(f"  rate_hz: {self.rate_hz} Hz")
-        self.get_logger().info(f"  linear_step: {self.linear_step} m/s")
+        self.get_logger().info(f"  linear_step: {self.linear_step} (unitless servo input)")
         self.get_logger().info(f"  angular_step: {self.angular_step} rad/s")
         self.get_logger().info(f"  deadman_ttl: {self.deadman_ttl_sec} s")
         self.get_logger().info(f"  tasks: {len(self.tasks)} configured")

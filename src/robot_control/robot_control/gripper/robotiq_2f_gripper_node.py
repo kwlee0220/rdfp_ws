@@ -73,6 +73,7 @@ from __future__ import annotations
 from typing import Optional
 
 import math
+import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -106,28 +107,59 @@ class Robotiq2FGripperNode(Node):
     def __init__(self) -> None:
         super().__init__('gripper')
 
-        signs = list(self.declare_parameter('axis_signs', _DEFAULT_AXIS_SIGNS).value or [])
-        if not signs:
-            raise ValueError("'axis_signs' must not be empty")
-        self._axis_signs = [float(v) for v in signs]
+        # **명령 규약은 씬마다 다르다** — `gripper_profile_file` 이 주어지면 축 수·부호·
+        # 단위·packing 을 그 파일이 정한다 (`robot_control.gripper.profile`). 안 주면
+        # 옛 동작(6축·라디안·위치 나열)을 그대로 쓴다 — mock·Isaac 은 이 경로다.
+        profile_file = str(self.declare_parameter('gripper_profile_file', '').value or '')
+        self._profile = None
+        if profile_file:
+            from robot_control.gripper.profile import load_gripper_profile_file
+            self._profile = load_gripper_profile_file(profile_file)
+
+        if self._profile is not None:
+            self._axis_signs = list(self._profile.axis_signs)
+        else:
+            signs = list(self.declare_parameter('axis_signs', _DEFAULT_AXIS_SIGNS).value or [])
+            if not signs:
+                raise ValueError("'axis_signs' must not be empty")
+            self._axis_signs = [float(v) for v in signs]
 
         self._targets: dict[str, float] = {}
         for goal, default in _DEFAULT_TARGETS.items():
+            if self._profile is not None and goal in self._profile.targets:
+                default = self._profile.targets[goal]
             value = float(self.declare_parameter(f'targets.{goal}', default).value)
             if not math.isfinite(value):
                 raise ValueError(f"'targets.{goal}' must be finite, got {value}")
             self._targets[goal] = value
 
-        self._tolerance = float(self.declare_parameter('position_tolerance', 0.005).value)
-        self._stall_effort = float(self.declare_parameter('stall_effort', 1.0).value)
-        self._stall_velocity = float(self.declare_parameter('stall_velocity', 0.001).value)
+        def _profiled(name: str, default: float) -> float:
+            if self._profile is not None:
+                default = float(getattr(self._profile, name))
+            return float(self.declare_parameter(name, default).value)
+
+        self._tolerance = _profiled('position_tolerance', 0.005)
+        self._stall_effort = _profiled('stall_effort', 1.0)
+        self._stall_velocity = _profiled('stall_velocity', 0.001)
+        # **개폐를 몇 초에 걸쳐 나눠 보낼 것인가.** 0(기본)이면 예전처럼 한 번에 던진다.
+        self._ramp_sec = _profiled('command_ramp_sec', 0.0)
+        self._ramp_rate = float(self.declare_parameter('command_ramp_rate', 50.0).value)
+        if self._ramp_rate <= 0.0:
+            raise ValueError(f"'command_ramp_rate' must be > 0, got {self._ramp_rate}")
         publish_rate = float(self.declare_parameter('publish_rate', 10.0).value)
         if publish_rate <= 0.0:
             raise ValueError(f"'publish_rate' must be > 0, got {publish_rate}")
 
         # 상태. `_target` 은 마지막으로 **보낸** 목표 배열이며, 명령 이전에는 None.
         self._goal: str = ''
+        # 진행 중인 램프 `(시작 스칼라, 목표 스칼라, 시작 시각)`. 없으면 `None`.
+        self._ramp: Optional[tuple] = None
+        # **관절 목표각 [rad]** 이다 — 실제로 발행하는 배열과 다를 수 있다(단위·packing).
+        # 잔차는 보고와 같은 단위여야 하므로 라디안 쪽을 들고 있는다.
         self._target: Optional[list[float]] = None
+        # 보고 축 수가 규약과 어긋나면 선다. **명령을 거부하는 근거다** — 규약이 씬과
+        # 안 맞으면 명령이 통째로 잘못 해석되고, 증상은 "거의 안 움직인다" 뿐이다.
+        self._convention_mismatch = False
         self._positions: list[float] = []
         self._velocities: list[float] = []
         self._efforts: list[float] = []
@@ -137,12 +169,20 @@ class Robotiq2FGripperNode(Node):
         self.create_subscription(GripperCommand, _CMD_TOPIC, self._on_cmd, 10)
         self.create_subscription(JointState, _JOINT_REPORT_TOPIC, self._on_report, 10)
         self.create_timer(1.0 / publish_rate, self._on_timer)
+        # 램프를 안 쓰면 타이머도 만들지 않는다 — 쓰지 않는 스택의 동작을 그대로 둔다.
+        if self._ramp_sec > 0.0:
+            self.create_timer(1.0 / self._ramp_rate, self._on_ramp)
 
         self.get_logger().info(
             f'Robotiq2FGripperNode started: {_CMD_TOPIC} -> {_JOINT_COMMAND_TOPIC}, '
             f'{_JOINT_REPORT_TOPIC} -> {_STATE_TOPIC} @ {publish_rate} Hz')
         self.get_logger().info(
             f'  axes: {len(self._axis_signs)}, signs: {self._axis_signs}')
+        if self._profile is not None:
+            self.get_logger().info(
+                f'  convention: solver={self._profile.solver} scene={self._profile.scene}, '
+                f'units={self._profile.command_units}, '
+                f'packing={self._profile.command_packing} ({self._profile.path})')
         self.get_logger().info(
             f'  targets: {self._targets}, tolerance: {self._tolerance} rad')
         self.get_logger().info(
@@ -185,20 +225,77 @@ class Robotiq2FGripperNode(Node):
                 f'[gripper] unknown goal {goal!r}; known: {sorted(self._targets)}')
             return
 
+        if self._convention_mismatch:
+            self.get_logger().error(
+                f'[gripper] {goal}: refusing — the joint report does not match the '
+                f'declared convention (see the earlier error). Fix the gripper profile '
+                f'before commanding; sending anyway would be silently misinterpreted.')
+            return
+
         if self._joint_pub.get_subscription_count() == 0:
             self.get_logger().warning(
                 f"[gripper] {goal}: nobody subscribes '{_JOINT_COMMAND_TOPIC}' — "
                 'publishing anyway; the simulator may not be connected')
 
-        command = Float64MultiArray()
-        command.data = target
-        self._joint_pub.publish(command)
-
+        scalar = self._targets[goal]
+        # **목표는 즉시 기록한다** — 램프 중에도 `at_goal` 은 최종 목표로 판정해야 한다.
         self._goal = goal
         self._target = target
+
+        start = self._current_scalar()
+        if self._ramp_sec > 0.0 and math.isfinite(start):
+            # 지령을 나눠 보낸다. 시뮬레이터의 그리퍼 서보는 계단 지령을 자기 최대
+            # 속도로 쫓으므로, 천천히 물리려면 **지령 자체**를 천천히 옮겨야 한다.
+            self._ramp = (start, scalar, time.monotonic())
+            self._publish_scalar(start)
+            self.get_logger().info(
+                f'[gripper] {goal} ramping s {start:.4f} -> {scalar:.4f} '
+                f'over {self._ramp_sec:.1f}s ({len(target)} axes)')
+            return
+
+        self._ramp = None
+        self._publish_scalar(scalar)
         self.get_logger().info(
-            f'[gripper] {goal} sent (s={self._targets[goal]:.4f}, '
-            f'{len(target)} axes)')
+            f'[gripper] {goal} sent (s={scalar:.4f}, {len(target)} axes)')
+
+    def _publish_scalar(self, scalar: float) -> None:
+        """구동 스칼라 하나를 규약대로 배열로 만들어 발행한다.
+
+        **발행 배열 ≠ 목표각**일 수 있다 — 규약이 단위 환산과 packing 을 얹는다.
+        비유한값은 규약(`GripperProfile.command`)이 거부한다. ⚠️ NaN 이 나가면
+        그리퍼만이 아니라 **전 관절이 발산하고 안 돌아온다.**
+        """
+        command = Float64MultiArray()
+        if self._profile is not None:
+            command.data = self._profile.command(scalar)
+        else:
+            command.data = [scalar * sign for sign in self._axis_signs]
+        self._joint_pub.publish(command)
+
+    def _current_scalar(self) -> float:
+        """보고에서 되짚은 지금의 구동 스칼라. 못 구하면 `NaN`.
+
+        램프의 **출발점**이다. 여기서 시작하지 않으면 첫 발행이 그대로 점프가 되어
+        천천히 보내는 의미가 없다.
+        """
+        if self._profile is not None:
+            return self._profile.scalar_from_report(self._positions)
+        if len(self._positions) != len(self._axis_signs) or not self._positions:
+            return math.nan
+        return (sum(p * s for p, s in zip(self._positions, self._axis_signs))
+                / len(self._axis_signs))
+
+    def _on_ramp(self) -> None:
+        """진행 중인 램프를 한 스텝 내보낸다. 끝나면 **정확히 목표값**으로 마친다."""
+        if self._ramp is None:
+            return
+        start, target, began = self._ramp
+        ratio = (time.monotonic() - began) / self._ramp_sec
+        if ratio >= 1.0:
+            self._ramp = None
+            self._publish_scalar(target)
+            return
+        self._publish_scalar(start + (target - start) * ratio)
 
     # ── 관측 ────────────────────────────────────────────────────
 
@@ -211,10 +308,18 @@ class Robotiq2FGripperNode(Node):
         """
         expected = len(self._axis_signs)
         if len(msg.position) != expected:
-            self.get_logger().error(
-                f"[gripper] '{_JOINT_REPORT_TOPIC}' has {len(msg.position)} positions, "
-                f'expected {expected} — ignoring', throttle_duration_sec=5.0)
+            if not self._convention_mismatch:
+                self._convention_mismatch = True
+                self.get_logger().error(
+                    f"[gripper] '{_JOINT_REPORT_TOPIC}' has {len(msg.position)} positions "
+                    f'but the convention declares {expected} — REFUSING all commands. '
+                    f'The gripper profile does not match the running scene; point '
+                    f"'gripper_profile_file' at the right file.")
             return
+        if self._convention_mismatch:
+            self._convention_mismatch = False
+            self.get_logger().info(
+                f'[gripper] report is back to {expected} axes — accepting commands again')
         self._positions = list(msg.position)
         self._velocities = list(msg.velocity)
         self._efforts = list(msg.effort)

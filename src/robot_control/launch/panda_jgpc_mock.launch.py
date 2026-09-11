@@ -61,14 +61,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import os
-
-
-from ament_index_python.packages import get_package_share_directory
-
 from launch import LaunchDescription
 
-from robot_control.launch_helpers.camera import create_camera_node, declare_camera_arguments
+from robot_control.launch_helpers.camera import (
+    create_raw_image_source_node, declare_camera_arguments)
 from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
@@ -78,6 +74,7 @@ from robot_control.launch_helpers.controller import (
 from robot_control.launch_helpers.controller_startup import create_controller_startup_handlers
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node, declare_ee_pose_arguments
 from robot_control.launch_helpers.gripper import create_gripper_node
+from robot_control.backends import get_backend
 from robot_control.launch_helpers.common import (
     MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
@@ -94,33 +91,32 @@ from robot_control.launch_helpers.scene import create_mock_scene_node, declare_s
 
 # JGPC 용 controller 설정 YAML 의 상대 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
-CONTROLLERS_CONFIG_RELPATH = os.path.join("config", "panda_jgpc_ros2_controllers.yaml")
+# **백엔드별 값은 `config/backends/mock_jgpc.yaml` 에 있다.**
+_BACKEND = get_backend("mock_jgpc")
 
 # JGPC 가 구독하는 명령 토픽. forward_command_controller 는 ``~/commands`` 를
 # 사용하므로 controller 이름 기준으로 아래 경로가 된다.
-ARM_COMMAND_TOPIC = "/panda_arm_controller/commands"
+ARM_COMMAND_TOPIC = _BACKEND.value("servo", "command_out_topic")
 
 
 def _controllers_config_path() -> str:
-    """패키지 share 경로의 JGPC controller 설정 YAML 위치를 반환한다."""
-    return os.path.join(get_package_share_directory("robot_control"), CONTROLLERS_CONFIG_RELPATH)
+    """JGPC 컨트롤러 설정 yaml 의 절대 경로 (백엔드 프로파일이 갖는다)."""
+    return _BACKEND.controllers_file()
 
 
 def _override_servo_params_for_jgpc(servo_params: dict[str, Any]) -> dict[str, Any]:
     """servo 출력을 JGPC 의 Float64MultiArray 명령 토픽으로 돌린다.
 
-    ``publish_joint_velocities`` 를 끄는 것은 선택이 아니라 필수다. servo 의
-    파라미터 검증은 ``command_out_type`` 이 ``std_msgs/Float64MultiArray`` 인데
-    positions 와 velocities 를 모두 발행하도록 설정되어 있으면 실패를 반환하고,
-    그 경우 servo 노드가 기동하지 못한다.
+    **값과 규칙은 백엔드가 갖는다** (`config/backends/mock_jgpc.yaml` +
+    `robot_control.backends`). 여기서 되적으면 두 곳이 갈리고, 그 어긋남은 에러가
+    아니라 "servo 가 안 뜬다" 로만 보인다.
+
+    ``publish_joint_velocities`` 를 끄는 것은 선택이 아니라 필수다 — servo 의 파라미터
+    검증은 ``command_out_type`` 이 ``std_msgs/Float64MultiArray`` 인데 positions 와
+    velocities 를 모두 발행하도록 설정되어 있으면 실패를 반환한다. 그 규칙은 백엔드가
+    아니라 **출력 형식**에 딸린 것이라 기반 클래스가 넣는다.
     """
-    params = servo_params["moveit_servo"]
-    params["command_out_type"] = "std_msgs/Float64MultiArray"
-    params["command_out_topic"] = ARM_COMMAND_TOPIC
-    params["publish_joint_positions"] = True
-    params["publish_joint_velocities"] = False
-    params["publish_joint_accelerations"] = False
-    return servo_params
+    return _BACKEND.apply_servo_parameters(servo_params)
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -139,7 +135,8 @@ def generate_launch_description() -> LaunchDescription:
     move_group_node = create_move_group_node(moveit_config)
     servo_node = create_servo_node(moveit_config, servo_params)
     rviz_node = create_rviz_node(moveit_config)
-    camera_node = create_camera_node()
+    # raw 출처는 프로파일이 정한다 (`camera.source: device` → OpenCV camera_node).
+    camera_node = create_raw_image_source_node(_BACKEND)
     ee_pose_node = create_ee_pose_node()
     gripper_node = create_gripper_node()
     # scene 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를

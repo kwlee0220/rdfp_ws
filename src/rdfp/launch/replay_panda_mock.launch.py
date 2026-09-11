@@ -227,7 +227,7 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
         # 뷰어가 구독할 뿐이므로 image_viewer 블록에 토픽을 둔다. argument 이름은
         # 기존 사용처 호환을 위해 `camera_image_topic` 을 유지한다.
         DeclareLaunchArgument(
-            "enable_image_viewer_node",
+            "enable_image_viewer",
             default_value=_as_launch_str(iv["enabled"]),
             description="Whether to start rdfp_image_viewer_node",
         ),
@@ -348,7 +348,7 @@ def _build_actions(context: LaunchContext) -> list:
         name="rdfp_image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[
             ("image", LaunchConfiguration("camera_image_topic")),
         ],

@@ -32,9 +32,14 @@ from rclpy.parameter import Parameter
 # 쓸 수 없다 — Isaac 의 발행 노드는 구독자가 생기기 전에는 publisher 를 만들지
 # 않는 경우가 있어, "안 보이니 구독 안 함 → 구독이 없으니 발행 안 함" 교착이
 # 생긴다. 실제로 그 교착 때문에 /clock 이 0건으로 보였다.
+# **Isaac 의 배관**을 보는 것이므로 `/isaac_joint_states` 를 본다. `/joint_states` 는
+# `joint_state_broadcaster` 가 소유하므로, 그것을 보면 스택이 안 떠 있을 때 멀쩡한
+# 배관을 고장으로 오진한다.
+JOINT_STATE_TOPIC = '/isaac_joint_states'
+
 WATCH = {
     '/clock': 'rosgraph_msgs/msg/Clock',
-    '/joint_states': 'sensor_msgs/msg/JointState',
+    JOINT_STATE_TOPIC: 'sensor_msgs/msg/JointState',
     '/tf': 'tf2_msgs/msg/TFMessage',
     '/scene/objects': 'rdfp_msgs/msg/SceneObjects',
 }

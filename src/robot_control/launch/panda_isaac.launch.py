@@ -1,54 +1,76 @@
-"""Panda + MoveIt2 스택을 **Isaac Sim** 백엔드로 기동하는 launch (Phase 0 골격).
+"""Panda + MoveIt2 스택을 **Isaac Sim** 백엔드로 기동하는 launch.
 
-:mod:`panda_functionbay.launch` 와 같은 구조다 — Isaac 도 ros2_control 하드웨어
-플러그인을 쓰지 않고 ROS 2 토픽으로만 연동하므로 `controller_manager` /
-`joint_state_broadcaster` / spawner 가 없다. 설계 근거는
-``docs/simulation/multi_simulator_backend_design.md`` §6.3 (B안) 이고, 단계 계획은
-``docs/simulation/isaac_backend_skeleton.md`` 에 있다.
+**Isaac 백엔드는 이것 하나다.** `controller_manager` 가 이쪽(ROS)에서 돌고, 하드웨어는
+`topic_based_ros2_control/TopicBasedSystem` 이 토픽으로 Isaac 과 말한다. 그 결과
+**mock 과 같은 그림**이 된다 — JTC · GripperActionController · `joint_state_broadcaster` ·
+spawner 기동 신호.
 
-펑션베이와 갈리는 지점
-----------------------
-- **`use_sim_time` 을 켠다.** Isaac 은 ``/clock`` 을 발행한다. 펑션베이는 발행하지
-  않아 벽시계를 썼고 그래서 시계 오프셋 문제를 안고 있었다.
-- 브리지 노드를 새로 만들지 않고 `robot_control.functionbay` 의 두 노드를 **토픽
-  파라미터만 바꿔** 재사용한다. 구현이 백엔드 중립이기 때문이다.
+ros2_control 없이 토픽만으로 잇던 옛 경로(`panda_isaac_bridge`)는 **삭제했다** — 고유하게
+덮는 것이 없었고(펑션베이가 같은 코드를 태운다), 방식이 둘이면 launch 와 어긋났을 때
+에러 없이 관절 상태가 오지 않는 함정이 생겼다. 경위는 설계 문서 §0 D1″.
 
-단계 게이팅
------------
-한 번에 전부 붙이지 않는다. 아래 인자는 **전부 기본 false** 이며, 해당 단계 작업을
-시작할 때 하나씩 연다. 켜지 않은 단계의 노드는 아예 뜨지 않는다.
+이 방식이 얻는 것
+-----------------
+- `execute_trajectory()` 가 돌아온다. 완료/중단이 액션으로 판정되므로 개루프 스트리밍의
+  "성공을 반환했지만 도달하지 않았다"가 사라진다.
+- 호출부가 백엔드를 몰라도 된다 — `create_move_group_client(mode='auto')` 가 JTC 를
+  고르므로 트윈 설정의 `arm_command_*` 재정의 3종과 `teleop_keyboard` 의 4파라미터
+  지정이 필요 없다.
+- servo 가 기본 경로(`JointTrajectory` → `/panda_arm_controller/joint_trajectory`)로
+  돌아온다. 브리지 노드도, `Float64MultiArray` 제약도 없다.
 
-    enable_gripper   Phase 2 — 그리퍼
-    enable_scene     Phase 3 — scene 객체
+토픽
+----
+Isaac 은 관절 상태를 **`/isaac_joint_states`** 로 낸다 — `/joint_states` 는
+`joint_state_broadcaster` 가 가져가기 때문이다. 같은 토픽에 둘이 발행하면
+`TopicBasedSystem` 이 자기 출력을 되읽는 고리가 생기고, 소비자는 주기가 다른 발행자
+둘을 보게 된다. 시뮬레이터를 `./scripts/run_isaac_sim.sh` 로 띄우면 그 이름이 나온다.
 
-Phase 0 수용 기준은 ``scripts/isaac/is_check_phase0.py`` 가 검사한다.
+명령 토픽은 bridge 와 같다(`/isaac/arm_command`, `/isaac/gripper_command`). xacro 의
+`<ros2_control>` 이 팔·손으로 나뉘어 있어 시스템마다 다른 토픽을 줄 수 있고, Isaac
+그래프의 `ArticulationController` 도 이미 둘로 갈려 있기 때문이다.
 
 기동 순서
 ---------
-spawner 가 없으므로 `readiness_gate` 의 **정상 종료**를 기동 신호로 쓴다. 실패
-종료(시뮬레이터 미기동)면 launch 전체가 내려간다 — `move_group` 만 올라와 원인을
-감추는 상황을 막는다.
+`readiness_gate` 를 **`ros2_control_node` 앞에** 둔다. spawner 만으로는 "Isaac 이 Play
+중"을 보증하지 못하기 때문이다 — `controller_manager` 는 `use_sim_time` 이 켜진 채
+`/clock` 이 없으면 시각 0 에 멈춘 채 조용히 아무것도 안 한다.
+
+    readiness_gate → ros2_control_node → joint_state_broadcaster
+                   → panda_arm_controller → panda_hand_controller → 나머지
+
+실측 (2026-09-05)
+-----------------
+- `use_sim_time` 하의 `controller_manager` update 루프 — 컨트롤러 셋이 active 로 돌고,
+  타임라인 Stop/Play 는 `resetOnStop` 이 꺼져 있어 **자동 복구**된다. 다만 Isaac
+  **프로세스**를 다시 띄우면 시계가 0 으로 돌아가 스택을 다시 띄워야 한다.
+- `TopicBasedSystem` 이 `JointState.effort` 를 넘긴다 — 파지 시 22.4 N·m 로
+  `stall_effort` 판정이 서고 `grasp` 의 `at_goal` 이 통과한다.
+- 정착 오차 0.3 mrad · 카테시안 0.2 mm · 트윈 REST 로 집기 전 과정 · 수집 전 과정 통과.
+
+대가도 실측됐다 — 펑션베이식 토픽 브리지 대비 `/clock` 배속 −5%, load 3배,
+`phase1` dead time +100 ms. 상세는 설계 문서 §2 Phase 11.
 
     ros2 launch robot_control panda_isaac.launch.py
-    ros2 launch robot_control panda_isaac.launch.py enable_rviz:=false   # VRAM 절약
+    ros2 launch robot_control panda_isaac.launch.py enable_rviz:=true
 """
 
 from __future__ import annotations
 
-import os
-
 from typing import Any
 
-from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
-from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+import os
 
 from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.actions import Node
 
 from robot_control.launch_helpers.common import (
+    MOVEIT_CONFIGS_PACKAGE_NAME,
     build_moveit_config,
     build_servo_params,
     create_move_group_node,
@@ -59,321 +81,378 @@ from robot_control.launch_helpers.common import (
     declare_log_level_argument,
     declare_ros2_control_hardware_type_argument,
 )
-from robot_control.launch_helpers.controller_startup import _chain_or_shutdown
+from robot_control.launch_helpers.controller import (
+    create_joint_state_broadcaster_spawner,
+    create_panda_arm_controller_spawner,
+    create_panda_hand_controller_spawner,
+    create_ros2_control_node,
+)
+from robot_control.launch_helpers.controller_startup import (
+    _chain_or_shutdown,
+    create_controller_startup_handlers,
+)
 from robot_control.launch_helpers.ee_pose import create_ee_pose_node, declare_ee_pose_arguments
+from robot_control.launch_helpers.gripper import create_gripper_node
+from robot_control.backends import get_backend
+from robot_control.backends.isaac import COMMANDED_JOINT_STATE_TOPIC
 
-# Isaac 이 관절 상태를 직접 발행하는 토픽.
+# **백엔드별 값은 `config/backends/isaac.yaml` 에 있다.** 여기서 다시 적으면 두 곳이
+# 갈리고, 그 어긋남은 에러가 아니라 "명령이 안 먹는다" 로 나타난다.
 #
-# 펑션베이와 달리 **fusion 노드를 두지 않는다.** Phase 0 실측에서 Isaac 이
-# `name` 을 채우고 팔 7관절 + finger 2관절을 모두 보내는 것이 확인됐다
-# (docs/simulation/isaac_backend_skeleton.md §7 Q1). 중계할 것이 없을 뿐 아니라,
-# `fb_joint_state_fusion` 은 `extra_joint_*` 주입을 끌 수 없어(빈 리스트를 주면
-# 기본값으로 되돌아간다) `panda_finger_joint1` 이 **중복 발행된다.**
-JOINT_STATE_TOPIC = '/joint_states'
+# 아래 값들은 **launch 인자의 기본값**으로만 쓴다 — 덮어쓰기는 그대로 살아 있다.
+_BACKEND = get_backend('isaac')
+
+# `description/panda.ros2_control.xacro` 의 분기 이름.
+HARDWARE_TYPE = _BACKEND.hardware_type
+
+# Isaac 이 관절 상태를 내는 토픽. **`/joint_states` 가 아니다** — 그것은
+# `joint_state_broadcaster` 가 소유한다 (모듈 docstring 「토픽」 참조).
+JOINT_STATE_TOPIC = _BACKEND.value('ros2_control', 'joint_states_topic')
+
+# Isaac 이 관절 명령을 받는 토픽. **`arm_command` 블록이 아니다** — 그쪽은 MoveGroup
+# 클라이언트의 채널이고, 이것은 TopicBasedSystem 이 시뮬레이터와 주고받는 채널이다.
+ARM_COMMAND_TOPIC = _BACKEND.value('ros2_control', 'joint_commands_topic')
+GRIPPER_COMMAND_TOPIC = _BACKEND.value('ros2_control', 'gripper_commands_topic')
 
 # 관절 한계 파일. 기본 moveit_resources 의 URDF 한계는 실제 Franka 보다 전 관절이
 # 4° 헐겁고(panda_joint4 상한은 9°), **Isaac 은 실제 스펙을 강제한다.** 그대로 두면
-# MoveIt 이 계획한 자세를 시뮬레이터가 한계에서 막고, 그것이 추종 오차처럼 보인다
-# (실제로 그렇게 오독했다 — §7 Q6). 계획 단계에서 막는 편이 낫다.
+# MoveIt 이 계획한 자세를 시뮬레이터가 한계에서 막고, 그것이 추종 오차처럼 보인다.
 JOINT_LIMITS_RELPATH = os.path.join('config', 'panda_real_joint_limits.yaml')
-GRIPPER_COMMAND_TOPIC = '/isaac/gripper_command'
-
-# Isaac 이 관절 명령을 받는 토픽. servo 경로도 최종적으로 여기로 모인다.
-ARM_COMMAND_TOPIC = '/isaac/arm_command'
-# servo 출력을 받아 위 토픽으로 옮기는 중간 토픽. 컨트롤러가 없는 스택이므로
-# `/panda_arm_controller/...` 라는 이름을 쓰지 않는다 — 없는 것을 있는 것처럼 보이게
-# 하면 진단이 어려워진다.
-SERVO_COMMAND_TOPIC = '/isaac/servo_command'
-# Float64MultiArray 는 이름이 없고 **배열 순서가 곧 관절 순서**다. 조회할 컨트롤러가
-# 없으므로 여기서 못박는다.
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
 
 
 def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
     """Isaac 백엔드 전용 argument."""
     return [
         DeclareLaunchArgument(
-            "joint_state_topic", default_value=JOINT_STATE_TOPIC,
-            description="Isaac 이 발행하는 관절 상태 토픽 (sensor_msgs/JointState)",
-        ),
-        DeclareLaunchArgument(
-            "enable_servo", default_value="true",
-            choices=["true", "false"],
+            'joint_state_topic', default_value=JOINT_STATE_TOPIC,
             description=(
-                "servo(twist) 경로. teleop_keyboard 와 teleop_retarget 이 모두 "
-                "여기로 수렴하므로 **기본으로 켠다** — 끄면 teleop 이 조용히 죽는다"
+                'Isaac 이 발행하는 관절 상태 토픽. TopicBasedSystem 이 읽고 '
+                'readiness_gate 가 기다린다. `/joint_states` 를 주면 '
+                'joint_state_broadcaster 와 충돌한다'
             ),
         ),
         DeclareLaunchArgument(
-            "isaac_ready_timeout", default_value="60.0",
-            description="Isaac 첫 관절 보고 대기 한도(초). 초과하면 launch 가 실패한다",
+            'arm_command_topic', default_value=ARM_COMMAND_TOPIC,
+            description='TopicBasedSystem(팔) 이 관절 명령을 내보낼 토픽',
         ),
         DeclareLaunchArgument(
-            "use_sim_time", default_value="true",
+            'gripper_command_topic', default_value=GRIPPER_COMMAND_TOPIC,
+            description='TopicBasedSystem(손) 이 관절 명령을 내보낼 토픽',
+        ),
+        DeclareLaunchArgument(
+            'isaac_ready_timeout', default_value='60.0',
+            description='Isaac 첫 관절 보고 대기 한도(초). 초과하면 launch 가 실패한다',
+        ),
+        DeclareLaunchArgument(
+            'use_sim_time', default_value=str(_BACKEND.use_sim_time).lower(),
             description=(
-                "Isaac 의 /clock 을 시간 원본으로 쓴다. false 로 두면 move_group 이 "
-                "current robot state 를 가져오지 못해 조용히 무력해진다"
+                'Isaac 의 /clock 을 시간 원본으로 쓴다. controller_manager 에도 '
+                '얹히므로 /clock 이 없으면 update 루프가 시각 0 에 멈춘다 — '
+                'readiness_gate 가 그 앞을 막는다'
             ),
         ),
         DeclareLaunchArgument(
-            "enable_rviz", default_value="false",
+            'enable_servo', default_value='true', choices=['true', 'false'],
             description=(
-                "RViz2 기동 여부. **기본 off** — Isaac 자체가 뷰포트를 그리므로 "
-                "화면이 겹치고 VRAM 만 더 쓴다. 계획 결과를 보려면 켠다"
+                'servo(twist) 경로. teleop_keyboard 와 teleop_retarget 이 모두 '
+                '여기로 수렴하므로 **기본으로 켠다** — 끄면 teleop 이 조용히 죽는다'
             ),
         ),
         DeclareLaunchArgument(
-            "enable_gripper", default_value="true",
+            'servo_linear_scale',
+            default_value=str(_BACKEND.value('servo', 'linear_scale')),
             description=(
-                "Phase 2 (그리퍼) 연동. gripper_action_bridge 와 GripperActionNode 를 "
-                "띄운다. **기본으로 켠다** — 이 백엔드의 용도가 조작이라 끌 이유가 "
-                "드물다. 상태(finger 관절)는 이 값과 무관하게 항상 들어온다"
+                'servo 의 unitless twist 환산 계수. **m/s 가 아니다** — 실측 EE 속도는 '
+                '입력 1.0 에서 130 mm/s, 0.5 에서 63, 0.25 에서 28 (2026-09-07, 래칫 수정 후; '
+                '수정 전에는 되읽기가 이동량을 먹어 47.5/24.5/11.5 였다). 비례는 유지된다. '
+                '속도를 바꾸려면 teleop 의 linear_step 을 만진다. **런타임 param set 으로는 안 바뀐다**'
             ),
         ),
         DeclareLaunchArgument(
-            "gripper_command_topic", default_value=GRIPPER_COMMAND_TOPIC,
-            description="Isaac 이 구독하는 그리퍼 명령 토픽 (sensor_msgs/JointState)",
-        ),
-        DeclareLaunchArgument(
-            "enable_image_viewer", default_value="true",
+            'controllers_file',
+            default_value=_BACKEND.controllers_file(),
             description=(
-                "Isaac 카메라 이미지를 창으로 띄운다. ⚠️ **GUI 가 필요하다** — "
-                "화면 없는 곳(원격 셸·CI)에서는 `enable_image_viewer:=false` 로 끈다"
+                'ros2_control 컨트롤러 설정 yaml. 기본은 이 패키지의 복사본으로 JTC 에 '
+                '`open_loop_control: true` 가 들어 있다 (servo 래칫의 두 번째 되읽기 지점). '
+                '원래 동작을 재현하려면 moveit_resources_panda_moveit_config 의 '
+                'ros2_controllers.yaml 을 주고 servo_joint_source:=measured 를 함께 준다'
             ),
         ),
         DeclareLaunchArgument(
-            "camera_image_topic", default_value="/isaac/camera/image_raw",
-            description="뷰어가 구독할 이미지 토픽. Isaac 그래프가 내는 이름이다",
-        ),
-        DeclareLaunchArgument(
-            "enable_scene", default_value="true",
+            'servo_joint_source',
+            default_value=_BACKEND.value('servo', 'joint_source'),
+            choices=['commanded', 'measured'],
             description=(
-                "Phase 3 (scene 객체) 연동. Isaac 이 TF 로 내보낸 물체 pose 를 "
-                "isaac_scene_state_node 가 /scene/objects 로 바꾼다. **기본으로 켠다** — "
-                "데이터셋 채널이고 /scene/reset 도 이 노드가 연다"
+                'servo 가 매 주기 IK 증분을 더할 **기준 관절 상태**. measured 는 servo 원래 '
+                '동작(/joint_states)이고, commanded 는 컨트롤러가 추종 중인 명령 위치'
+                '(commanded_joint_state_node 가 /joint_states_commanded 로 낸다). '
+                '**기본은 commanded** — measured 는 부하로 처진 만큼을 다음 명령에 적분하는 '
+                '래칫이 있다: 100 g 을 쥔 채 +z 1.5 초에 joint5 가 −0.22 rad 돌아 손끝이 옆으로 '
+                '30 mm 샜다 (빈손 3 mm). 원인·실측: docs/teleop/servo_vs_planned_motion.md §3'
             ),
         ),
         DeclareLaunchArgument(
-            "scene_publish_rate", default_value="2.0",
-            description="/scene/objects 발행 Hz",
+            'enable_gripper', default_value='true', choices=['true', 'false'],
+            description=(
+                'GripperActionNode 기동 여부. 액션 서버는 panda_hand_controller 가 '
+                '제공한다 — bridge 와 달리 다리 노드가 없다'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'enable_rviz', default_value='false', choices=['true', 'false'],
+            description=(
+                'RViz2 기동 여부. **기본 off** — Isaac 자체가 뷰포트를 그리므로 '
+                '화면이 겹치고 VRAM 만 더 쓴다'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'enable_image_viewer', default_value='true', choices=['true', 'false'],
+            description=(
+                'Isaac 카메라 이미지를 창으로 띄운다. ⚠️ **GUI 가 필요하다** — '
+                '화면 없는 곳에서는 false 로 끈다'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'camera_image_topic',
+            default_value=_BACKEND.value('camera', 'image_topic'),
+            description='뷰어가 구독할 이미지 토픽. Isaac 그래프가 내는 이름이다',
+        ),
+        DeclareLaunchArgument(
+            'enable_scene', default_value='true', choices=['true', 'false'],
+            description=(
+                'Isaac 이 TF 로 내보낸 물체 pose 를 /scene/objects 로 바꾼다. '
+                '**기본으로 켠다** — 데이터셋 채널이고 /scene/reset 도 이 노드가 연다'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'scene_publish_rate', default_value='2.0',
+            description='/scene/objects 발행 Hz',
         ),
     ]
 
 
-# 아직 구현이 없는 단계 인자. 켜면 **조용히 무시되지 않고 실패한다** — 인자가 있는데
-# 아무 일도 안 일어나는 것이 가장 찾기 어려운 종류의 버그다.
-#
-# Phase 0~4 가 모두 구현되어 현재는 비어 있다. 새 단계를 계획할 때 다시 채운다.
-_UNIMPLEMENTED_PHASES: dict[str, str] = {}
-
-
-def _reject_unimplemented_phases(context) -> list:
-    """미구현 단계 인자가 켜져 있으면 launch 를 중단한다."""
-    for name, phase in _UNIMPLEMENTED_PHASES.items():
-        if context.perform_substitution(LaunchConfiguration(name)).lower() == "true":
-            raise RuntimeError(
-                f"{name}:=true is not implemented yet ({phase}); "
-                f"see docs/simulation/isaac_backend_skeleton.md"
-            )
-    return []
-
-
 def create_readiness_gate_node() -> Node:
-    """첫 관절 보고를 기다렸다 종료하는 게이트 (spawner 대체)."""
+    """Isaac 의 첫 관절 보고를 기다렸다 종료하는 게이트.
+
+    **`ros2_control_node` 보다 앞이다.** spawner 는 `controller_manager` 만 뜨면
+    성공하므로 "Isaac 이 Play 중"을 보증하지 못한다. 게이트 없이 CM 을 먼저 띄우면
+    `/clock` 이 없어 update 루프가 시각 0 에 멈추고, 증상은 '컨트롤러는 active 인데
+    아무것도 안 움직인다'가 된다.
+
+    한도는 `time.monotonic()` 으로 잰다(노드 구현). ROS 클럭으로 재면 `use_sim_time`
+    이 켜진 채 sim time 이 이미 커진 시뮬레이터에 붙을 때 **첫 `/clock` 이 오는 순간
+    곧바로 타임아웃**한다 — 실측으로 60초 한도가 113 ms 만에 터진 적이 있다.
+    """
     return Node(
-        package="robot_control",
-        executable="fb_readiness_gate",
-        name="readiness_gate",
-        output="screen",
+        package='robot_control',
+        executable='fb_readiness_gate',
+        name='readiness_gate',
+        output='screen',
         emulate_tty=True,
         parameters=[{
-            "topic": LaunchConfiguration("joint_state_topic"),
-            "timeout_sec": LaunchConfiguration("isaac_ready_timeout"),
-            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            'topic': LaunchConfiguration('joint_state_topic'),
+            'timeout_sec': LaunchConfiguration('isaac_ready_timeout'),
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
     )
 
 
-def create_gripper_nodes() -> list[Node]:
-    """Phase 2 — 그리퍼 명령 경로.
+def _servo_params_with_scale() -> dict:
+    """servo 파라미터에 `servo_linear_scale` 을 얹는다.
 
-    Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다.
-    `gripper_action_bridge` 가 같은 이름의 액션을 열고 관절 위치 토픽으로 바꾼다.
-    상위(teleop·twin·재생)는 백엔드를 몰라도 되게 하려는 것이다.
+    **런타임 파라미터로는 바꿀 수 없다** — `moveit_servo` 는 기동 시점에만 읽는다
+    (`ros2 param set` 이 성공을 반환해도 동작은 그대로다). 그래서 launch 인자로 뺀다.
+
+    `command_in_type: unitless` 라 이 값은 **m/s 가 아니다.** Isaac 실측, `ready` 에서
+    +z 1.5 초, scale 0.4:
+
+    ==================================  =========  =========  =========  ==========
+    스택                                 입력 1.0   입력 0.5   입력 0.25  비례성
+    ==================================  =========  =========  =========  ==========
+    **2026-09-07 래칫 수정 후 (현재)**    130 mm/s   63 mm/s    28 mm/s    유지
+    2026-09-06 수정 전 (되읽기 있음)      47.5       24.5       11.5       유지
+    2026-09-06 수정 전, scale 0.8         56.8       39.6       22.9       무너짐
+    ==================================  =========  =========  =========  ==========
+
+    **같은 scale 에서 속도가 2.7배 올랐다.** 수정 전에는 servo 와 JTC 가 매 주기 측정
+    상태로 되돌아가며 이동량의 상당 부분을 먹고 있었다(`servo_joint_source` 인자 설명).
+    수정 후 값이 servo 가 실제로 내는 양이다. **0.4 는 그대로 둔다** — 비례가 유지되고,
+    체감 속도는 teleop 의 `linear_step`/`angular_step`(기본 0.25 — 이 2.7배를 되맞춘 값)
+    쪽에서 잡는다.
+
+    펑션베이는 0.8 을 쓰지만 그쪽은 0.4 에서 상하 비대칭이 6.7배라 사정이 달랐다 —
+    백엔드마다 따로 재야 한다.
     """
-    condition = IfCondition(LaunchConfiguration("enable_gripper"))
-    sim_time = {"use_sim_time": LaunchConfiguration("use_sim_time")}
+    params = build_servo_params()
+    servo = dict(params.get('moveit_servo') or {})
+    servo['scale'] = dict(servo.get('scale') or {})
+    servo['scale']['linear'] = LaunchConfiguration('servo_linear_scale')
+    # 기준 상태 토픽. `servo_joint_source` 참고 — commanded 면 commanded_joint_state_node 의
+    # 출력을, measured 면 servo 원래대로 /joint_states 를 본다.
+    servo['joint_topic'] = PythonExpression([
+        "'", COMMANDED_JOINT_STATE_TOPIC, "' if '", LaunchConfiguration('servo_joint_source'),
+        "' == 'commanded' else '/joint_states'"])
+    return {'moveit_servo': servo}
+
+
+def create_servo_nodes(moveit_config, sim_time: dict) -> list[Node]:
+    """servo(twist) 경로 — servo_node + auto_start.
+
+    **bridge 와 갈리는 지점이다.** 거기서는 servo 출력을 `Float64MultiArray` 로 바꾸고
+    다리 노드로 `sensor_msgs/JointState` 를 만들어야 했다. 여기서는 JTC 가 있으므로
+    servo 의 기본 출력(`JointTrajectory` → `/panda_arm_controller/joint_trajectory`)이
+    그대로 쓰인다 — 파라미터 재정의도, 다리도 없다.
+
+    `servo_auto_start_node` 는 남는다. **servo 는 `start_servo` 를 부르기 전까지 입력을
+    조용히 무시한다** — 에러도 경고도 없이 그냥 안 움직인다.
+    """
+    condition = IfCondition(LaunchConfiguration('enable_servo'))
+    commanded = IfCondition(PythonExpression([
+        "'", LaunchConfiguration('enable_servo'), "' == 'true' and '",
+        LaunchConfiguration('servo_joint_source'), "' == 'commanded'"]))
     return [
+        # servo 의 기준 상태를 측정값이 아니라 컨트롤러의 명령 위치로 바꾼다 — 부하 처짐이
+        # servo 명령에 적분되는 래칫을 끊는다 (`servo_joint_source` 인자 설명 참고).
+        # `controller_state` 만 remap 한다; `joint_states`(손가락 통과용)와 출력은 루트 상대다.
         Node(
-            package="robot_control", executable="isaac_gripper_bridge",
-            name="gripper_action_bridge", output="screen", emulate_tty=True,
-            condition=condition,
-            parameters=[{
-                "command_topic": LaunchConfiguration("gripper_command_topic"),
-                "joint_state_topic": LaunchConfiguration("joint_state_topic"),
-                **sim_time,
-            }],
+            package='robot_control', executable='commanded_joint_state_node',
+            name='commanded_joint_state_publisher', output='screen', emulate_tty=True,
+            parameters=[sim_time],
+            remappings=[('controller_state', '/panda_arm_controller/controller_state')],
+            condition=commanded,
         ),
-        # `GripperActionNode` — mock 과 **같은 노드**다. 이름이 백엔드가 아니라 실행
-        # 수단(액션 클라이언트)을 가리키고, 위 브리지가 액션 서버를 제공하므로 명령
-        # 경로가 mock 과 같기 때문이다.
-        # **`stall_effort` 는 실측값이다 (2026-09-02).** 빈손으로 닫은 채 팔을 흔들어도
-        # 손가락 |effort| 가 0.13 N·m 를 넘지 않았고(과도 최대 0.50), 블록을 물면
-        # 22.4 N·m 로 유지된다. 1.0 은 거짓 양성 최악값의 2배, 파지의 1/22 지점이다.
-        #
-        # **속도 조건은 켜지 않는다.** Isaac 은 PhysX 접촉에서 손가락이 계속 떨려
-        # (파지 유지 중 |vel| 최대 0.26 rad/s) 속도 게이트를 걸면 파지를 놓친다 —
-        # 펑션베이(링키지가 멎는다)와 다른 점이다.
-        Node(
-            package="robot_control", executable="gripper_action_node",
-            name="gripper", output="screen", emulate_tty=True,
-            condition=condition,
-            parameters=[sim_time, {"stall_effort": 1.0, "stall_velocity": 0.0}],
-        ),
-    ]
-
-
-def override_servo_params_for_isaac(servo_params: dict[str, Any]) -> dict[str, Any]:
-    """servo 출력을 Isaac 용 Float64MultiArray 명령 토픽으로 돌린다.
-
-    ``publish_joint_velocities`` 를 끄는 것은 **선택이 아니라 필수**다. servo 의
-    파라미터 검증은 ``command_out_type`` 이 Float64MultiArray 인데 positions 와
-    velocities 를 모두 발행하도록 설정되어 있으면 실패를 반환하고, 그 경우 servo
-    노드가 아예 기동하지 못한다 (JGPC mock 과 같은 제약이다).
-
-    ``JointTrajectory`` 를 쓰지 않는 이유는 컨트롤러가 없는 스택에서
-    ``/panda_arm_controller/joint_trajectory`` 라는 이름을 쓰게 되어 **없는 것을
-    있는 것처럼** 보이게 만들기 때문이다.
-    """
-    params = servo_params["moveit_servo"]
-    params["command_out_type"] = "std_msgs/Float64MultiArray"
-    params["command_out_topic"] = SERVO_COMMAND_TOPIC
-    params["publish_joint_positions"] = True
-    params["publish_joint_velocities"] = False
-    params["publish_joint_accelerations"] = False
-    return servo_params
-
-
-def create_servo_nodes(moveit_config) -> list[Node]:
-    """servo(twist) 경로 — servo_node + auto_start + 명령 다리.
-
-    **teleop 두 경로가 모두 여기로 수렴한다.**
-
-        teleop_keyboard  -> delta_twist_cmds ─┐
-        teleop_retarget  -> ee_twist_node ────┴─> servo -> bridge -> Isaac
-
-    servo 는 `trajectory_msgs/JointTrajectory` 나 `std_msgs/Float64MultiArray` 만
-    낼 수 있고 Isaac 은 `sensor_msgs/JointState` 만 받는다. **토픽 remap 으로는 못
-    잇는다 — 타입이 다르다.** 그래서 다리를 하나 둔다.
-
-    `publish_joint_velocities: false` 는 선택이 아니라 필수다. `command_out_type` 이
-    Float64MultiArray 인데 positions 와 velocities 를 모두 발행하도록 두면 servo 의
-    파라미터 검증이 실패해 **노드가 아예 기동하지 못한다.**
-    """
-    condition = IfCondition(LaunchConfiguration("enable_servo"))
-    sim_time = {"use_sim_time": LaunchConfiguration("use_sim_time")}
-    servo_params = override_servo_params_for_isaac(build_servo_params())
-
-    return [
-        create_servo_node(moveit_config, servo_params, condition=condition,
+        create_servo_node(moveit_config, _servo_params_with_scale(), condition=condition,
                           extra_parameters=sim_time),
-        # **servo 는 start_servo 를 부르기 전까지 입력을 조용히 무시한다.**
-        # 에러도 경고도 없이 그냥 안 움직인다.
         Node(
-            package="robot_control", executable="servo_auto_start_node",
-            name="servo_auto_start", output="screen", emulate_tty=True,
+            package='robot_control', executable='servo_auto_start_node',
+            name='servo_auto_start', output='screen', emulate_tty=True,
             parameters=[sim_time],
             condition=condition,
         ),
-        Node(
-            package="robot_control", executable="isaac_servo_bridge",
-            name="servo_command_bridge", output="screen", emulate_tty=True,
-            parameters=[{"joint_names": ARM_JOINT_NAMES}, sim_time],
-            remappings=[("commands", SERVO_COMMAND_TOPIC),
-                        ("arm_command", ARM_COMMAND_TOPIC)],
-            condition=condition,
+    ]
+
+
+def create_gripper_nodes(sim_time: dict) -> list[Node]:
+    """그리퍼 — `GripperActionNode` 하나뿐이다.
+
+    `panda_hand_controller`(GripperActionController) 가 액션 서버이므로 mock 과 같은
+    구성이 된다 — 다리 노드가 없다.
+
+    **`stall_effort` 는 실측값이다 (2026-09-02).** 빈손으로 닫은 채 팔을 흔들어도
+    손가락 |effort| 가 0.13 N·m 를 넘지 않았고(과도 최대 0.50), 블록을 물면 22.4 N·m
+    로 유지된다. **속도 조건은 켜지 않는다** — Isaac 은 PhysX 접촉에서 손가락이 계속
+    떨려(파지 유지 중 |vel| 최대 0.26 rad/s) 속도 게이트를 걸면 파지를 놓친다.
+
+    이 판정은 effort state interface 를 전제하며, `TopicBasedSystem` 이 그것을 넘기는
+    것을 실측으로 확인했다 (파지 22.4 N·m).
+    """
+    return [
+        create_gripper_node(
+            extra_parameters={**sim_time, 'stall_effort': 1.0, 'stall_velocity': 0.0},
+            condition=IfCondition(LaunchConfiguration('enable_gripper')),
         ),
     ]
 
 
-def create_image_viewer_node() -> Node:
-    """Isaac 카메라 이미지를 창으로 띄운다 (`enable_image_viewer:=true`).
+def create_image_viewer_node(sim_time: dict) -> Node:
+    """Isaac 카메라 이미지를 창으로 띄운다.
 
-    **카메라 노드는 없다** — Isaac 이 OmniGraph 로 `/isaac/camera/image_raw` 를 직접
-    발행하므로 뷰어만 붙이면 된다. 뷰어는 상대 토픽 `image` 를 구독하므로 remap 한다.
-
-    수집 계열의 `rdfp_image_viewer_node` 와 다르다 — 그쪽은 `/session` 상태를 프레임에
-    겹쳐 그리는 **수집 계층** 노드다. 여기 것은 그냥 보기 위한 것이다.
-
-    ⚠️ **OpenCV 창을 여므로 GUI 가 없는 환경에서는 기동에 실패한다.** headless 로
-    돌릴 때는 켜지 않는다.
+    **카메라 노드는 없다** — Isaac 이 OmniGraph 로 이미지를 직접 발행한다.
     """
     return Node(
-        package="robot_control", executable="image_viewer_node",
-        name="image_viewer", output="screen", emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
-        remappings=[("image", LaunchConfiguration("camera_image_topic"))],
+        package='robot_control', executable='image_viewer_node',
+        name='image_viewer', output='screen', emulate_tty=True,
+        condition=IfCondition(LaunchConfiguration('enable_image_viewer')),
+        parameters=[sim_time],
+        remappings=[('image', LaunchConfiguration('camera_image_topic'))],
     )
 
 
-def create_scene_node() -> Node:
-    """Phase 3 — Isaac 물체 TF → `/scene/objects`.
+def create_scene_node(sim_time: dict) -> Node:
+    """Isaac 물체 TF → `/scene/objects`.
 
     물체의 이름·종류·크기는 TF 에 없으므로 시뮬레이터 쪽 생성 스크립트와 **같은
     JSON**(`config/isaac_scene.json`)을 읽는다.
     """
     return Node(
-        package="robot_control", executable="isaac_scene_state_node",
-        name="isaac_scene_state", output="screen", emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_scene")),
-        parameters=[{
-            "publish_rate": LaunchConfiguration("scene_publish_rate"),
-            "use_sim_time": LaunchConfiguration("use_sim_time"),
-        }],
+        package='robot_control', executable='isaac_scene_state_node',
+        name='isaac_scene_state', output='screen', emulate_tty=True,
+        condition=IfCondition(LaunchConfiguration('enable_scene')),
+        # `config_file` 은 **프로파일의 `scene.file`** 에서 온다. 안 넘기면 노드가 자기
+        # 기본 경로로 떨어져 프로파일에 적힌 값이 아무 데도 안 닿는다 — "고쳤는데 안
+        # 바뀐다" 가 된다.
+        parameters=[sim_time, {'publish_rate': LaunchConfiguration('scene_publish_rate'),
+                               'config_file': _BACKEND.scene_file() or ''}],
     )
 
 
 def generate_launch_description() -> LaunchDescription:
     joint_limits_file = os.path.join(
         get_package_share_directory('robot_control'), JOINT_LIMITS_RELPATH)
-    moveit_config = build_moveit_config(joint_limits_file=joint_limits_file)
-    # 모든 노드에 같은 dict 를 넘긴다. SetParameter 를 쓰지 않는 이유는 게이트
-    # 통과 후 event handler 로 뜨는 노드까지 확실히 덮기 위해서다.
-    sim_time = {"use_sim_time": LaunchConfiguration("use_sim_time")}
+    moveit_config = build_moveit_config(
+        joint_limits_file=joint_limits_file,
+        description_mappings={
+            'isaac_arm_command_topic': LaunchConfiguration('arm_command_topic'),
+            'isaac_gripper_command_topic': LaunchConfiguration('gripper_command_topic'),
+            'isaac_joint_states_topic': LaunchConfiguration('joint_state_topic'),
+        },
+    )
+    # 모든 노드에 같은 dict 를 넘긴다. SetParameter 를 쓰지 않는 이유는 게이트 통과 후
+    # event handler 로 뜨는 노드까지 확실히 덮기 위해서다.
+    sim_time = {'use_sim_time': LaunchConfiguration('use_sim_time')}
 
-    # --- 즉시 기동: TF 소스와 브리지 ---
+    # --- 즉시 기동: TF 소스와 게이트 ---
     static_tf = create_static_tf_node(extra_parameters=sim_time)
     robot_state_publisher = create_robot_state_publisher(moveit_config, extra_parameters=sim_time)
     readiness_gate = create_readiness_gate_node()
 
-    # --- Isaac 준비 후 기동 ---
-    post_ready_nodes: list[Any] = [
+    # --- 게이트 통과 후: ros2_control 과 컨트롤러 사슬 ---
+    # 컨트롤러 설정은 **이 패키지의 복사본**을 쓴다 — moveit_resources 것에 JTC 의
+    # `open_loop_control: true` 를 더한 것으로, servo 래칫의 두 번째 되읽기 지점을 끊는다.
+    # 인라인 파라미터로는 컨트롤러에 닿지 않아 파일이어야 한다 (yaml 머리말 참고).
+    ros2_control_node = create_ros2_control_node(
+        moveit_config, MOVEIT_CONFIGS_PACKAGE_NAME,
+        controllers_file=LaunchConfiguration('controllers_file'), extra_parameters=sim_time)
+    joint_state_broadcaster_spawner = create_joint_state_broadcaster_spawner()
+    panda_arm_controller_spawner = create_panda_arm_controller_spawner()
+    panda_hand_controller_spawner = create_panda_hand_controller_spawner()
+
+    post_controller_nodes: list[Any] = [
         create_move_group_node(moveit_config, extra_parameters=sim_time),
-        create_rviz_node(moveit_config, condition=IfCondition(LaunchConfiguration("enable_rviz")),
+        create_rviz_node(moveit_config, condition=IfCondition(LaunchConfiguration('enable_rviz')),
                          extra_parameters=sim_time),
         create_ee_pose_node(extra_parameters=sim_time),
-        *create_gripper_nodes(),
-        *create_servo_nodes(moveit_config),
-        create_scene_node(),
-        create_image_viewer_node(),
+        *create_servo_nodes(moveit_config, sim_time),
+        *create_gripper_nodes(sim_time),
+        create_scene_node(sim_time),
+        create_image_viewer_node(sim_time),
     ]
 
-    startup_handler = RegisterEventHandler(
+    # 게이트가 실패 종료하면 launch 전체를 내린다 — move_group 만 올라와 원인을
+    # 감추는 상황을 막는다 (bridge 와 같은 정책).
+    gate_handler = RegisterEventHandler(
         OnProcessExit(
             target_action=readiness_gate,
-            on_exit=_chain_or_shutdown(post_ready_nodes, "readiness_gate"),
+            on_exit=_chain_or_shutdown([ros2_control_node], 'readiness_gate'),
         )
     )
 
+    controller_startup_handlers = create_controller_startup_handlers(
+        ros2_control_node,
+        joint_state_broadcaster_spawner,
+        panda_arm_controller_spawner,
+        panda_hand_controller_spawner,
+        post_controller_nodes,
+    )
+
     return LaunchDescription([
-        declare_ros2_control_hardware_type_argument(),
+        declare_ros2_control_hardware_type_argument(default_value=HARDWARE_TYPE),
         declare_log_level_argument(),
         *declare_ee_pose_arguments(),
         *declare_isaac_arguments(),
-        OpaqueFunction(function=_reject_unimplemented_phases),
         static_tf,
         robot_state_publisher,
         readiness_gate,
-        startup_handler,
+        gate_handler,
+        *controller_startup_handlers,
     ])

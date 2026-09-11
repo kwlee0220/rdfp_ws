@@ -23,7 +23,7 @@
     ros2 launch rdfp rdfp_panda_gazebo.launch.py
     ros2 launch rdfp rdfp_panda_gazebo.launch.py enable_rviz:=true
     ros2 launch rdfp rdfp_panda_gazebo.launch.py simulate_camera:=true \\
-        enable_image_viewer_node:=true
+        enable_image_viewer:=true
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def _declare_arguments() -> list[DeclareLaunchArgument]:
         ),
         # --- rdfp 애플리케이션 노드 argument ---
         DeclareLaunchArgument(
-            "enable_image_viewer_node", default_value="false",
+            "enable_image_viewer", default_value="false",
             description="Start rdfp_image_viewer_node (needs a camera topic)",
         ),
         DeclareLaunchArgument(
@@ -157,7 +157,7 @@ def generate_launch_description() -> LaunchDescription:
         name="rdfp_image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[("image", LaunchConfiguration("camera_image_topic"))],
     )
     image_recorder_node = Node(

@@ -13,46 +13,41 @@ MoveIt 도 MoveGroupClient 도 쓰지 않고 손으로 만든 ``sensor_msgs/Join
 그래서 이 스크립트는 **관절마다 여유가 있는 방향을 골라** 하나씩 시험하고, 매번
 원위치로 되돌린다.
 
-    ./fb_raw.py                 # 7관절 전부, 기본 delta 0.20
-    ./fb_raw.py 0.30            # delta 지정
-    ./fb_raw.py 0.20 named      # name 필드를 채워서 (기본은 비움)
+**측정 전에 `ready` 로 옮긴다.** 관절마다 여유가 있는 방향을 고르는 로직이 시작
+자세에 의존하고(한계까지의 여유로 부호를 정한다), 작업면에 물체가 있으면 임의 자세에서
+0.2 rad 씩 흔드는 것이 위험하기 때문이다. 이동은 `fb_ready` 가 맡는다.
 
-인자: [delta(rad), 기본 0.20] [named|noname, 기본 noname]
+    ./fb_raw.py                    # ready 로 옮긴 뒤 7관절 전부, 기본 delta 0.20
+    ./fb_raw.py 0.30               # delta 지정
+    ./fb_raw.py 0.20 named         # name 필드를 채워서 (기본은 비움)
+    ./fb_raw.py 0.20 noname --no-ready   # 현재 자세에서 그대로
+
+인자: [delta(rad), 기본 0.20] [named|noname, 기본 noname] [--no-ready] [--ramp <초>]
 """
 from __future__ import annotations
 
 import sys
 import time
 
+import fb_ready
 import rclpy
 from sensor_msgs.msg import JointState
 
-ARM = [f'panda_joint{i}' for i in range(1, 8)]
-REPORT_TOPIC = '/output/panda_joint'
-COMMAND_TOPIC = '/input/panda_joint'
-# 시뮬레이터 수신 주기(50 Hz) 에 맞춘다.
-COMMAND_PERIOD_SEC = 0.02
+ARM = fb_ready.ARM
+REPORT_TOPIC = fb_ready.REPORT_TOPIC
+COMMAND_TOPIC = fb_ready.COMMAND_TOPIC
+COMMAND_PERIOD_SEC = fb_ready.COMMAND_PERIOD_SEC
 DRIVE_SEC = 3.0
 SETTLE_SEC = 2.0
 # 반응으로 인정할 최소 이동 비율.
 RESPOND_RATIO = 0.5
 
-# moveit_resources_panda_description 의 URDF 한계.
-LIMITS = {
-    'panda_joint1': (-2.9671, 2.9671), 'panda_joint2': (-1.8326, 1.8326),
-    'panda_joint3': (-2.9671, 2.9671), 'panda_joint4': (-3.1416, 0.0873),
-    'panda_joint5': (-2.9671, 2.9671), 'panda_joint6': (-0.0873, 3.8223),
-    'panda_joint7': (-2.9671, 2.9671),
-}
+# 한계표는 fb_ready 가 갖는다 — fb_cmdpath 와 같은 표를 봐야 판정이 어긋나지 않는다.
+LIMITS = fb_ready.LIMITS
 
 
 def read_current(node, cur, timeout_sec=5.0):
-    deadline = time.time() + timeout_sec
-    while rclpy.ok() and time.time() < deadline and not cur:
-        rclpy.spin_once(node, timeout_sec=0.05)
-    if not cur:
-        raise SystemExit(f'no JointState received on {REPORT_TOPIC}')
-    return [float(cur[j]) for j in ARM]
+    return fb_ready.wait_for_state(node, cur, timeout_sec)
 
 
 def drive(node, pub, msg, positions, seconds):
@@ -69,16 +64,24 @@ def drive(node, pub, msg, positions, seconds):
 
 
 def main():
+    skip_ready = fb_ready.take_flag('--no-ready')
+    keep_grasp = fb_ready.take_flag('--keep-grasp')
+    ramp_sec = fb_ready.DEFAULT_RAMP_SEC
+    if '--ramp' in sys.argv:
+        i = sys.argv.index('--ramp')
+        ramp_sec = float(sys.argv[i + 1])
+        del sys.argv[i:i + 2]
     delta = float(sys.argv[1]) if len(sys.argv) > 1 else 0.20
     use_name = len(sys.argv) > 2 and sys.argv[2] == 'named'
 
     rclpy.init()
     node = rclpy.create_node('fb_raw')
-    cur: dict[str, float] = {}
-    node.create_subscription(JointState, REPORT_TOPIC,
-                             lambda m: cur.update(zip(m.name or ARM, m.position)), 50)
-    pub = node.create_publisher(JointState, COMMAND_TOPIC, 10)
-    read_current(node, cur)
+    cur, pub = fb_ready.attach(node)
+    if skip_ready:
+        read_current(node, cur)
+        print('[ready] 건너뜀 (--no-ready) — 현재 자세에서 측정한다')
+    else:
+        fb_ready.goto_ready(node, cur, pub, ramp_sec=ramp_sec, open_gripper=not keep_grasp)
 
     msg = JointState()
     msg.name = list(ARM) if use_name else []
@@ -88,9 +91,8 @@ def main():
     responded = 0
     for idx, joint in enumerate(ARM):
         base = read_current(node, cur)
-        lo, hi = LIMITS[joint]
         # 한계까지 여유가 큰 쪽으로 민다.
-        sign = 1.0 if (hi - base[idx]) >= (base[idx] - lo) else -1.0
+        sign = fb_ready.free_direction(joint, base[idx])
         target = list(base)
         target[idx] = base[idx] + sign * delta
 

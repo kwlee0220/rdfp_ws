@@ -38,6 +38,34 @@ _AVAILABILITY_PERIOD_SEC = 2.0
 _WATCHDOG_PERIOD_SEC = 1.0
 
 
+def _fetch_fixtures(runtime: 'RobotTwinRuntime') -> dict:
+    """고정물 정의를 백엔드 프로파일에서 읽어 싣는다.
+
+    구멍·트레이는 `/tf` 에도 `/scene/objects` 에도 없다 — 벤더가 `static="false"` 인
+    body 만 내보내고, 그 채널은 조작 대상 전용이기 때문이다. 그래서 **조회할 프레임이
+    아예 없어** 에이전트가 *"다른 hole"* 을 고를 근거가 없었다.
+
+    값이 런타임 불변이라 정적 소스가 맞고, **MoveIt 과 무관한 파일 읽기**라
+    `_STATIC_PROVIDERS` 로 빠진다.
+    """
+    backend = runtime.config.moveit.backend
+    if not backend:
+        # 설정 오류다 — 시간이 지나도 안 고쳐지므로 `StaticSourceUnavailable` 이 아니다.
+        raise ValueError('fixtures require moveit.backend to name a backend profile')
+
+    from robot_control.scene.fixtures import as_payload, load_fixtures
+
+    return as_payload(load_fixtures(backend))
+
+
+# 정적 소스 중 **MoveGroup 클라이언트가 아닌 곳에서 오는 것**. `backend.method` 의
+# 이름으로 고른다 — 설정 문법을 늘리지 않으려고 같은 키를 쓴다.
+#
+# ⚠️ **여기 이름을 `MoveGroupClient` 의 메서드 이름과 같게 두면 안 된다.** 이쪽을
+# 먼저 보므로 같은 이름이면 클라이언트 메서드가 **조용히 가려진다.**
+_STATIC_PROVIDERS = {'get_fixtures': _fetch_fixtures}
+
+
 class RobotTwinRuntime:
     """트윈의 ROS 측 런타임."""
 
@@ -45,6 +73,11 @@ class RobotTwinRuntime:
                  clock: Callable[[], float] = time.time) -> None:
         self.config = config
         self._node = node
+        # **TF 는 프레임 변환에만 쓴다.** `move_linear` 의 `frame` 이 EE 프레임일 때
+        # tip link 지령으로 옮기기 위해서다 — 그 오프셋을 상수로 박으면 description 이
+        # 바뀔 때 조용히 어긋난다 (펑션베이 149 mm).
+        self._tf_buffer = None
+        self._tf_listener = None
         self._clock = clock
         self._logger = node.get_logger()
 
@@ -81,6 +114,44 @@ class RobotTwinRuntime:
     # ------------------------------------------------------------------
     # 기동
     # ------------------------------------------------------------------
+
+    def _ensure_tf(self):
+        """TF 버퍼를 lazy 로 만든다. 프레임 변환이 필요 없으면 만들지 않는다."""
+        if self._tf_buffer is None:
+            from tf2_ros import Buffer, TransformListener
+
+            self._tf_buffer = Buffer()
+            self._tf_listener = TransformListener(self._tf_buffer, self._node)
+        return self._tf_buffer
+
+    def lookup_tip_to_ee(self, timeout_sec: float = 2.0) -> tuple:
+        """`tip_frame → ee_frame` 의 `(평행이동, 회전)`. 설정에 EE 프레임이 없으면 `None`.
+
+        Raises:
+            RuntimeError: TF 가 아직 안 올라왔을 때. **조용히 항등으로 떨어지지
+                않는다** — 그러면 149 mm 어긋난 곳으로 팔이 가고 원인이 안 보인다.
+        """
+        moveit = self.config.moveit
+        if not moveit.ee_frame or moveit.ee_frame == moveit.tip_frame:
+            return None
+        from rclpy.time import Time
+
+        buffer = self._ensure_tf()
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            try:
+                transform = buffer.lookup_transform(
+                    moveit.tip_frame, moveit.ee_frame, Time()).transform
+            except Exception:
+                time.sleep(0.05)
+                continue
+            return ((transform.translation.x, transform.translation.y,
+                     transform.translation.z),
+                    (transform.rotation.x, transform.rotation.y,
+                     transform.rotation.z, transform.rotation.w))
+        raise RuntimeError(
+            f'TF {moveit.tip_frame} -> {moveit.ee_frame} not available after '
+            f'{timeout_sec:g}s; is the stack up?')
 
     def start(self) -> None:
         """구독·발행을 등록하고 주기 타이머를 건다 (기동 2단계)."""
@@ -170,7 +241,20 @@ class RobotTwinRuntime:
                 # 지연 import — ROS 없이 config/session 모듈을 쓰는 경로를 막지 않는다.
                 from robot_control.moveit.move_group_factory import create_move_group_client
                 # mode 는 항상 명시한다. 'auto' 는 설정 단계에서 이미 거부된다.
-                client = create_move_group_client(self._node, mode=mode, **kwargs)
+                #
+                # **액션 서버 확인은 끈다.** 트윈은 `move_group` 이나 컨트롤러보다
+                # 먼저 뜰 수 있어(설계서 2.6) 그 시점에 서버가 없는 것이 정상이다.
+                # 켜 두면 매 기동마다 오경보가 찍힌다. 준비 여부는 `/health` 의
+                # `move_group` 항목이 드러낸다.
+                # **중력 보상은 여기서만 넘긴다** — `kwargs` 는 `/health` 로도
+                # 나가므로 직렬화 안 되는 객체를 섞으면 그쪽이 500 으로 죽는다.
+                compensator = self.config.moveit.gravity_compensator()
+                extra = dict(kwargs)
+                if compensator is not None:
+                    extra['gravity_compensator'] = compensator
+                    self._logger.info(f'gravity compensation enabled: {compensator}')
+                client = create_move_group_client(self._node, mode=mode,
+                                                  check_action_server=False, **extra)
                 with self._mg_lock:
                     self._move_group = client
                     self._move_group_error = None
@@ -200,8 +284,9 @@ class RobotTwinRuntime:
         spin 중이므로, 백엔드가 자체 spin 을 하면 이중 spin 이 된다 (설계서 2.3).
 
         Args:
-            method: ``MoveGroupClient`` 의 메서드 이름.
-            timeout: 호출 상한(초).
+            method: 무엇을 가져올지. ``_STATIC_PROVIDERS`` 에 있으면 그쪽이 처리하고,
+                없으면 ``MoveGroupClient`` 의 메서드 이름으로 본다.
+            timeout: 호출 상한(초). 제공자가 안 받으면 무시된다.
 
         Returns:
             메서드의 반환값.
@@ -211,6 +296,12 @@ class RobotTwinRuntime:
                 이를 일시적 상황으로 보고 나중에 다시 시도한다.
             ValueError: 설정에 적힌 메서드가 클라이언트에 없을 때.
         """
+        provider = _STATIC_PROVIDERS.get(method)
+        if provider is not None:
+            # **MoveGroup 보다 먼저 본다.** 아래에서 클라이언트가 없으면 거절하는데,
+            # 파일만 읽으면 되는 값까지 MoveIt 기동을 기다리게 할 이유가 없다.
+            return provider(self)
+
         with self._mg_lock:
             client = self._move_group
         if client is None:

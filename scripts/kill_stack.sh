@@ -34,10 +34,16 @@
 #
 #   ros2 launch <이 워크스페이스의 런치>       Isaac / 펑션베이 / mock 계열
 #   이 워크스페이스 install/ 아래의 노드 실행 파일
-#   런치가 띄우는 표준 노드                     move_group · robot_state_publisher ·
+#   런치가 띄우는 표준 노드                     move_group · servo_node ·
+#                                              robot_state_publisher ·
 #                                              static_transform_publisher · spawner · rviz2
 #   Isaac Sim                                  kit · python.sh
 #   ros2 CLI 데몬
+#
+# ⚠️ **`moveit_servo` 는 2026-09-03 까지 위 패턴에서 빠져 있었다.** 펑션베이·mock 런치가
+#    모두 `servo_node` 를 띄우는데, 정리 후 그것만 살아남아 `/input/panda_joint` 구독자로
+#    남는 일이 실제로 있었다 — ①의 고아 노드 그대로다. **런치에 노드를 추가하면 이
+#    패턴도 함께 갱신한다.**
 #
 # ⚠️ **다른 사람과 도메인을 공유하는 기계에서는 쓰지 않는다.** 프로세스 단위로 죽이므로
 #    같은 기계의 다른 ROS 작업이 위 패턴에 걸리면 함께 내려간다.
@@ -80,7 +86,12 @@ collect() {
         if [[ "$DO_ROS" == "1" ]]; then
             _pids "ros2 launch"    "ros2 launch (robot_control|rdfp) "
             _pids "워크스페이스 노드" "${WORKSPACE}/install/[a-z_]+/lib/"
-            _pids "MoveIt/TF/rviz" "/opt/ros/humble/lib/(moveit_ros_move_group|robot_state_publisher|tf2_ros|controller_manager|rviz2)/"
+            _pids "MoveIt/TF/rviz" "/opt/ros/humble/lib/(moveit_ros_move_group|moveit_servo|robot_state_publisher|tf2_ros|controller_manager|rviz2)/"
+            # **압축 이미지를 raw 로 되살리는 노드도 스택의 일부다.** 워크스페이스가 아니라
+            # `image_transport` 패키지에서 오므로 위 두 정규식에 안 걸리고, 그래서 고아로
+            # 남았다 — 다음 스택을 띄우면 `camera_republish` 가 둘이 되어 **같은 토픽에
+            # 발행자가 둘**이 된다(2026-09-09 실측). 오류는 없고 프레임만 섞인다.
+            _pids "카메라 republish" "/opt/ros/humble/lib/image_transport/republish"
         fi
         if [[ "$DO_ISAAC" == "1" ]]; then
             _pids "Isaac"          "isaacsim/(kit/|python\.sh)"
@@ -115,8 +126,22 @@ else
 fi
 
 # **데몬을 마지막에 죽인다.** 먼저 죽이면 위에서 `ros2` 를 부를 때 되살아난다.
+#
+# **패턴을 앞에 고정한다.** `-f` 는 명령행 전체를 보므로 `ros2cli\.daemon` 만 주면
+# **그 문자열이 들어 있는 셸까지** 잡는다 — 이 스크립트를 부른 명령행에 `pgrep ...
+# ros2cli.daemon` 이 함께 있었더니 **호출한 셸이 먼저 죽었다**(종료 코드 144). 위쪽의
+# 자기 보호($$ · $PPID · *kill_stack*)로는 그 경우를 못 막는다. 데몬의 실제 명령행이
+# `/usr/bin/python3 -c from ros2cli.daemon.daemonize import main; ...` 이므로 앞을
+# 고정하면 데몬만 잡힌다.
+#
+# `ros2 daemon stop` 을 쓰지 않는 이유는 그것이 **현재 도메인 하나만** 멈추기 때문이다.
+# 여기서는 도메인을 가리지 않고 걷어내야 한다.
+#
+# **`-9` 가 필요하다.** 데몬은 SIGTERM 을 받고도 살아남는다(실측: 세 도메인 전부 생존).
+# 그동안 이 줄은 신호만 보내고 아무것도 못 죽이고 있었고, 그래서 **낡은 캐시를 든 데몬이
+# 그대로 남아** 정리 뒤 `ros2` 조회가 빈 결과나 `!rclpy.ok()` Fault 를 내는 원인이 됐다.
 if [[ "$DRY_RUN" == "0" ]]; then
-    pkill -f 'ros2cli\.daemon' 2>/dev/null
+    pkill -9 -f '^/usr/bin/python3 -c from ros2cli\.daemon' 2>/dev/null
     sleep 1
 fi
 

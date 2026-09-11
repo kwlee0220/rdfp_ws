@@ -187,7 +187,7 @@ def main(args: Optional[list[str]] = None) -> None:
     rclpy.init(args=args)
 
     from ..logging_bridge import configure_logging_bridge
-    configure_logging_bridge(package_logger_name='rdfp')
+    configure_logging_bridge(package_logger_name='robot_control')
 
     node: Optional[ImageViewerNode] = None
     try:

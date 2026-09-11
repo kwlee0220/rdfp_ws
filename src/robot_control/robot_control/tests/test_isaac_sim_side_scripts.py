@@ -1,7 +1,7 @@
 """Isaac 쪽(`scripts/isaac/sim_side/`) 스크립트의 **경로 해석 계약**을 고정한다.
 
 이 스크립트들은 Isaac Sim 안에서 돌아 ROS 도 ament 도 쓸 수 없다. 그래서 워크스페이스
-경로와 로그 경로를 **각자 상수로 들고 있고**, 배포 구성 네 가지(문서 §1)를 그 상수의
+경로와 로그 경로를 **각자 상수로 들고 있고**, 어느 배포(문서 §1)를 그 상수의
 분기와 환경변수 override 로 지탱한다.
 
     A. Windows Isaac + WSL2 스택 (같은 머신)  -> UNC 기본값
@@ -181,3 +181,47 @@ def test_wsl_distro_name_is_consistent():
                 tail = line.split(WSL_DISTRO_PREFIX, 1)[1]
                 distros.add(tail.split('/')[0])
     assert len(distros) <= 1, f'배포판 이름이 여럿이다: {sorted(distros)}'
+
+
+def _supported_object_types() -> set:
+    """`setup_scene._make_object` 가 분기하는 `type` 문자열을 소스에서 뽑는다.
+
+    호출해서 확인할 수 없다 — 함수 본문이 `pxr` 를 import 하기 때문이다. 그래서
+    AST 로 `kind == "..."` 비교 상수만 걷는다.
+    """
+    path = SIM_SIDE_DIR / 'setup_scene.py'
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == '_make_object'), None)
+    assert fn is not None, 'setup_scene._make_object 가 사라졌다'
+    found = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Compare) and any(isinstance(o, ast.Eq) for o in node.ops):
+            for side in [node.left] + list(node.comparators):
+                if isinstance(side, ast.Constant) and isinstance(side.value, str):
+                    found.add(side.value)
+    return found
+
+
+def test_setup_scene_can_build_every_type_in_the_json():
+    """JSON 에 적힌 `type` 을 시뮬레이터 쪽이 실제로 만들 줄 아는가.
+
+    **한쪽만 고치기 쉬운 자리다.** `isaac_scene.json` 은 ROS 쪽(`scene_state_node`)이
+    타입을 그대로 옮기므로 새 종류를 적어도 `/scene/objects` 는 멀쩡히 그것을 말한다 —
+    못 만드는 것은 `setup_scene` 뿐이고, 그 실패는 Isaac 출력창에만 남는다.
+    """
+    scene_json = _REPO_ROOT / 'src' / 'robot_control' / 'config' / 'isaac_scene.json'
+    if not scene_json.is_file() or not (SIM_SIDE_DIR / 'setup_scene.py').is_file():
+        pytest.skip('소스 트리가 아니다 (installed)')
+
+    import json
+    with open(scene_json, encoding='utf-8') as handle:
+        objects = json.load(handle)['objects']
+
+    supported = _supported_object_types()
+    assert 'box' in supported, '분기 추출이 깨졌다'
+    for spec in objects:
+        kind = spec.get('type', 'box')
+        assert kind in supported, (
+            f'{spec["name"]}: isaac_scene.json 의 type {kind!r} 를 setup_scene 이 '
+            f'만들지 못한다 (지원: {sorted(supported)})')

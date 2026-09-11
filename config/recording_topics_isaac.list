@@ -1,0 +1,50 @@
+# rdfp 녹화 대상 토픽 목록 — **Isaac Sim 백엔드용**.
+#
+# `config/recording_topics.list`(mock 기준)의 Isaac 판이며, **갈리는 것은 카메라
+# 토픽 하나뿐**이다. 나머지는 백엔드 중립이라 그대로 둔다.
+#
+#   RECORDING_TOPICS_FILE=config/recording_topics_isaac.list ./scripts/record_rosbag.sh
+#
+# `dataset_config.yaml` 의 `topics_file:` 도 같은 파일을 가리켜야 한다 — 갈리면
+# 녹화한 것과 적재하는 것이 어긋난다.
+
+/session
+
+# MoveIt arm 관련 토픽 (joint 좌표)
+/servo_node/delta_twist_cmds
+/ee_pose
+
+# MoveIt arm 관련 토픽 (joint delta)
+/servo_node/delta_joint_cmds
+
+# MoveIt arm 관련 토픽 (관절 위치)
+#   /target_joint_cmds : arm 컨트롤러로 나간 명령값 (action).
+#     JTC 는 JointTrajectory 의 마지막 point, JGPC 는 Float64MultiArray 를
+#     target_joint_cmds_publisher 가 sensor_msgs/JointState 로 변환해 발행한다.
+#   /joint_states      : 실제 도달값 (observation).
+#   두 토픽 모두 sensor_msgs/JointState 라 DB 의 joint_states 테이블에
+#   topic_id 로만 구분되어 함께 적재된다.
+/target_joint_cmds
+/joint_states
+
+# MoveIt hand 관련 토픽
+/gripper_cmds
+# 그리퍼 연속 상태. **/joint_states 로 대신할 수 없다** — 펑션베이는 TF 성립용
+# 고정값을 주입해 '항상 열려 있다'고 거짓말을 한다. position 은 관절값이
+# 아니라 **개구 폭(m)** 이라 scene/objects 치수와 직접 비교된다.
+/gripper_states
+
+# Scene 물체 상태 (ground truth)
+#   백엔드별 scene 상태 노드가 2 Hz 로 발행한다. **학습 입력(observation)이 아니라**
+#   자동 라벨링(place 성공 판정)·오프라인 큐레이션·pose estimator 학습 라벨용이다.
+#   관측에 넣을지는 export 단계의 별도 결정이다
+#   (docs/rosbag2/scene_objects_observation_decision.md).
+#   `/session` 과 같은 TRANSIENT_LOCAL 토픽이므로 rosbag2 가 발행자 QoS 에 맞춰 붙는다.
+/scene/objects
+
+# Camera 관련 토픽
+#   **Isaac 은 카메라 노드가 없다** — 시뮬레이터가 OmniGraph 로 직접 발행하며,
+#   이름은 `config/isaac_scene.json` 의 `camera.image_topic` 이 정한다.
+#   mock 용 `/camera/image_raw` 를 그대로 두면 **이미지가 한 장도 안 담긴다** —
+#   rosbag2 는 없는 토픽을 조용히 건너뛴다.
+/isaac/camera/image_raw

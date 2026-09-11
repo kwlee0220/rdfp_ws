@@ -143,7 +143,7 @@ def _build_actions(context: LaunchContext) -> list[Any]:
         name="rdfp_image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[
             ("image", LaunchConfiguration("camera_image_topic")),
         ],

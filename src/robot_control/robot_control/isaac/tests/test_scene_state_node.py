@@ -84,6 +84,7 @@ class _StubNode:
         self._warn_interval = 5.0
         self._missing_logged: dict[str, float] = {}
         self._last_heartbeat = float('-inf')
+        self._last_resolved = None
 
     def get_clock(self):
         return self._clock
@@ -94,6 +95,20 @@ class _StubNode:
     _lookup = IsaacSceneStateNode._lookup
     _on_timer = IsaacSceneStateNode._on_timer
     _heartbeat = IsaacSceneStateNode._heartbeat
+
+
+_HEARTBEAT_PREFIX = 'scene: resolved'
+
+
+def _lookup_warnings(node) -> list:
+    """조회 실패 경고만. 하트비트도 문제 구간에서는 WARNING 이라 섞인다."""
+    return [w for w in node._logger.warnings if not w.startswith(_HEARTBEAT_PREFIX)]
+
+
+def _heartbeats(node) -> list:
+    """하트비트 줄만 — 정상이면 INFO, 문제면 WARNING 으로 나온다."""
+    return [m for m in (node._logger.infos + node._logger.warnings)
+            if m.startswith(_HEARTBEAT_PREFIX)]
 
 
 def _tf(x: float, y: float, z: float, quat=(0.0, 0.0, 0.0, 1.0)) -> TransformStamped:
@@ -169,14 +184,14 @@ def test_missing_warning_is_throttled_but_first_always_logged():
     """**sim time 0 근처에서도 첫 경고는 나와야 한다.** Isaac 은 Stop 마다 0 으로 되돌아간다."""
     node = _StubNode([BLOCK], {}, seconds=0.0)
     node._on_timer()
-    assert len(node._logger.warnings) == 1
+    assert len(_lookup_warnings(node)) == 1
 
     node._on_timer()          # 같은 시각 — 억제된다
-    assert len(node._logger.warnings) == 1
+    assert len(_lookup_warnings(node)) == 1
 
     node._clock.nanoseconds = int(6 * 1e9)
     node._on_timer()          # 간격을 넘겼다 — 다시 나온다
-    assert len(node._logger.warnings) == 2
+    assert len(_lookup_warnings(node)) == 2
 
 
 # ---------- 설정 경로 ----------
@@ -339,3 +354,63 @@ def test_same_pose_allows_free_fall_between_write_and_read():
 def test_same_pose_still_catches_a_prim_that_never_moved():
     """낙하 허용이 '아무 일도 안 했다'까지 통과시키면 안 된다."""
     assert _same_pose(_pose(5.0, 5.0, 5.0), _pose(1.0, 2.0, 3.0), 0.100) is False
+
+
+# ---------- 하트비트 ----------
+#
+# **주기 발행 노드라 이 줄이 매번 나오면 콘솔이 이것만으로 찬다.** 실제로 5 초마다 같은
+# 줄이 반복돼 다른 노드의 로그가 밀려났다. 정상 구간은 침묵, 문제 구간은 반복이어야 한다.
+
+def _resolved_node(objects, transforms, seconds=100.0):
+    node = _StubNode(objects, transforms, seconds)
+    node._on_timer()
+    return node
+
+
+def test_heartbeat_logs_once_when_everything_resolves():
+    """정상이 이어지는 동안에는 한 줄만 남는다."""
+    node = _resolved_node([BLOCK], {(BASE, 'block_a'): _tf(0.5, -0.15, 0.425)})
+    first = _heartbeats(node)
+    assert len(first) == 1 and 'resolved 1/1' in first[0]
+
+    # warn_interval 을 훌쩍 넘겨도 상태가 그대로면 더 찍지 않는다.
+    for extra in (1.0, 10.0, 60.0):
+        node._clock.nanoseconds = int((100.0 + extra) * 1e9)
+        node._on_timer()
+    assert _heartbeats(node) == first
+
+
+def test_heartbeat_repeats_while_degraded():
+    """못 푸는 상태는 조용해지면 고쳐진 줄로 오해하므로 되풀이한다 — WARNING 으로."""
+    node = _resolved_node([BLOCK, TABLE], {(BASE, 'block_a'): _tf(0.5, -0.15, 0.425)})
+    assert len(_heartbeats(node)) == 1
+    assert 'resolved 1/2' in _heartbeats(node)[0]
+    assert not node._logger.infos          # 정상이 아니므로 INFO 로 찍지 않는다
+
+    node._clock.nanoseconds = int(100.9 * 1e9)      # warn_interval(5.0) 안
+    node._on_timer()
+    assert len(_heartbeats(node)) == 1
+
+    node._clock.nanoseconds = int(106.0 * 1e9)      # 넘김
+    node._on_timer()
+    assert len(_heartbeats(node)) == 2
+
+
+def test_heartbeat_logs_the_recovery():
+    """문제가 풀린 것은 알려야 한다 — 상태가 바뀌면 interval 과 무관하게 남는다."""
+    node = _resolved_node([BLOCK, TABLE], {(BASE, 'block_a'): _tf(0.5, -0.15, 0.425)})
+    assert len(_heartbeats(node)) == 1
+
+    node._buffer._transforms[(BASE, 'table')] = _tf(0.5, 0.0, 0.2)
+    node._clock.nanoseconds = int(100.1 * 1e9)      # interval 한참 전
+    node._on_timer()
+    assert len(node._logger.infos) == 1 and 'resolved 2/2' in node._logger.infos[0]
+
+
+def test_frame_list_says_when_it_is_truncated():
+    """예전에는 'tf knows 15 frame(s)' 뒤에 12 개만 나열해 목록이 전부처럼 보였다."""
+    many = {(BASE, f'frame_{i:02d}'): _tf(0.0, 0.0, 0.0) for i in range(20)}
+    many[(BASE, 'block_a')] = _tf(0.5, -0.15, 0.425)
+    node = _resolved_node([BLOCK], many)
+    line = _heartbeats(node)[-1]
+    assert 'more)' in line, line

@@ -24,9 +24,9 @@ ros:
   use_sim_time: false
 
 moveit:
-  # 필수. 'jtc' 또는 'jgpc' 만 허용하며 'auto' 는 금지한다 — 토픽 그래프 lookup 이라
-  # DDS 디스커버리 전에 호출하면 조용히 오판한다 (설계서 2.6).
-  move_group_mode: jtc
+  # 백엔드 이름 하나로 정한다 — mode·명령채널을 `BACKEND_PROFILES` 가 채운다.
+  # JGPC mock 스택(`panda_jgpc_mock`)을 쓰려면 `mock_jgpc` 로 바꾼다.
+  backend: mock
   planning_group: panda_arm
 
 sessions:
@@ -212,7 +212,6 @@ operations:
                 y: { type: number }
                 z: { type: number }
                 w: { type: number }
-        frame_id: { type: string }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_step: { type: number, exclusiveMinimum: 0 }
         jump_threshold: { type: number, minimum: 0 }

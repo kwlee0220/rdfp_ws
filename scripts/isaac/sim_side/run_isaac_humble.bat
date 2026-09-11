@@ -16,7 +16,7 @@ REM 2) Fast DDS profile disables shared-memory transport. Under WSL2 mirrored
 REM    networking both sides look like the same host, so Fast DDS picks SHM -
 REM    and Windows SHM is not Linux /dev/shm, so discovery silently never lands.
 REM    **Set the same file on the WSL side too** (FASTRTPS_DEFAULT_PROFILES_FILE).
-
+REM
 set "ISAAC_ROOT=C:\isaacsim"
 set "ROS_DISTRO=humble"
 set "PATH=%PATH%;%ISAAC_ROOT%\exts\isaacsim.ros2.core\humble\lib"

@@ -370,8 +370,11 @@ class TestReconnect:
 
         node._retry_callback()          # 재연결 성공
 
-        # 캡처 타이머 1개 + 재연결 타이머 1개 = 2개
-        assert len(list(node.timers)) == 2
+        # 캡처 타이머 1개 + 재연결 타이머 1개 = 2개.
+        # **개수로 세는 것이 요점이다** — `_timer` 만 보면 등록된 채 방치된 옛
+        # 타이머를 놓친다. 시계 검사 타이머는 이 불변식과 무관하므로 뺀다.
+        capture_and_retry = [t for t in node.timers if t is not node._sim_time_check_timer]
+        assert len(capture_and_retry) == 2
         assert not node._timer.is_canceled()
         assert node._retry_timer.is_canceled()
         assert node._last_status == "CONNECTED"
@@ -413,3 +416,114 @@ class TestReconnect:
             assert n._retry_timer is None
         finally:
             n.destroy_node()
+
+
+class TestEpisodeBoundary:
+    """에피소드 경계 — 시작 공백·꼬리 감사·시계 불일치."""
+
+    def test_in_episode_publishes_immediately(self, node: RdfpCameraNode) -> None:
+        """**전이 즉시 한 장 나가야 한다.**
+
+        타이머는 자유 주행이라 전이가 주기를 앞당기지 않는다. 그대로 두면 에피소드
+        시작 직후 최대 한 주기(10 Hz면 100 ms) 동안 이미지가 없다 — 실측 86~92 ms.
+        """
+        node._camera.read.return_value = np.zeros((480, 640, 3), dtype=np.uint8)
+        node._on_session(_make_session_msg("IN_SESSION"))
+        # 공용 대역은 open() 뒤에도 is_opened 가 False 로 남는다 — 실제 카메라는
+        # 열리면 True 다. 즉시 캡처는 그 상태를 전제하므로 여기서 맞춰 준다.
+        node._camera.is_opened = True
+        node._image_pub.publish.reset_mock()
+
+        node._on_session(_make_session_msg("IN_EPISODE"))
+
+        assert node._image_pub.publish.call_count == 1
+
+    def test_immediate_capture_is_skipped_when_camera_is_not_open(
+            self, node: RdfpCameraNode) -> None:
+        """카메라가 닫혀 있으면 즉시 캡처를 하지 않는다 — open 경로가 먼저다."""
+        node._camera.is_opened = False
+        node._on_session(_make_session_msg("IN_EPISODE"))
+        assert node._image_pub.publish.call_count == 0
+
+    def test_tail_overshoot_is_logged(self, node: RdfpCameraNode) -> None:
+        """정지 stamp 보다 늦은 이미지를 냈으면 **조용히 넘어가지 않는다.**
+
+        막을 수는 없다 — 발행 시점에는 정지 stamp 를 모른다. 그래서 알리기라도 한다.
+        """
+        node._on_session(_make_session_msg("IN_SESSION"))
+        node._on_session(_make_session_msg("IN_EPISODE"))
+        node._last_published_ns = 5_000_000_000
+
+        stop = _make_session_msg("IN_SESSION")
+        stop.header.stamp.sec = 4
+        stop.header.stamp.nanosec = 0
+        with patch.object(node, 'get_logger') as logger:
+            node._on_session(stop)
+
+        assert logger.return_value.warning.called
+        assert 'episode tail' in logger.return_value.warning.call_args[0][0]
+
+    def test_no_warning_when_the_tail_is_clean(self, node: RdfpCameraNode) -> None:
+        """정지 stamp 이전에 멈췄으면 경고하지 않는다 — 잡음이 되면 아무도 안 본다."""
+        node._on_session(_make_session_msg("IN_SESSION"))
+        node._on_session(_make_session_msg("IN_EPISODE"))
+        node._last_published_ns = 3_000_000_000
+
+        stop = _make_session_msg("IN_SESSION")
+        stop.header.stamp.sec = 4
+        stop.header.stamp.nanosec = 0
+        with patch.object(node, 'get_logger') as logger:
+            node._on_session(stop)
+
+        assert not logger.return_value.warning.called
+
+    def test_clock_mismatch_is_reported(self, node: RdfpCameraNode) -> None:
+        """`/clock` 이 도는데 `use_sim_time` 이 꺼져 있으면 **에러로** 알린다.
+
+        증상이 "이미지가 DB 에 하나도 없다"뿐이라 원인이 안 보이기 때문이다.
+        """
+        with patch.object(node, 'count_publishers', return_value=1), \
+             patch.object(node, 'get_logger') as logger:
+            node._check_clock_source()
+
+        assert logger.return_value.error.called
+        assert 'use_sim_time' in logger.return_value.error.call_args[0][0]
+        assert node._sim_time_check_timer is None, '검사는 한 번만 돈다'
+
+    def test_no_clock_mismatch_report_without_clock(self, node: RdfpCameraNode) -> None:
+        """`/clock` 이 없으면 정상이다 — 실제 카메라 스택이 그렇다."""
+        with patch.object(node, 'count_publishers', return_value=0), \
+             patch.object(node, 'get_logger') as logger:
+            node._check_clock_source()
+
+        assert not logger.return_value.error.called
+
+
+class TestSessionTopicIsGlobal:
+    """**세션은 시스템에 하나다** — 로봇별 네임스페이스를 타면 안 된다 (규약 §2.5).
+
+    소비자 쪽에서만 실제로 검증할 수 있다. 세션 노드는 싱글턴이라 namespace 인자를
+    받지 않지만, 카메라·레코더는 로봇별 네임스페이스 안에 들어갈 수 있기 때문이다.
+    """
+
+    def test_subscription_ignores_the_node_namespace(self, mock_camera_class) -> None:
+        """`/abc` 안에 있어도 `/session` 을 구독한다.
+
+        상대(`session`)로 되돌아가면 `/abc/session` 을 찾아 **조용히 아무것도 못
+        받는다** — 증상은 "카메라가 안 열린다" 하나뿐이다.
+        """
+        node = RdfpCameraNode(namespace='/abc', parameter_overrides=_default_overrides())
+        try:
+            assert node._session_sub.topic_name == '/session'
+        finally:
+            node.destroy_node()
+
+    def test_image_topics_still_follow_the_namespace(self, mock_camera_class) -> None:
+        """**세션만 예외다.** 이미지·상태는 로봇별로 갈려야 한다 — 전부 절대로
+        바꿔 버리는 실수를 잡는다.
+        """
+        node = RdfpCameraNode(namespace='/abc', parameter_overrides=_default_overrides())
+        try:
+            assert node._status_pub.topic_name.startswith('/abc/')
+        finally:
+            node.destroy_node()

@@ -1,0 +1,63 @@
+# Isaac Sim 백엔드 — `topic_based_ros2_control/TopicBasedSystem`.
+#
+# **JTC 다** (2026-09-05). controller_manager 가 ROS 쪽에서 돌아 mock 과 같은 그림이
+# 됐고, MoveGroup/ExecuteTrajectory 액션으로 실행이 완료 판정된다(개루프가 아니다).
+name: isaac
+# 값으로 표현되지 않는 이 백엔드만의 코드가 있는 곳.
+factory: robot_control.backends.isaac:IsaacBackend
+description: Isaac Sim + topic_based_ros2_control (JTC, 물리 있음)
+
+# MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
+arm_command:
+  mode: jtc
+
+# ros2_control 배선. **`joint_commands_topic`/`joint_states_topic` 은 위 `arm_command`
+# 와 다른 것이다** — 이쪽은 `TopicBasedSystem` 이 시뮬레이터와 주고받는 채널이고,
+# `arm_command` 는 MoveGroup 클라이언트가 쓰는 채널이다. 옛 bridge 시절 이 둘을
+# 섞어 `arm_command.topic: /isaac/arm_command` 로 두었더니 컨트롤러를 **우회해** 같은
+# 채널에 끼어들어 서로 싸웠다.
+ros2_control:
+  hardware_type: isaac
+  # controller_manager 는 params 파일만 읽으므로 **내용이 아니라 경로**다.
+  # moveit_resources 것 + JTC `open_loop_control: true` (servo 래칫 차단).
+  controllers_file: config/panda_isaac_ros2_controllers.yaml
+  joint_commands_topic: /isaac/arm_command
+  gripper_commands_topic: /isaac/gripper_command
+  # Isaac 이 `/joint_states` 를 비워 줘야 `TopicBasedSystem` 이 자기 출력을 되읽지
+  # 않는다 — `/joint_states` 는 `joint_state_broadcaster` 가 갖는다.
+  joint_states_topic: /isaac_joint_states
+
+servo:
+  # m/s 가 아니다 — `command_in_type: unitless` 의 환산 계수다. 0.4 는 입력 전 구간이
+  # 비례하고, 0.8 은 최대가 1.2배 느는 대신 비례가 깨져 미세 조작을 잃는다.
+  linear_scale: 0.4
+  # 명령 위치를 되읽어 부하 처짐이 적분되는 것을 막는다 (servo_vs_planned_motion §4).
+  joint_source: commanded
+
+camera:
+  # Isaac 이 **raw 를 직접** 낸다 — 우리가 만드는 발행자가 없다.
+  source: native
+  image_topic: /isaac/camera/image_raw
+
+scene:
+  file: config/isaac_scene.json
+
+# 녹화 토픽 목록(`config/recording_topics*.list`)은 **여기 못 넣는다** — 워크스페이스
+# 루트에 있고 `record_rosbag.sh` 가 `RECORDING_TOPICS_FILE` 로, `dataset_config.yaml` 이
+# `topics_file` 로 읽는다. 패키지 자산이 아니라 설치본(`share/`)에서 해석할 수 없다.
+# 옮기려면 파일 위치와 그 두 소비자를 함께 고쳐야 한다 — 별건이다.
+
+use_sim_time: true
+
+# 팔 끝 프레임. **`ee` 를 적지 않는 것이 의도다.**
+#
+# 이 스택의 `/ee_pose` 는 `panda_hand` 를 가리키지만 `panda_link8` 과 **평행이동이
+# 0 이고 z 축 −45° 회전만 다르다** (`panda_links.urdf.xacro` 의 `panda_hand_joint`).
+# 위치가 같으므로 펑션베이의 `grasp_center` 같은 149 mm 어긋남이 없고, 45° 는
+# **MCP 클라이언트가 이미 `to_arm_command()` 에서 곱하고 있다** — 여기에 `ee` 를
+# 적으면 트윈이 한 번 더 돌려 **90° 이중 회전**이 되어 손가락이 엉뚱한 축으로 물린다.
+#
+# ⚠️ 그 보정을 클라이언트에서 트윈으로 옮기는 것은 **계획서 5단계**의 일이다.
+# 옮길 때 이 주석과 함께 `ee: panda_hand` 를 넣는다.
+frames:
+  tip: panda_link8

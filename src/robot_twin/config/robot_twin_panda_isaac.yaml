@@ -4,18 +4,20 @@
 #         docs/simulation/isaac_backend_skeleton.md (§8 Q10)
 # 실행:   ros2 run robot_twin robot_twin --config <이 파일 경로>
 #
-# `robot_twin_panda01.yaml` (mock 스택)의 Isaac 판이다. **네 곳이 다르다.**
-#
-#   1. moveit.move_group_mode          jtc  -> jgpc
-#   2. moveit.arm_command_*            추가 — Isaac 은 JointState 를 직접 받는다
-#   3. ros.use_sim_time                false -> true
-#   4. reset_scene 오퍼레이션           **없다** (아래 참조)
+# `robot_twin_panda01.yaml` (mock 스택) 과 **다른 곳은 `use_sim_time` 과 scene 계열뿐**
+# 이다. Isaac 도 `controller_manager` 를 쓰므로(`topic_based_ros2_control`)
+# `panda_arm_controller` 가 JTC 이고, 팔 명령 채널을 따로 지정할 필요가 없다.
 #
 # 함께 띄울 스택:
-#   ros2 launch rdfp rdfp_panda_isaac.launch.py
-#   (또는 robot_control panda_isaac.launch.py — 기본값이 그리퍼·scene 을 켠다)
+#   ./scripts/run_isaac_sim.sh --gui
+#   ros2 launch robot_control panda_isaac.launch.py
+#
 
 twin:
+  # **id 는 launch 변형을 담지 않는다.** REST 경로(`/api/v1/robot_twins/<id>`)가
+  # 스택 구성에 묶이면 구성을 갈아탈 때 클라이언트가 깨진다 —
+  # 같은 로봇·같은 시뮬이므로 id 는 하나여야 한다. mock 도 jtc/jgpc 두 스택이
+  # 같은 `panda01` 을 쓴다. 변형은 파일명과 `node_name` 만 구분한다.
   id: panda_isaac
   description: Franka Emika Panda (Isaac Sim backend)
 
@@ -35,26 +37,20 @@ ros:
   use_sim_time: true
 
 moveit:
-  # Isaac 에는 ros2_control 컨트롤러가 없다 — MoveGroup/ExecuteTrajectory 액션으로는
-  # 팔이 움직이지 않으므로 jtc 를 쓸 수 없다. 계획은 MoveIt 이 하고 실행만
-  # 명령 스트리밍으로 바꾸는 jgpc 판을 쓴다.
-  move_group_mode: jgpc
+  # **백엔드 이름 하나로 정한다.** `robot_control.moveit.BACKEND_PROFILES` 가
+  # mode·명령채널을 채운다 — 그 표가 "어느 스택이 JTC 인가"의 정본이고, 여기 손으로
+  # 적으면 백엔드가 바뀔 때 한쪽만 뒤처진다 (2026-09-05 의 bridge → ros2_control
+  # 전환에서 실제로 그랬다).
+  #
+  # isaac 은 `jtc` 로 풀린다 — `topic_based_ros2_control` 로 controller_manager 가
+  # ROS 쪽에서 돌아 mock 과 같은 그림이 됐고, MoveGroup/ExecuteTrajectory 액션으로
+  # 실행이 완료 판정된다(개루프가 아니다).
+  #
+  # ⚠️ **`arm_command_*` 를 여기 넣지 않는다.** jtc 와의 조합은 설정 로드에서
+  # ValidationError 로 거부되어 트윈이 아예 안 뜬다
+  # (2026-09-05 에 삭제한 옛 bridge 설정의 잔재다).
+  backend: isaac
   planning_group: panda_arm
-
-  # Isaac 이 받는 명령 채널. **토픽 remap 으로는 못 바꾼다 — 메시지 타입이 다르다.**
-  # 기본값(`/panda_arm_controller/commands`, Float64MultiArray)으로 두면 팔이
-  # '성공했다고 보고하면서 아무것도 안 하는' 상태가 된다.
-  arm_command_topic: /isaac/arm_command
-  arm_command_format: joint_state
-  # joint_state 형식에는 조회할 컨트롤러가 없으므로 **순서를 여기서 못박는다.**
-  arm_command_joint_names:
-    - panda_joint1
-    - panda_joint2
-    - panda_joint3
-    - panda_joint4
-    - panda_joint5
-    - panda_joint6
-    - panda_joint7
 
 sessions:
   retention_sec: 900      # 종료 세션 보존 15분 (설계서 6.12)
@@ -239,7 +235,6 @@ operations:
                 y: { type: number }
                 z: { type: number }
                 w: { type: number }
-        frame_id: { type: string }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_step: { type: number, exclusiveMinimum: 0 }
         jump_threshold: { type: number, minimum: 0 }
@@ -348,7 +343,7 @@ operations:
   # `setup_scene.py` 가 정하므로 레시피가 지킬 것이 셋이다. 어기면 노드가 **거부**한다
   # (조용히 넘기면 "그 배치로 놓았다"는 거짓이 에피소드 metadata 에 남는다).
   #
-  #   1. 이름은 `isaac_scene.json` 의 dynamic 물체뿐 — block_a / block_b / block_c
+  #   1. 이름은 `isaac_scene.json` 의 dynamic 물체뿐 — block_a / cylinder_a
   #   2. type·size 가 그 파일과 **정확히 같아야** 한다 (기하는 못 바꾼다)
   #   3. 빈 배열은 거부된다 (scene 을 비울 수 없다)
   #
@@ -382,27 +377,41 @@ operations:
     backend:
       service: /scene/reset
       service_type: rdfp_msgs/srv/ResetScene
-      # 각 축은 숫자(고정) 또는 [최소, 최대] (균등 추출)다.
+      # 각 축은 숫자(고정) 또는 [최소, 최대] (균등 추출)다. `yaw` 는 **도** 단위이며
+      # z축 회전만 준다 — 탁자 위 물체를 눕히는 것은 배치가 아니라 다른 작업이다.
+      #
+      # **정육면체의 yaw 는 [0, 90] 이다.** 90° 마다 같은 모양이라 [0, 360) 으로 뽑으면
+      # 같은 자세를 네 번 세는 셈이다. 실린더에는 주지 않는다 — 회전 대칭이라 뽑을
+      # 의미가 없고, 값을 넣으면 재현 로그만 지저분해진다.
+      #
+      # ⚠️ **yaw 를 주면 잡는 쪽도 그 각도에 손목을 맞춰야 한다.** 손끝 자세를 0° 로
+      # 고정한 채 돌아간 정육면체를 잡으면 모서리를 물게 되고, 받침이 좁으면(실린더 위)
+      # 반력이 안 생겨 파지 판정이 서지 않는다 (2026-09-07 실측 —
+      # docs/teleop/servo_vs_planned_motion.md 와 같은 계열의 문제다).
+      # **x(앞뒤) 범위는 0.35~0.52 다** (2026-09-07 에 0.38~0.46 에서 넓혔다). 좁으면
+      # 카메라가 +x 에서 로봇을 보므로 앞뒤 차이가 화면에서 거의 안 보여, 리셋해도
+      # 같은 자리처럼 보인다. 상한은 실측으로 정했다 — 손끝을 y ±0.14 에서 x 0.32~0.60
+      # 까지 찍어 보니 모두 닿았고 (0.55, +0.14) 접근에서 한 번 11 mm 미달이 나와
+      # 그 앞에서 끊었다. 테이블은 x 0.25~0.85 라 기하 여유는 더 있다.
       # **name·type·size 는 isaac_scene.json 과 같아야 한다** (위 ⚠️ 참조).
+      # **z 와 size 는 물체 종류마다 다르다.** size 순서는 `SolidPrimitive` 규약이라
+      # box 는 [x, y, z] 인데 cylinder 는 **[높이, 반지름]** 이고, 안착 z 도 그에
+      # 따라 달라진다 (상자 0.4+0.025, 실린더 0.4+0.03).
       scenes:
-        three_blocks:
+        two_objects:
           objects:
             - { name: block_a, type: box, size: [0.05, 0.05, 0.05],
-                x: [0.45, 0.55], y: [-0.20, -0.12], z: 0.425 }
-            - { name: block_b, type: box, size: [0.05, 0.05, 0.05],
-                x: [0.45, 0.55], y: [-0.04, 0.04], z: 0.425 }
-            - { name: block_c, type: box, size: [0.05, 0.05, 0.05],
-                x: [0.45, 0.55], y: [0.12, 0.20], z: 0.425 }
-        # 파지 대상 하나만 옮기고 나머지는 기본 자리에 둔다. 셋을 모두 싣는 이유는
+                x: [0.35, 0.52], y: [-0.14, -0.06], z: 0.425, yaw: [0, 90] }
+            - { name: cylinder_a, type: cylinder, size: [0.06, 0.025],
+                x: [0.35, 0.52], y: [0.06, 0.14], z: 0.43 }
+        # 파지 대상 하나만 옮기고 나머지는 기본 자리에 둔다. 둘을 모두 싣는 이유는
         # 위와 같다 — 빠뜨리면 이전 에피소드의 자리가 남는다.
         one_block:
           objects:
             - { name: block_a, type: box, size: [0.05, 0.05, 0.05],
-                x: [0.45, 0.55], y: [-0.20, -0.10], z: 0.425 }
-            - { name: block_b, type: box, size: [0.05, 0.05, 0.05],
-                x: 0.5, y: 0.0, z: 0.425 }
-            - { name: block_c, type: box, size: [0.05, 0.05, 0.05],
-                x: 0.5, y: 0.15, z: 0.425 }
+                x: [0.35, 0.52], y: [-0.14, -0.06], z: 0.425, yaw: [0, 90] }
+            - { name: cylinder_a, type: cylinder, size: [0.06, 0.025],
+                x: 0.42, y: 0.10, z: 0.43 }
     inputs_schema:
       type: object
       required: [scene]

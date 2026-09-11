@@ -1,0 +1,125 @@
+# 펑션베이 시뮬레이터 백엔드 — ros2_control 이 **없다**.
+#
+# 컨트롤러가 없으므로 `FollowJointTrajectory` 액션 서버도 없다. MoveIt 으로 계획만
+# 하고 결과 궤적을 시뮬레이터의 입력 토픽으로 직접 흘린다(JGPC 클라이언트).
+name: functionbay
+description: 펑션베이 시뮬레이터 (ros2_control 없음, JointState 직접 수신)
+
+# **지금 띄운 씬의 솔버.** 아래 두 데이터 파일이 각자 `solver` 를 들고 있고 로더가
+# 이 값과 대조한다 — 씬을 바꾸고 한쪽만 고치는 실수를 로드 시점에 잡는다.
+#
+# 빌드 `MMR-Build_260907` 은 씬 둘을 담고 있다:
+#   r2 씬 → `r2__RecurDyn_1_vm.xml`  (지금 이것)
+#   t1 씬 → `t1__SNU_1_vm.xml`       (Crisp, 서울대)
+solver: RecurDyn
+
+# MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
+arm_command:
+  mode: jgpc
+  topic: /input/panda_joint
+  format: joint_state
+  joint_names:
+    - panda_joint1
+    - panda_joint2
+    - panda_joint3
+    - panda_joint4
+    - panda_joint5
+    - panda_joint6
+    - panda_joint7
+  # **명령 스트리밍 주기(Hz).** 안 주면 궤적의 원래 point 시각을 따르는데, MoveIt 의
+  # 데카르트 궤적은 **10 Hz 로 재샘플**되므로(TOTG `resample_dt=0.1`, 줄일 방법이 없다)
+  # 명령이 계단으로 나간다 — 컨트롤러가 보간해 주는 JTC 와 달리 이 경로에는 보간할
+  # 주체가 없다.
+  #
+  # ⚠️ **접촉을 동반하는 정밀 작업에서 그 계단이 실제로 문제가 된다.** 여유 0.5 mm 인
+  # `peg_tray` 에 peg 을 넣을 때 10 Hz 로는 입구에서 튕겨 나가 그리퍼 안에서 15 mm
+  # 밀려 올라갔고(3회 재현), 50 Hz 로 보간하는 `fb_move_peg.py` 는 들어갔다.
+  publish_rate: 50.0
+
+# **ros2_control 을 안 쓴다.** 컨트롤러도 controller_manager 도 없다.
+ros2_control: null
+
+# 시뮬레이터와 주고받는 채널. **`/input/gripper_joint` 는 `Float64MultiArray` 다**
+# (팔은 `JointState`) — 타입이 다르면 ROS 2 는 연결을 안 하고 **에러도 안 낸다**.
+simulator:
+  joint_report_topic: /output/panda_joint
+  joint_command_topic: /input/panda_joint
+  gripper_command_topic: /input/gripper_joint
+  gripper_report_topic: /output/gripper_joint
+
+# 팔 이동의 전역 기본 속도. **인자로 주면 인자가 이긴다.**
+motion:
+  # 0.4 는 실측으로 고른 값이다. 1.0 에서 접근 267 mm/s · 하강 112 mm/s 인데, 이
+  # 시뮬레이터는 내부 보간을 하지 않고 처짐도 커서 눈으로 따라가기 어렵다. 0.4 는
+  # 접근 107 mm/s · 하강 28 mm/s 이고 **도달 정확도는 1.0 과 같다**(수평 0.18 mm,
+  # z -1.1 mm) — 속도가 정확도를 사지 않으므로 늦추는 쪽이 손해가 없다.
+  #
+  # ⚠️ **관절공간 계획(`ready` 같은 named target)에는 거의 안 먹는다** — MoveIt 이
+  # 스케일하는 것은 관절 속도이고 EE 경로 길이와 선형 관계가 아니다. 1.0 → 0.2 로
+  # 5배 줄여도 EE 속도는 243 → 154 mm/s (1.6배)였다. 데카르트 구간은 비례한다.
+  velocity_scaling: 0.4
+  # **지점별 처짐 캘리브레이션은 삭제했다 (2026-09-11).** 아래 중력 보상이 대체한다 —
+  # 잰 지점 ±20 mm 에서만 쓰던 계수 대신 매 명령점의 자세에서 τ_g(q) 를 직접 풀므로
+  # 작업 영역 전체에서 성립한다 (8지점 실측 평균 오차 0.00 mm).
+  # 배경: docs/simulation/functionbay_gravity_compensation.md §6.1
+  # **우리가 대신 하는 중력 보상.** 이 시뮬레이터의 관절 제어에는 중력 보상이 없어
+  # `실제 − 지령 = τ_g(q)/Kp` 로 처진다. `Kp` 는 씬 XML 의 `<Gain Kp=...>` 값이며
+  # `t1`·`r2` 모두 2000 이다. 지령에 `τ_g/Kp` 를 미리 더해 상쇄한다.
+  #
+  # 실측 대조(2026-09-11, `ready`): 예측과 실측이 **일곱 관절 전부 0.03 mrad 안**.
+  # URDF 는 **벤더가 준 대상 로봇 기술**을 쓴다 — MoveIt 이 물린 `moveit_resources_panda`
+  # 는 손이 Panda Hand 라 말단 질량이 다르다.
+  #
+  # ⚠️ **벤더가 A-1(중력 보상)을 반영하면 이 블록을 지운다** — 안 지우면 이중 보정이다.
+  gravity_compensation:
+    urdf_package: panda_ftsensor_robotiq
+    urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
+    kp: 2000.0
+
+# 팔 끝을 가리키는 **두 프레임**. `ee` 는 `/ee_pose` 의 기준이고 `tip` 은 MoveIt
+# 계획 그룹의 끝 링크다 — **149 mm 떨어져 있다.**
+#
+# `grasp_center` 는 `panda_link7 -> grasp_center` 정적 TF 이며, 시뮬레이터의 실제
+# 그리퍼가 Robotiq 2F-85 인데 우리 description 은 Panda Hand 라서 필요한 보정이다.
+# ⚠️ **손끝이 아니라 두 패드 사이의 파지 중심**이다 — 실제 손끝은 약 44 mm 아래.
+frames:
+  ee: grasp_center
+  tip: panda_link8
+
+# 그리퍼 **명령 규약** — `/input/gripper_joint` 배열을 어떻게 채우는가.
+# 씬마다 축 수·단위·packing 이 달라 파일로 뺐다 (r2 는 2축·도·관절당 p/v/f,
+# t1 은 6축·라디안·위치 나열). 씬을 바꾸면 이 줄도 함께 바꾼다.
+gripper:
+  profile_file: config/functionbay_gripper_recurdyn.json
+
+servo:
+  # ros2_control 이 없어 servo 기본 출력(JointTrajectory)을 받을 컨트롤러가
+  # 없다. Float64MultiArray 로 바꿔 `servo_command_bridge` 가 JointState 로 옮긴다.
+  command_out_type: std_msgs/Float64MultiArray
+  # **`servo_command_bridge` 의 입력이기도 하다** — servo 가 내는 곳이 곧 다리가 받는
+  # 곳이라 키가 하나여야 한다. 둘로 나눠 적었다가 갈리면 servo 는 발행하고 다리는 못
+  # 받아 **모션 전체가 조용히 무동작**이 된다.
+  command_out_topic: /servo_node/commands
+  # 0.4 는 상하 비대칭이 6.7배라 이 백엔드에서만 0.8 이다. 3.2 는 포화한다.
+  linear_scale: 0.8
+
+camera:
+  # 시뮬레이터가 **압축만** 준다 — raw 는 `image_transport/republish` 가 만든다.
+  source: compressed
+  # 새 빌드(2026-09-08)부터 **압축으로 발행한다** — 예전에는 `/camera_image`(Image,
+  # bgr8)였다. 타입이 달라도 ROS 2 는 연결만 안 하고 오류를 안 내므로 증상이
+  # "빈 창" 뿐이었다.
+  compressed_topic: /camera_image/compressed
+  # raw 를 요구하는 소비자(뷰어)를 위해 `image_transport/republish` 가 되살리는 이름.
+  # **raw 로 되살리는 순간 압축으로 아낀 대역폭이 돌아온다** (0.27 → 9.2 MB/s, 36배)
+  # — 그래서 되살리기는 뷰어를 켤 때만 뜬다.
+  image_topic: /camera_image
+
+scene:
+  # 움직이는 물체 — 이름·종류·크기만 채운다 (pose 는 시뮬레이터 TF 에서 온다).
+  file: config/functionbay_scene.json
+  # **안 움직이는 물체** — 벤더가 `static="true"` 인 body 는 TF 로 안 내보내므로
+  # pose 까지 이 파일이 갖는다. `/scene/objects` 로 발행하지 않는다(조작 대상 전용).
+  fixtures_file: config/functionbay_fixtures.json
+
+use_sim_time: false

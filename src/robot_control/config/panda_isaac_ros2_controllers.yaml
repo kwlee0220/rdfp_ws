@@ -1,0 +1,52 @@
+# Isaac 스택의 ros2_control 설정 — `moveit_resources_panda_moveit_config/config/ros2_controllers.yaml`
+# 을 그대로 복사하고 **`open_loop_control: true` 하나를 더했다.** 그 외에는 같다.
+#
+# 왜 별도 파일인가: Humble 의 controller_manager 는 컨트롤러 파라미터를 **params 파일로만**
+# 넘긴다. launch 의 인라인 dict 는 `/**` 네임스페이스로 임시 파일에 쓰여 CM 노드에는 실리지만
+# 컨트롤러 노드에는 닿지 않는다 (실측: CM 은 True, 컨트롤러는 False). 런타임 `param set` 도
+# 읽기 전용이라 막힌다. 그래서 파일이다 — `panda_jgpc_ros2_controllers.yaml` 과 같은 선례다.
+#
+# 왜 open_loop_control 인가 (docs/teleop/servo_vs_planned_motion.md §3.3·§4, 2026-09-07 실측):
+# JTC 는 새 궤적을 받을 때마다 보간 시작점을 **측정 상태**로 잡는다. servo 는 34 ms 마다
+# 단일점 궤적을 보내므로, 부하로 처진 만큼이 매 궤적마다 명령에 적분된다 — 100 g 블록을
+# 쥔 채 +z 1.5 초에 joint5 가 −0.19 rad 돌아 손끝이 옆으로 25 mm 샜다 (servo 의 기준을
+# 명령 위치로 바꾼 뒤에도 남던 몫이다). true 면 JTC 가 마지막 명령에서 이어 가므로 처짐은
+# 추종 오차로만 남는다. MoveIt 궤적 실행에도 같은 효과다 — 시작점이 측정값이 아니라 마지막
+# 명령이 되며, Isaac 은 위치 인터페이스라 그 차이(정착 오차 0.3 mrad, 부하 시 20 mrad)를
+# 드라이브가 즉시 메운다.
+# This config file is used by ros2_control
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    panda_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    panda_hand_controller:
+      type: position_controllers/GripperActionController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+
+panda_arm_controller:
+  ros__parameters:
+    # 위 머리말 참고. servo 래칫의 두 번째 되읽기 지점을 끊는다.
+    open_loop_control: true
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    joints:
+      - panda_joint1
+      - panda_joint2
+      - panda_joint3
+      - panda_joint4
+      - panda_joint5
+      - panda_joint6
+      - panda_joint7
+
+panda_hand_controller:
+  ros__parameters:
+    joint: panda_finger_joint1

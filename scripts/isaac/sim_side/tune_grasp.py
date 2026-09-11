@@ -29,7 +29,7 @@ PhysX 안에서 블록은 손가락 사이로 미끄러져 빠진다. 빠진 것
 
 import os as _os
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 _IS_WINDOWS = _os.name == "nt"
 _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
                       if _IS_WINDOWS else "/home/kwlee/development/ros/rdfp_ws")

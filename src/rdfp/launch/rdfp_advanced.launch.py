@@ -19,7 +19,7 @@ RdfpCameraNode
     - 토픽은 모두 private (``~/image_raw``, ``~/camera_info``, ``~/camera_status``)
       으로 선언되어 resolve 시 ``/rdfp_camera_node/...`` 로 매핑된다. launch
       의 remap 으로 ``/camera/image_raw`` 등 외부 토픽명에 연결한다.
-    - ``enable_camera_node:=false`` 로 비활성화 가능.
+    - ``enable_camera:=false`` 로 비활성화 가능.
     - 세부 설정(카메라 ID, FPS, 해상도, frame_id 등)은
       :mod:`camera_launch_helper` 헬퍼에서 선언한 launch argument 를 재사용한다
       (``camera_compress_image`` 는 ``RdfpCameraNode`` 가 지원하지 않으므로
@@ -32,7 +32,7 @@ RdfpImageViewerNode
     - ``camera_image_topic`` (기본 ``/camera/image_raw``) 을 구독하므로 카메라
       노드와 함께 쓰면 별도 remap 없이 바로 미리보기가 가능하다. session 토픽은
       기본 ``/session`` 이라 별도 remap 불필요.
-    - ``enable_image_viewer_node:=false`` 로 비활성화 가능.
+    - ``enable_image_viewer:=false`` 로 비활성화 가능.
     - 헤드리스 환경(DISPLAY 미설정 등)에서는 뷰어 기동이 실패하므로
       비활성화하여 사용한다.
 
@@ -101,7 +101,7 @@ def _build_actions(context: LaunchContext) -> list:
     )
 
     # 카메라 노드 (RdfpCameraNode): 세션 토픽(/session)의 IN_EPISODE 구간에만
-    # 이미지를 발행. `enable_camera_node:=false` 로 비활성화 가능
+    # 이미지를 발행. `enable_camera:=false` 로 비활성화 가능
     # (compress_image 는 RdfpCameraNode 가 지원하지 않아 사용하지 않음).
     camera_node = Node(
         package="rdfp",
@@ -109,7 +109,7 @@ def _build_actions(context: LaunchContext) -> list:
         name="rdfp_camera_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_camera_node")),
+        condition=IfCondition(LaunchConfiguration("enable_camera")),
         parameters=[{
             "camera_id": LaunchConfiguration("camera_id"),
             "fps": LaunchConfiguration("camera_fps"),
@@ -126,14 +126,14 @@ def _build_actions(context: LaunchContext) -> list:
     # 이미지 뷰어 노드 (RdfpImageViewerNode). 세션 토픽 상태를 프레임 좌상단에
     # 오버레이한다. 카메라가 발행하는 토픽을 그대로 구독하도록 `image` ->
     # camera_image_topic 으로 remap. session 토픽은 기본 /session 이므로 remap
-    # 불필요. 헤드리스 환경에서는 `enable_image_viewer_node:=false` 로 끄고 사용.
+    # 불필요. 헤드리스 환경에서는 `enable_image_viewer:=false` 로 끄고 사용.
     image_viewer_node = Node(
         package="rdfp",
         executable="rdfp_image_viewer_node",
         name="rdfp_image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[
             ("image", LaunchConfiguration("camera_image_topic")),
         ],

@@ -62,7 +62,8 @@ class TrajectoryStreamer:
                  joint_names: Optional[list[str]] = None,
                  controller_node_name: Optional[str] = None,
                  command_format: str = COMMAND_FORMAT_FLOAT64_MULTI_ARRAY,
-                 qos_depth: int = DEFAULT_QOS_DEPTH) -> None:
+                 qos_depth: int = DEFAULT_QOS_DEPTH,
+                 gravity_compensator=None) -> None:
         """스트리머를 초기화하고 명령 퍼블리셔를 생성한다.
 
         Args:
@@ -78,6 +79,10 @@ class TrajectoryStreamer:
                 실어 보내므로 순서 오배치에 강하다. **컨트롤러 노드가 없는 백엔드에서는
                 ``joint_names`` 를 명시해야 한다** — 자동 조회할 대상이 없기 때문이다.
             qos_depth: 명령 퍼블리셔의 QoS depth.
+            gravity_compensator: :class:`robot_control.gravity.GravityCompensator` 또는
+                ``None``. 주면 **발행 직전** 모든 명령점에 ``τ_g(q)/Kp`` 를 더한다 —
+                중력 보상이 없는 백엔드(펑션베이)가 지령보다 처지는 것을 상쇄한다.
+                ``None`` 이 기본이며 그 경우 명령을 그대로 내보낸다.
 
         Raises:
             ValueError: 입력 매개변수가 유효하지 않을 때.
@@ -93,6 +98,7 @@ class TrajectoryStreamer:
                              f'got {command_format!r}')
 
         self._node = node
+        self._gravity = gravity_compensator
         self._command_topic = command_topic.strip()
         self._joint_names: Optional[list[str]] = list(joint_names) if joint_names else None
         self._controller_node_name = (controller_node_name
@@ -345,6 +351,19 @@ class TrajectoryStreamer:
 
     # ----- 내부 -----------------------------------------------------------
 
+    def _apply_gravity(self, positions: list[float]) -> list[float]:
+        """설정돼 있으면 명령점에 ``τ_g(q)/Kp`` 를 더한다.
+
+        **모든 점에 적용한다** — 정착 오차만이 아니라 이동 중 처짐도 같은 식이라,
+        마지막 점에만 얹으면 과도 구간의 손끝 말림이 그대로 남는다.
+
+        보상기의 관절 수가 명령과 다르면 **조용히 건너뛰지 않고 예외를 낸다** — 어긋난
+        채 일부만 보상하면 엉뚱한 관절에 오프셋이 실린다.
+        """
+        if self._gravity is None:
+            return positions
+        return self._gravity.compensate(positions)
+
     def _build_command(self, positions: list[float]):
         """설정된 형식으로 명령 메시지를 만든다.
 
@@ -352,6 +371,7 @@ class TrajectoryStreamer:
         순서만 보더라도, 이름이 있으면 `ros2 topic echo` 로 순서 오배치를 눈으로
         확인할 수 있다.
         """
+        positions = self._apply_gravity(positions)
         if self._command_format == COMMAND_FORMAT_JOINT_STATE:
             msg = JointState()
             msg.header.stamp = self._node.get_clock().now().to_msg()

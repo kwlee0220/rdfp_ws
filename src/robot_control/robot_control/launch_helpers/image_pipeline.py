@@ -82,7 +82,7 @@ def declare_camera_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgume
     cam = config["camera"]
     return [
         DeclareLaunchArgument(
-            "enable_camera_node",
+            "enable_camera",
             default_value=as_launch_str(cam["enabled"]),
             description="Whether to start the camera node",
         ),
@@ -136,7 +136,7 @@ def declare_image_viewer_arguments(config: dict[str, Any]) -> list[DeclareLaunch
     """``image_viewer`` 블록에서 뷰어 argument 를 선언한다."""
     return [
         DeclareLaunchArgument(
-            "enable_image_viewer_node",
+            "enable_image_viewer",
             default_value=as_launch_str(config["image_viewer"]["enabled"]),
             description=(
                 "Whether to start the image viewer node. "

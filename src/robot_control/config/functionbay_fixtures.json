@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "펑션베이 **고정물(fixture)** — 움직이지 않는 작업 대상물의 위치와 형상.",
+    "",
+    "**`functionbay_scene.json` 과 성격이 다르다.** 그쪽은 시뮬레이터가 `/tf` 로 주는",
+    "pose 에 이름·종류·크기만 얹는 읽기 전용 메타데이터다. 여기 있는 것들은 **TF 에",
+    "아예 없다** — 벤더가 `static=\"false\"` 인 body 만 내보내기 때문이다. 그래서 pose 까지",
+    "이 파일이 갖는다.",
+    "",
+    "**`/scene/objects` 로 발행하지 않는다.** 그 채널은 조작 대상 전용이고,",
+    "`SceneObject` 에는 고정물을 구분할 필드가 없다(`fixture` 는 2026-09-01 에 삭제됐다).",
+    "여기 것을 실으면 모든 소비자에게 peg 과 똑같이 보인다. 값이 상수라 에피소드마다",
+    "기록할 이유도 없다 — 데이터셋 수준 메타데이터다.",
+    "",
+    "== 출처 ==",
+    "",
+    "`pose` 는 시뮬레이터 XML 의 `<origin>` 그대로다:",
+    "  MMR_Database/Database/VariableModel/t1__floating_{1,3}_vm.xml",
+    "둘 다 `<General static=\"true\"/>` 이므로 런타임에 안 변한다. 그 XML 의 좌표계가 곧",
+    "`panda_link0` 다 — `t1__Fixed_1_vm.xml` 이 `panda_link0` 를 ground 원점에",
+    "`rpy 0 0 0` 으로 고정한다.",
+    "",
+    "`geometry` 는 메시에서 **실측**했다 (2026-09-09, 빌드 MMR-Build_260907):",
+    "  ConstantModel/assets/industrealkit/hole_round_16mm.obj",
+    "  ConstantModel/assets/industrealkit/peg_tray_round_16mm.obj",
+    "값은 전부 **그 부품 원점 기준 상대값**이다 — 절대 좌표는 `pose` 와 합성해서 얻는다",
+    "(`robot_control.scene.fixtures` 가 한다). 두 출처를 섞어 절대값으로 적으면 XML 이",
+    "바뀌었을 때 어느 쪽이 낡았는지 알 수 없다.",
+    "",
+    "== 씬을 바꾸려면 ==",
+    "",
+    "시뮬레이터 XML 을 고치고 **이 파일도 함께 고친다.** 우리 쪽에서 읽을 방법이 없으므로",
+    "자동으로 따라오지 않는다. `t1__floating_*_vm.xml` 은 Play 시작 시점에 다시 읽히므로",
+    "앱 내 재시작으로 적용된다."
+  ],
+
+  "frame": "panda_link0",
+
+  "fixtures": [
+    {
+      "name": "peg_hole",
+      "source_body": "peg_hole_round_16",
+      "type": "hole",
+      "pose": {
+        "xyz": [0.5, 0.0, 0.003],
+        "rpy": [0.0, 0.0, 0.0]
+      },
+      "geometry": {
+        "_note": "원점 기준. 부품 바닥이 -0.003 이고 pose.z 가 +0.003 이라 바닥이 탁자면(z=0)에 놓인다.",
+        "bounds_z": [-0.003, 0.025],
+        "entry_z": 0.025,
+        "floor_z": 0.0,
+        "inner_diameter": 0.017,
+        "outer_extent_xy": [0.04, 0.04]
+      }
+    },
+    {
+      "name": "peg_tray",
+      "source_body": "peg_tray_round_16",
+      "type": "tray",
+      "pose": {
+        "xyz": [0.5, -0.1, 0.003],
+        "rpy": [0.0, 0.0, 0.0]
+      },
+      "geometry": {
+        "_note": [
+          "peg 의 초기 자리. **안쪽 형상은 2026-09-11 에 쟀다** — 그 전까지는 겉 치수뿐이라",
+          "꽂을 수 없는 자리로 다뤄졌다.",
+          "",
+          "`outer_extent_xy` 는 2026-09-10 에 메시(`peg_tray_round_16mm.obj`, 정점 3729개)",
+          "바운딩박스에서 쟀다: x·y 가 ±0.020, z 가 -0.003~+0.025 로 구멍과 같은 외형이다.",
+          "이 값이 없으면 `FixtureSet.floor_at()` 이 '발자국을 모른다'로 건너뛰고, 그러면",
+          "이 트레이 위에서 파지할 때 손끝 바닥을 탁자면으로 잡아 25 mm 파고든다 —",
+          "구멍 쪽에서 실제로 그렇게 15 mm 파고든 적이 있다.",
+          "",
+          "`floor_z` · `inner_diameter` 는 2026-09-11 에 같은 메시에서 쟀다. 보어를 반경으로",
+          "골라내면(`r = 8.500 mm` 정점 646개) z 가 -0.003~+0.025 이고, 보어 안쪽(r < 8.4 mm)",
+          "정점의 z 는 {-0.003, 0.000} 두 평면뿐이다 — 안쪽 바닥면이 z=0 이다.",
+          "**구멍(`hole_round_16mm`)과 수치가 같다** (r 8.500, 같은 두 평면). 그래서 삽입",
+          "기하도 같다.",
+          "",
+          "⚠️ 이 값을 넣기 전까지 `fb_move_peg.py` 는 이 자리의 바닥을 **0.003 으로 넘겨짚고**",
+          "있었다 (`'floor_z' in geometry else 0.003`). 결과는 맞았지만 근거가 없었다."
+        ],
+        "bounds_z": [-0.003, 0.025],
+        "entry_z": 0.025,
+        "floor_z": 0.0,
+        "inner_diameter": 0.017,
+        "outer_extent_xy": [0.04, 0.04]
+      }
+    }
+  ]
+}

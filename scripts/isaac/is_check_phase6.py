@@ -13,7 +13,7 @@
 3번 — Phase 2 는 자유공간에서 손가락이 움직이는 것만 봤다. 닫힘(0.0)을 명령했을 때
 손가락이 **0.0 까지 가버리면** 블록을 놓쳤거나 뚫고 지나간 것이고, 블록 반폭
 (0.025) 근처에서 멈추면 실제로 문 것이다. 액션이 `stalled` 로 돌아오는 것이 정상이며
-그것이 실패가 아니다 — `gripper_action_bridge` 가 그렇게 구분한다.
+그것이 실패가 아니다 — `GripperNode` 가 effort 로 그렇게 구분한다.
 
 4번 — 문 것과 드는 것은 다르다. 마찰이 모자라면 손가락 사이에서 미끄러져 제자리에
 남는다. `/scene/objects` 의 블록 z 가 그리퍼를 따라 올라오는지로 판정한다.
@@ -38,26 +38,29 @@ from typing import Optional
 
 import copy
 import math
+import os
+import sys
 import time
 
 import rclpy
 import tf2_ros
-from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from control_msgs.action import GripperCommand as GripperCommandAction
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import RobotState
 from moveit_msgs.srv import GetStateValidity
-from rdfp_msgs.msg import SceneObjects
+from rdfp_msgs.msg import GripperCommand, GripperState, SceneObjects
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
-ARM_COMMAND_TOPIC = '/isaac/arm_command'
+# 같은 디렉터리의 모듈이라 경로를 넣어야 한다 (패키지가 아니라 스크립트 모음이다).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from is_backend import (  # noqa: E402
+    ArmCommander, create_arm_client, follow_waypoints, mode_banner)
+
 ANCHOR_POSE = 'ready'
 
 BASE_FRAME = 'panda_link0'
@@ -70,9 +73,9 @@ TIP_FRAME = 'panda_link8'
 # 이 값이 틀리면 파지 높이가 그만큼 어긋나 블록을 밀어내거나 헛문다.
 TCP_OFFSET = 0.1034
 
-# 어느 블록을 집는가. **회전이 없는 것을 고른다** — block_b 는 z축 45° 회전이라
-# 평행 조가 면이 아니라 모서리를 물게 된다(대각 0.0707 m 는 최대 개구 0.08 안에
-# 들어와서 '집히긴 하는' 상태가 되어 판정을 흐린다).
+# 어느 물체를 집는가. **정육면체를 고른다** — 아래 `BLOCK_HALF_WIDTH` 로 접근·파지
+# 폭을 계산하므로 산식이 상자를 가정한다. 다른 물체 `cylinder_a` 는 실린더라
+# 지름(0.05)이 폭이 되어 값은 같지만, 굴러서 자세가 달라지므로 판정을 흐린다.
 TARGET_BLOCK = 'block_a'
 BLOCK_HALF_WIDTH = 0.025
 
@@ -80,26 +83,34 @@ APPROACH_HEIGHT = 0.10     # 파지 높이 위로 이만큼에서 접근한다
 LIFT_HEIGHT = 0.10         # 문 뒤 이만큼 들어올린다
 HOLD_SEC = 3.0             # 들어올린 뒤 이만큼 버티는지 본다
 
-OPEN_WIDTH = 0.04
-CLOSED_WIDTH = 0.0
+# **여기 있는 폭은 전부 `GripperState.width`(개구 폭, m)다 — 관절값이 아니다.**
+# Panda 는 개구 폭이 손가락 관절값의 2배이므로, 관절값 기준으로 잡은 옛 임계값을
+# 그대로 쓰면 판정이 뒤집힌다 (`docs/gripper/GripperNode_Design.md`).
+OPEN_WIDTH = 0.07          # `open` 목표에 도달했을 때의 개구 폭
 # 물린 폭이 이 범위 밖이면 파지가 아니다. 0 에 가까우면 놓친 것이고, 열림에
-# 가까우면 닫히지 않은 것이다.
-GRIP_WIDTH_MIN = 0.015
-GRIP_WIDTH_MAX = 0.035
+# 가까우면 닫히지 않은 것이다. 블록 한 변이 0.05 이므로 그 언저리가 정상이다.
+GRIP_WIDTH_MIN = 0.030
+GRIP_WIDTH_MAX = 0.070
 # 명령 상승분 대비 이만큼은 실제로 올라와야 "들렸다"고 본다.
 MIN_LIFT = 0.07
 # 유지 구간에서 이 이상 내려가면 미끄러진 것이다.
 MAX_SLIP = 0.02
 
-FINGER_JOINTS = ['panda_finger_joint1', 'panda_finger_joint2']
 JOINT_STATE_TOPIC = '/joint_states'
 SCENE_TOPIC = '/scene/objects'
-GRIPPER_ACTION = '/panda_hand_controller/gripper_cmd'
+# **계약 계층을 쓴다 — 컨트롤러 액션을 직접 부르지 않는다.**
+# `GripperActionController` 의 액션은 파지에서 완료되지 않는다(속도 기반 stall 판정이
+# Isaac 의 손가락 떨림 때문에 서지 않는다). 결과를 기다리면 항상 타임아웃하고, 그것이
+# "그리퍼 목표가 거부됐다"로 잘못 보고됐다. production(트윈·텔레오퍼레이션)은 아래 두
+# 채널만 보므로 검사도 같은 것을 본다.
+GRIPPER_CMD_TOPIC = 'gripper_cmds'
+GRIPPER_STATE_TOPIC = 'gripper_states'
 DISCOVERY_TIMEOUT_SEC = 15.0
 ACTION_TIMEOUT_SEC = 15.0
+# 그리퍼가 목표에 도달하기까지 기다리는 한도. 파지는 접촉까지 시간이 걸린다.
+GRIPPER_TIMEOUT_SEC = 15.0
 # 개루프 복귀에 쓸 시간·주파수. 느리게 흘려야 시뮬레이터가 따라온다.
 RECOVER_SEC = 3.0
-RECOVER_RATE = 50.0
 RECOVER_TOLERANCE = 0.05
 
 
@@ -123,9 +134,12 @@ class Phase6Checker(Node):
                        durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
         # 계획을 거치지 않는 복귀 경로. MoveIt 이 시작 자세를 거부해도 여기는 통한다.
-        self._arm = self.create_publisher(JointState, ARM_COMMAND_TOPIC, 10)
+        # 채널·타입은 연동 방식마다 다르다 (bridge: Isaac 직행 / plugin: JTC).
+        self._arm = ArmCommander(self, current=lambda: dict(self.positions))
         self._validity = self.create_client(GetStateValidity, '/check_state_validity')
-        self.action = ActionClient(self, GripperCommandAction, GRIPPER_ACTION)
+        self._grip_pub = self.create_publisher(GripperCommand, GRIPPER_CMD_TOPIC, 10)
+        self.grip_state: Optional[GripperState] = None
+        self.create_subscription(GripperState, GRIPPER_STATE_TOPIC, self._on_grip, 10)
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -152,7 +166,13 @@ class Phase6Checker(Node):
             rclpy.spin_once(self, timeout_sec=0.02)
 
     def width(self) -> float:
-        return self.positions.get(FINGER_JOINTS[0], float('nan'))
+        """개구 폭(m). **`/joint_states` 에서 만들지 않는다.**
+
+        관절값을 폭으로 바꾸는 책임은 `GripperNode` 에 있고(백엔드마다 배율이 다르다),
+        펑션베이처럼 `/joint_states` 에 고정값을 주입하는 스택도 있다. 못 구하면
+        `NaN` 이다 — 0 을 넣으면 '닫혀 있다'는 거짓말이 된다.
+        """
+        return self.grip_state.width if self.grip_state is not None else float('nan')
 
     def block_z(self) -> float:
         pose = self.objects.get(TARGET_BLOCK)
@@ -184,22 +204,42 @@ class Phase6Checker(Node):
             return pose
         return None
 
+    def _on_grip(self, msg: GripperState) -> None:
+        self.grip_state = msg
+
     # ----- 동작 ---------------------------------------------------------
 
-    def send_gripper(self, position: float) -> Optional[GripperCommandAction.Result]:
-        """그리퍼 액션 목표를 보내고 결과를 돌려준다. 거부되면 ``None``."""
-        goal = GripperCommandAction.Goal()
-        goal.command.position = float(position)
-        goal.command.max_effort = 50.0
-        send_future = self.action.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, send_future, timeout_sec=ACTION_TIMEOUT_SEC)
-        handle = send_future.result()
-        if handle is None or not handle.accepted:
-            return None
-        result_future = handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future, timeout_sec=ACTION_TIMEOUT_SEC)
-        wrapper = result_future.result()
-        return wrapper.result if wrapper is not None else None
+    def send_gripper(self, goal: str,
+                     timeout_sec: float = GRIPPER_TIMEOUT_SEC) -> Optional[GripperState]:
+        """심볼 목표를 보내고 `at_goal` 이 설 때까지 기다린다. 못 서면 ``None``.
+
+        **판정은 스냅샷 세대가 아니라 `goal` 일치 + `at_goal` 로 한다.** `gripper_states`
+        는 주기 발행이라 "갱신됐다"가 "명령이 끝났다"를 뜻하지 않는다 — 세대만 보면
+        그리퍼가 움직이기도 전에 다음 틱이 성공을 돌려준다.
+
+        `None` 은 **실패와 진행 중을 구분하지 못한다.** 호출자는 `width()` 를 함께 본다.
+        """
+        msg = GripperCommand()
+        # **stamp 를 반드시 채운다.** 데이터셋 적재는 `header.stamp` 로 정렬·창 필터를
+        # 하므로(`rosbag/mcap_reader.iter_split_messages`), 비워 두면 시각 0 으로 기록돼
+        # **에피소드 창 밖으로 떨어진다** — rosbag 에는 남지만 DB 에는 안 들어간다.
+        # 실측으로 그렇게 `gripper_cmds` 가 0 건이 됐다.
+        #
+        # 이 노드는 `use_sim_time=False` 라 자기 시계가 벽시계다. 그것으로 찍으면 역시
+        # 창 밖이므로 **`/clock` 에서 받은 sim time** 을 쓴다.
+        if self.clock_samples:
+            now = self.clock_samples[-1]
+            msg.header.stamp.sec = int(now)
+            msg.header.stamp.nanosec = int((now - int(now)) * 1e9)
+        msg.goal = goal
+        self._grip_pub.publish(msg)
+        deadline = time.time() + timeout_sec
+        while rclpy.ok() and time.time() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            state = self.grip_state
+            if state is not None and state.goal == goal and state.at_goal:
+                return state
+        return None
 
     def stream_to_joints(self, targets: dict) -> None:
         """현재 자세에서 목표까지 선형 보간해 관절 명령을 직접 흘린다.
@@ -208,20 +248,7 @@ class Phase6Checker(Node):
         경로는 통하므로, 박힌 상태에서 빠져나오는 유일한 수단이다. 개루프이므로
         도달은 호출자가 확인해야 한다.
         """
-        names = list(targets)
-        start = {j: self.positions.get(j, 0.0) for j in names}
-        steps = max(1, int(RECOVER_SEC * RECOVER_RATE))
-        period = 1.0 / RECOVER_RATE
-        for i in range(steps + 1):
-            ratio = i / steps
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = names
-            msg.position = [start[j] + (targets[j] - start[j]) * ratio for j in names]
-            self._arm.publish(msg)
-            deadline = time.time() + period
-            while rclpy.ok() and time.time() < deadline:
-                rclpy.spin_once(self, timeout_sec=0.005)
+        self._arm.drive(targets, reach_sec=RECOVER_SEC)
 
     def state_is_valid(self) -> tuple[Optional[bool], list]:
         """현재 자세가 planning scene 과 충돌하는지 묻는다.
@@ -322,13 +349,18 @@ def check_anchor(node: Phase6Checker, client) -> bool:
     **계획을 쓰지 않는다.** 앞선 실행이 손가락을 물체 안에 남겨 두면 시작 자세가
     충돌이라 MoveIt 이 거부한다 — 그 상태에서 빠져나오는 것이 이 단계의 일이다.
     """
-    if not node.action.wait_for_server(timeout_sec=DISCOVERY_TIMEOUT_SEC):
-        print(f'  1. 기준 자세          : {_fmt(False)} — {GRIPPER_ACTION} 없음')
+    # `GripperNode` 가 떠 있는지는 상태가 오는지로 본다 — 액션 서버가 아니라
+    # 계약 채널이 기준이다.
+    deadline = time.time() + DISCOVERY_TIMEOUT_SEC
+    while rclpy.ok() and node.grip_state is None and time.time() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if node.grip_state is None:
+        print(f'  1. 기준 자세          : {_fmt(False)} — {GRIPPER_STATE_TOPIC} 가 오지 않는다')
         print('       → enable_gripper:=true 로 스택을 띄웠는지 확인한다')
         return False
 
     # 먼저 연다. 조 사이에 물체가 낀 채로 팔을 올리면 물체를 끌고 간다.
-    node.send_gripper(OPEN_WIDTH)
+    node.send_gripper('open')
     node.spin(1.0)
 
     # SRDF 의 group_state 를 그대로 쓴다 — 값을 여기 적으면 출처가 둘이 된다.
@@ -392,9 +424,9 @@ def check_approach(node: Phase6Checker, client) -> tuple[bool, Optional[Pose]]:
     pre.position.z += APPROACH_HEIGHT
 
     try:
-        client.follow_trajectory_streamed([pre], publish_rate=50.0)
+        follow_waypoints(client, [pre])
         node.spin(0.5)
-        client.follow_trajectory_streamed([grasp], publish_rate=50.0)
+        follow_waypoints(client, [grasp])
         node.spin(1.0)
     except Exception as exc:
         print(f'  2. 접근·하강          : {_fmt(False)} — {type(exc).__name__}: {exc}')
@@ -418,17 +450,21 @@ def check_approach(node: Phase6Checker, client) -> tuple[bool, Optional[Pose]]:
 
 def check_grip(node: Phase6Checker) -> bool:
     """닫기 명령을 보내고 손가락이 블록 두께에서 멈추는지 본다."""
-    result = node.send_gripper(CLOSED_WIDTH)
-    if result is None:
-        print(f'  3. 물림               : {_fmt(False)} — 그리퍼 목표가 거부됐다')
-        return False
+    # **`close` 가 아니라 `grasp` 다.** `close` 는 힘을 주지 않아 물체를 놓친다.
+    state = node.send_gripper('grasp')
     node.spin(1.0)
-
     width = node.width()
+    if state is None:
+        print(f'  3. 물림               : {_fmt(False)} — at_goal 이 서지 않았다 '
+              f'(폭 {width:.4f} m)')
+        print('       → 폭이 0 에 가까우면 놓친 것이고, 열림에 가까우면 안 닫힌 것이다.')
+        print('       → stall_effort 파라미터가 0 이면 파지 판정 자체가 없다')
+        return False
+
     ok = GRIP_WIDTH_MIN <= width <= GRIP_WIDTH_MAX
     print(f'  3. 물림               : {_fmt(ok)} — 폭 {width:.4f} m '
-          f'(기준 {GRIP_WIDTH_MIN}~{GRIP_WIDTH_MAX}, 블록 반폭 {BLOCK_HALF_WIDTH}), '
-          f'stalled={result.stalled}')
+          f'(기준 {GRIP_WIDTH_MIN}~{GRIP_WIDTH_MAX}, 블록 한 변 {BLOCK_HALF_WIDTH * 2}), '
+          f'stalled={state.stalled} at_goal={state.at_goal}')
     if width < GRIP_WIDTH_MIN:
         print('       → 끝까지 닫혔다. 블록을 놓쳤거나 접근 위치가 어긋났다')
     elif width > GRIP_WIDTH_MAX:
@@ -444,7 +480,7 @@ def check_lift(node: Phase6Checker, client, grasp: Pose) -> tuple[bool, bool]:
     lift = copy.deepcopy(grasp)
     lift.position.z += LIFT_HEIGHT
     try:
-        client.follow_trajectory_streamed([lift], publish_rate=50.0)
+        follow_waypoints(client, [lift])
     except Exception as exc:
         print(f'  4. 들어올림           : {_fmt(False)} — {type(exc).__name__}: {exc}')
         return False, False
@@ -474,11 +510,10 @@ def check_lift(node: Phase6Checker, client, grasp: Pose) -> tuple[bool, bool]:
 def main() -> int:
     from rclpy.parameter import Parameter as RclParameter
 
-    from robot_control.moveit.move_group_factory import create_move_group_client
-
     rclpy.init()
     node = Phase6Checker()
     print('Isaac Phase 6 수용 기준 검사 (물리 파지)')
+    print(f'  {mode_banner()}')
 
     results = [check_playback(node)]
     planner = None
@@ -488,9 +523,7 @@ def main() -> int:
             planner = rclpy.create_node(
                 'is_check_phase6_planner',
                 parameter_overrides=[RclParameter('use_sim_time', value=True)])
-            client = create_move_group_client(
-                planner, mode='jgpc', arm_command_topic=ARM_COMMAND_TOPIC,
-                arm_command_joint_names=ARM_JOINT_NAMES, arm_command_format='joint_state')
+            client = create_arm_client(planner)
 
             results.append(check_anchor(node, client))
         if all(results):

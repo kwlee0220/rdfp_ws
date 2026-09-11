@@ -32,6 +32,11 @@
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>position_controllers</exec_depend>
   <exec_depend>xacro</exec_depend>
+  <!-- 압축 이미지를 raw 로 되살리는 republish 노드 (launch_helpers/camera.py).
+       compressed_image_transport 가 있어야 압축 구독 플러그인이 로드된다 —
+       없으면 republish 가 한 장도 받지 못한다. -->
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>compressed_image_transport</exec_depend>
 
   <!-- Gazebo (Fortress / gz-sim6) 백엔드 런타임 의존성 -->
   <exec_depend>ros_gz_sim</exec_depend>

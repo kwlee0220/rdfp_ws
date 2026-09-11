@@ -18,14 +18,14 @@
 
 import os as _os
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 #
 #   환경변수 RDFP_WORKSPACE / RDFP_LOG_DIR 가 있으면 그것을 쓴다. **Isaac 머신과
 #   스택 머신이 다른 구성(§1 C·D)에서는 반드시 지정한다** — 그때는 Isaac 쪽에
 #   저장소 사본이 따로 있고, 로그도 Isaac 머신에 떨어진다.
 #
 #   없으면 같은 머신을 가정한 기본값을 쓴다.
-#     Windows : UNC 로 WSL 파일시스템 (§1 A)
+#     Windows : UNC 로 WSL 파일시스템 (§1 부록)
 #     Linux   : 로컬 경로 (§1 B)
 _IS_WINDOWS = _os.name == "nt"
 _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
@@ -140,13 +140,39 @@ def _make_object(stage, root_prim: str, spec: dict) -> str:
     from pxr import Gf, UsdGeom, UsdPhysics
 
     path = f"{root_prim}/{spec['name']}"
-    cube = UsdGeom.Cube.Define(stage, path)
-    # 단위 큐브를 만들고 scale 로 크기를 준다. 축마다 크기가 다른 상자를 하나의
-    # 프리미티브로 표현하는 표준 방법이다.
-    cube.CreateSizeAttr(1.0)
-    prim = cube.GetPrim()
+    kind = spec.get("type", "box")
 
-    dx, dy, dz = spec["dimensions"]
+    # **크기를 주는 방식이 타입마다 다르다.** 상자는 단위 큐브에 scale 을 걸지만,
+    # 실린더에 scale 을 걸면 x·y 배율이 갈려 단면이 타원이 된다 — 반지름은 속성으로
+    # 준다. 그래서 여기서 gprim 과 scale 을 함께 돌려받는다.
+    #
+    # **`dimensions` 순서는 타입마다 다르다** (`rdfp_msgs/SceneObject` 가 정한
+    # `shape_msgs/SolidPrimitive` 규약):
+    #   box       [x, y, z]
+    #   cylinder  [높이, 반지름]   ← 직관과 반대다. 뒤집어도 크래시하지 않고
+    #                               '그럴듯하게 틀린 물체'가 나온다.
+    if kind == "box":
+        gprim = UsdGeom.Cube.Define(stage, path)
+        gprim.CreateSizeAttr(1.0)
+        dx, dy, dz = spec["dimensions"]
+        scale = Gf.Vec3f(dx, dy, dz)
+    elif kind == "cylinder":
+        height, radius = spec["dimensions"]
+        gprim = UsdGeom.Cylinder.Define(stage, path)
+        gprim.CreateAxisAttr("Z")
+        gprim.CreateHeightAttr(float(height))
+        gprim.CreateRadiusAttr(float(radius))
+        # extent 를 안 채우면 뷰포트 프레이밍과 일부 질의가 단위 크기를 가정한다.
+        gprim.CreateExtentAttr([Gf.Vec3f(-radius, -radius, -height / 2.0),
+                                Gf.Vec3f(radius, radius, height / 2.0)])
+        scale = Gf.Vec3f(1.0, 1.0, 1.0)
+    else:
+        # **조용히 큐브로 만들지 않는다.** 예전에는 `type` 을 아예 안 보고 항상
+        # 큐브를 만들었는데, 그러면 JSON 에 실린더를 적어도 상자가 나오고
+        # `/scene/objects` 는 'cylinder' 라고 말한다 — 눈으로만 갈리는 불일치다.
+        raise ValueError(f"{spec['name']}: unsupported type {kind!r} (box, cylinder)")
+
+    prim = gprim.GetPrim()
     px, py, pz = spec["position"]
     qx, qy, qz, qw = spec["orientation"]
 
@@ -155,11 +181,11 @@ def _make_object(stage, root_prim: str, spec: dict) -> str:
     xform.AddTranslateOp().Set(Gf.Vec3d(px, py, pz))
     # JSON 은 ROS 규약 xyzw, USD 는 wxyz 다. 여기서 뒤집는다.
     xform.AddOrientOp().Set(Gf.Quatf(qw, Gf.Vec3f(qx, qy, qz)))
-    xform.AddScaleOp().Set(Gf.Vec3f(dx, dy, dz))
+    xform.AddScaleOp().Set(scale)
 
     color = spec.get("color")
     if color:
-        cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+        gprim.CreateDisplayColorAttr([Gf.Vec3f(*color)])
 
     UsdPhysics.CollisionAPI.Apply(prim)
     rigid_body = UsdPhysics.RigidBodyAPI.Apply(prim)

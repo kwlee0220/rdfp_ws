@@ -33,9 +33,6 @@ mock 과의 핵심 차이
 
 from __future__ import annotations
 
-import os
-
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition

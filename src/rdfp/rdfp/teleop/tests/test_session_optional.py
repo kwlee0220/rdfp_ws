@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from rdfp.session.session_control_client import SessionControlClient  # noqa: E402
+from rdfp.session import SessionControlClient  # noqa: E402
 
 
 class _StubClient:
@@ -41,7 +41,7 @@ def _client_with(ready: bool) -> SessionControlClient:
     obj._logger = _StubLogger()
     stub = _StubClient(ready)
     for name in ('_start_session_cli', '_stop_session_cli', '_start_episode_cli',
-                 '_stop_episode_cli', '_set_task_label_cli', '_get_session_state_cli'):
+                 '_stop_episode_cli', '_set_task_label_cli'):
         setattr(obj, name, stub)
     return obj
 
@@ -61,36 +61,26 @@ def test_async_call_fails_fast_when_service_is_absent():
     assert 'not ready' in msg
 
 
+@pytest.mark.parametrize('method, args', [
+    ('start_session_async', ()),
+    ('stop_session_async', ()),
+    ('start_episode_async', ()),
+    ('stop_episode_async', ()),
+    ('set_task_label_async', ('label',)),
+])
+def test_every_async_call_fails_fast_when_service_is_absent(method, args):
+    """다섯 비동기 메서드가 **전부** 같은 경로를 탄다.
+
+    한때 `set_task_label_async` 만 검사를 건너뛰어, 세션 노드 없이 라벨 키를 누르면
+    콜백이 영영 오지 않았다 (실측 2026-09-06).
+    """
+    client = _client_with(ready=False)
+    got: list = []
+    getattr(client, method)(*args, done_callback=lambda ok, msg: got.append((ok, msg)))
+    assert got == [(False, 'service not ready')]
+
+
 def test_wait_until_ready_returns_false_instead_of_raising():
     """`create()` 는 RuntimeError 를 내지만 이쪽은 False 를 돌려준다."""
     assert _client_with(ready=False).wait_until_ready(0.0) is False
     assert _client_with(ready=True).wait_until_ready(0.0) is True
-
-
-# ---------- backend 프로파일 ----------
-
-def test_backend_profiles_cover_the_simulator_stacks():
-    """프로파일이 각 백엔드의 실제 명령 채널을 담는다.
-
-    `auto` 판별은 `/panda_arm_controller/commands` 토픽만 보므로 이름이 다른
-    펑션베이·Isaac 을 찾지 못한다. 그 값을 매번 손으로 주다 빠뜨리면 MoveGroup 이
-    `CONTROL_FAILED`(-4)를 반환하는데, 증상이 "키가 안 먹는다"로만 보인다.
-    """
-    from rdfp.teleop.teleop_keyboard import _BACKEND_PROFILES
-
-    assert _BACKEND_PROFILES["functionbay"]["arm_command_topic"] == "/input/panda_joint"
-    assert _BACKEND_PROFILES["isaac"]["arm_command_topic"] == "/isaac/arm_command"
-    for name in ("functionbay", "isaac"):
-        p = _BACKEND_PROFILES[name]
-        assert p["arm_command_mode"] == "jgpc", "ros2_control 컨트롤러가 없어 JTC 는 실행 불가"
-        assert p["arm_command_format"] == "joint_state"
-        # Float64MultiArray 가 아니라 JointState 라도 순서를 못박아 둔다 —
-        # 이름 없는 명령이 흘러가면 엉뚱한 관절이 움직인다.
-        assert p["arm_command_joint_names"] == [f"panda_joint{i}" for i in range(1, 8)]
-
-
-def test_auto_profile_stays_empty():
-    """`auto` 는 아무것도 강제하지 않는다 — 전역 기본값이 그대로 쓰인다."""
-    from rdfp.teleop.teleop_keyboard import _BACKEND_PROFILES
-
-    assert _BACKEND_PROFILES["auto"] == {}

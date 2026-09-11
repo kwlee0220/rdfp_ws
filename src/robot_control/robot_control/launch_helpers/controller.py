@@ -14,12 +14,17 @@ CONTROLLER_MANAGER_NAME = "controller_manager"
 
 
 def create_ros2_control_node(moveit_config, moveit_configs_package_name: str,
-                             controllers_file: Optional[str] = None) -> Node:
+                             controllers_file: Optional[str] = None,
+                             extra_parameters: Optional[dict] = None) -> Node:
     """ros2_control 노드를 생성한다.
 
     `controllers_file` 에 controller 설정 YAML 의 절대경로를 주면 그 파일을
     사용하고, 생략하면 `moveit_configs_package_name` share 의
     `config/ros2_controllers.yaml` 을 사용한다 (기존 동작).
+
+    `extra_parameters` 는 시뮬레이터 백엔드가 `use_sim_time` 을 얹는 자리다.
+    **켤 때는 `/clock` 이 이미 오고 있어야 한다** — 없으면 `controller_manager` 의
+    update 루프가 시각 0 에 멈춘 채 조용히 아무것도 안 한다.
     """
     ros2_controllers_file = controllers_file or os.path.join(
         get_package_share_directory(moveit_configs_package_name),
@@ -33,6 +38,7 @@ def create_ros2_control_node(moveit_config, moveit_configs_package_name: str,
         parameters=[
             moveit_config.robot_description,
             ros2_controllers_file,
+            *([extra_parameters] if extra_parameters else []),
         ],
     )
 

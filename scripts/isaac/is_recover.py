@@ -28,6 +28,8 @@ from __future__ import annotations
 from typing import Optional
 
 import argparse
+import os
+import sys
 import time
 
 import rclpy
@@ -40,12 +42,13 @@ from moveit_msgs.msg import RobotState
 from moveit_msgs.srv import GetStateValidity
 from sensor_msgs.msg import JointState
 
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
-ARM_COMMAND_TOPIC = '/isaac/arm_command'
+# 같은 디렉터리의 모듈이라 경로를 넣어야 한다 (패키지가 아니라 스크립트 모음이다).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from is_backend import ArmCommander, create_arm_client, mode_banner  # noqa: E402
+
 GRIPPER_ACTION = '/panda_hand_controller/gripper_cmd'
 OPEN_WIDTH = 0.04
 RAMP_SEC = 3.0
-RAMP_RATE = 50.0
 TOLERANCE = 0.05
 DISCOVERY_TIMEOUT_SEC = 15.0
 
@@ -56,7 +59,8 @@ class Recoverer(Node):
                          parameter_overrides=[Parameter('use_sim_time', value=False)])
         self.positions: dict[str, float] = {}
         self.create_subscription(JointState, '/joint_states', self._on_state, 50)
-        self._arm = self.create_publisher(JointState, ARM_COMMAND_TOPIC, 10)
+        # 채널·타입은 연동 방식마다 다르다 (bridge: Isaac 직행 / plugin: JTC).
+        self._arm = ArmCommander(self, current=lambda: dict(self.positions))
         self._gripper = ActionClient(self, GripperCommandAction, GRIPPER_ACTION)
         self._validity = self.create_client(GetStateValidity, '/check_state_validity')
 
@@ -86,20 +90,7 @@ class Recoverer(Node):
 
     def stream_to(self, targets: dict) -> None:
         """MoveIt 을 거치지 않고 관절 명령을 직접 보간해 흘린다."""
-        names = list(targets)
-        start = {j: self.positions.get(j, 0.0) for j in names}
-        steps = max(1, int(RAMP_SEC * RAMP_RATE))
-        period = 1.0 / RAMP_RATE
-        for i in range(steps + 1):
-            ratio = i / steps
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = names
-            msg.position = [start[j] + (targets[j] - start[j]) * ratio for j in names]
-            self._arm.publish(msg)
-            deadline = time.time() + period
-            while rclpy.ok() and time.time() < deadline:
-                rclpy.spin_once(self, timeout_sec=0.005)
+        self._arm.drive(targets, reach_sec=RAMP_SEC)
 
     def state_is_valid(self) -> tuple[Optional[bool], list]:
         if not self._validity.wait_for_service(timeout_sec=5.0):
@@ -126,11 +117,11 @@ def main() -> int:
     parser.add_argument('--no-gripper', action='store_true', help='그리퍼를 건드리지 않는다')
     args = parser.parse_args()
 
-    from robot_control.moveit.move_group_factory import create_move_group_client
     from robot_control.moveit.servo_client import ServoClient
 
     rclpy.init()
     node = Recoverer()
+    print(mode_banner())
     planner = rclpy.create_node('is_recover_planner',
                                 parameter_overrides=[Parameter('use_sim_time', value=True)])
     try:
@@ -140,9 +131,7 @@ def main() -> int:
         if contacts:
             print(f'  접촉: {", ".join(contacts[:4])}')
 
-        client = create_move_group_client(
-            planner, mode='jgpc', arm_command_topic=ARM_COMMAND_TOPIC,
-            arm_command_joint_names=ARM_JOINT_NAMES, arm_command_format='joint_state')
+        client = create_arm_client(planner)
         # SRDF 를 출처로 삼는다 — 값을 여기 적으면 출처가 둘이 된다.
         targets = client._get_named_state_joint_values(args.target,
                                                        timeout=DISCOVERY_TIMEOUT_SEC)

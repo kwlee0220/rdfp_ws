@@ -4,7 +4,7 @@
 ``docs/simulation/isaac_backend_skeleton.md`` §2 Phase 1 의 항목을 잰다.
 
     0. 재생 상태    — Isaac 이 Play 중인가 (아니면 뒤 검사가 전부 엉뚱하게 실패한다)
-    1. 명령 경로    — /isaac/arm_command 를 Isaac 이 구독하는가
+    1. 명령 경로    — 팔 명령 토픽에 구독자가 있는가 (방식마다 토픽이 다르다)
     2. 계단 응답    — dead time 과 시정수 τ (중력 중립축 joint1)
     3. 절대 정착 오차 @ ready    — 명령한 목표 대비 남는 오차
     4. 절대 정착 오차 @ extended — 같은 값의 **자세 의존성**
@@ -29,6 +29,8 @@ from typing import Optional
 
 import argparse
 import math
+import os
+import sys
 import time
 
 import rclpy
@@ -37,9 +39,11 @@ from rclpy.parameter import Parameter
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
-ARM_COMMAND_TOPIC = '/isaac/arm_command'
-JOINT_STATE_TOPIC = '/joint_states'
+# 같은 디렉터리의 모듈이라 경로를 넣어야 한다 (패키지가 아니라 스크립트 모음이다).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from is_backend import (  # noqa: E402
+    ARM_COMMAND_TOPIC, ARM_JOINT_NAMES, JOINT_STATE_TOPIC, ArmCommander,
+    MIN_REACH_SEC, create_arm_client, execute_plan, mode_banner, move_to_joints)
 
 # 계단 응답을 잴 관절. 회전축이 수직이라 중력 토크가 0 이다.
 STEP_JOINT = 'panda_joint1'
@@ -96,7 +100,9 @@ class Phase1Checker(Node):
         self.clock_samples: list[float] = []
         self.create_subscription(JointState, JOINT_STATE_TOPIC, self._on_state, 50)
         self.create_subscription(Clock, '/clock', self._on_clock, 10)
-        self.publisher = self.create_publisher(JointState, ARM_COMMAND_TOPIC, 10)
+        # 명령 채널은 방식마다 다르다 (bridge: JointState 주기 발행 / plugin: JTC).
+        self.arm = ArmCommander(self, current=lambda: dict(self.samples[-1][1])
+                                if self.samples else {})
 
     def _on_clock(self, msg: Clock) -> None:
         self.clock_samples.append(msg.clock.sec + msg.clock.nanosec * 1e-9)
@@ -116,19 +122,13 @@ class Phase1Checker(Node):
         return dict(self.samples[-1][1])
 
     def hold(self, targets: dict[str, float], seconds: float) -> None:
-        """목표를 COMMAND_RATE_HZ 로 계속 밀면서 상태를 기록한다."""
-        msg = JointState()
-        msg.name = list(targets.keys())
-        msg.position = [float(v) for v in targets.values()]
-        period = 1.0 / COMMAND_RATE_HZ
-        deadline = time.time() + seconds
-        next_publish = time.time()
-        while rclpy.ok() and time.time() < deadline:
-            now = time.time()
-            if now >= next_publish:
-                self.publisher.publish(msg)
-                next_publish = now + period
-            rclpy.spin_once(self, timeout_sec=0.005)
+        """목표를 계단 입력으로 넣고 `seconds` 동안 유지하며 상태를 기록한다.
+
+        **plugin 에서는 완전한 계단이 아니다** — JTC 가 0 초 도달을 거부하므로
+        `MIN_REACH_SEC` 만큼 보간이 섞인다. 측정된 τ 는 시뮬레이터만이 아니라
+        컨트롤러까지 포함한 값이다.
+        """
+        self.arm.drive(targets, reach_sec=0.0, hold_sec=seconds)
 
 
 def _fmt(ok: bool) -> str:
@@ -227,7 +227,7 @@ def goto_named(client, node: Phase1Checker, name: str) -> dict[str, float]:
     trajectory = client.plan_named_target(name)
     joint_trajectory = trajectory.joint_trajectory
     goal = dict(zip(joint_trajectory.joint_names, joint_trajectory.points[-1].positions))
-    client.stream_trajectory(trajectory, publish_rate=COMMAND_RATE_HZ)
+    execute_plan(client, trajectory)
     # 스트리밍이 끝나면 마지막 명령이 유지된다. 정착을 기다린다.
     node.hold({j: goal[j] for j in ARM_JOINT_NAMES if j in goal}, SETTLE_WAIT_SEC)
     return goal
@@ -268,14 +268,10 @@ def measure_step(node: Phase1Checker, base: dict[str, float],
 
 def run_measurements(node: Phase1Checker, steps: int) -> list[bool]:
     """기준 2~4 를 잰다. 실패해도 남은 항목을 계속 잰다."""
-    from robot_control.moveit.move_group_factory import create_move_group_client
-
     planner = rclpy.create_node('is_check_phase1_planner',
                                 parameter_overrides=[Parameter('use_sim_time', value=True)])
     try:
-        client = create_move_group_client(
-            planner, mode='jgpc', arm_command_topic=ARM_COMMAND_TOPIC,
-            arm_command_joint_names=ARM_JOINT_NAMES, arm_command_format='joint_state')
+        client = create_arm_client(planner)
 
         anchor_goal = goto_named(client, node, ANCHOR_POSE)
         anchor_error = measure_settle(node, anchor_goal)
@@ -284,7 +280,7 @@ def run_measurements(node: Phase1Checker, steps: int) -> list[bool]:
 
         # 계단 시험이 joint1 을 흔들어 놓았으므로 기준 자세로 되돌린 뒤 다음 자세로 간다.
         goto_named(client, node, ANCHOR_POSE)
-        client.move_to_joints_streamed(STRETCH_POSE, publish_rate=COMMAND_RATE_HZ)
+        move_to_joints(client, STRETCH_POSE)
         node.hold(STRETCH_POSE, SETTLE_WAIT_SEC)
         second_error = measure_settle(node, STRETCH_POSE)
     finally:
@@ -301,7 +297,12 @@ def run_measurements(node: Phase1Checker, steps: int) -> list[bool]:
               f'(기준 τ ≤ {MAX_TAU_SEC * 1000:.0f} ms, 오버슈트 ≤ {MAX_OVERSHOOT * 100:.0f}%, '
               f'{len(taus)}회)')
         if tau_avg > MAX_TAU_SEC:
-            print('       → τ 초과. articulation drive 의 stiffness 를 올린다 (damping 도 함께)')
+            # **τ 에는 JTC 보간이 섞여 있다** — 시뮬레이터만의 응답이 아니라 명령
+            # 사슬 전체의 값이다. articulation drive 의 stiffness 를 올리기 전에
+            # 컨트롤러 쪽(update_rate, 궤적 추종 설정)을 먼저 본다.
+            print(f'       → τ 초과. JTC 보간이 섞인 값이다 '
+                  f'(최소 도달 {MIN_REACH_SEC * 1000:.0f} ms + CM update 주기). '
+                  f'그다음 articulation drive 의 stiffness/damping 을 본다')
         if overshoot_max > MAX_OVERSHOOT:
             print('       → 오버슈트 초과. damping 이 부족하다 (K 만 올린 결과일 수 있다)')
     else:
@@ -342,6 +343,7 @@ def main() -> int:
     rclpy.init()
     node = Phase1Checker()
     print('Isaac Phase 1 수용 기준 검사')
+    print(f'  {mode_banner()}')
 
     results = [check_playback(node)]
     if results[0]:

@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "펑션베이 scene 물체 정의 — `functionbay_scene_state_node` 가 읽는다.",
+    "",
+    "**isaac_scene.json 과 성격이 다르다.** 그쪽은 `setup_scene.py` 가 같은 파일로 prim 을",
+    "**만들기 때문에** 정의의 원본이지만, 여기서는 시뮬레이터가 씬을 소유하고 우리는",
+    "`/tf` 로 pose 만 받는다. 즉 이 파일은 **읽기 전용 메타데이터**다 — TF 에 없는 이름·",
+    "종류·크기를 채우는 것이 전부이고, 이 파일을 고쳐도 시뮬레이터의 씬은 바뀌지 않는다.",
+    "",
+    "씬을 바꾸려면 시뮬레이터 쪽 XML 을 고친다:",
+    "  MMR_Database/Database/VariableModel/t1__floating_*_vm.xml 의 <origin xyz rpy>",
+    "그 파일은 시뮬레이션(Play) 시작 시점에 다시 읽히므로 앱 내 재시작으로 적용된다.",
+    "",
+    "**고정 물체(peg_hole·peg_tray)는 싣지 않는다.** 벤더가 `static=\"false\"` 인 body 만",
+    "TF 로 내보내므로 애초에 조회할 프레임이 없고, `/scene/objects` 는 조작 대상 채널이라",
+    "실을 이유도 없다 (docs/scene/scene_objects_guide.md 7장).",
+    "",
+    "`dimensions` 순서는 shape_msgs/SolidPrimitive 규약을 따른다 —",
+    "cylinder 는 **[높이, 반지름]** 이다 (직관과 반대이므로 주의).",
+    "peg 값은 assets/industrealkit/peg_round_16mm.obj 의 경계 상자에서 산출했다:",
+    "  x 0.016 · y 0.016 · z 0.050  →  지름 16.0 mm · 높이 50.0 mm",
+    "",
+    "orientation 은 시뮬레이터가 **ROS 규약 xyzw** 로 준다 (2026-09-08 검증: XML 의",
+    "rpy=\"0 0 0\" 이 항등으로 나온다). 발행 노드는 tf2 결과를 그대로 싣고 변환하지 않는다.",
+    "`w` 가 음수로 오는 경우가 있으나 q 와 -q 는 같은 회전이라 무해하다."
+  ],
+  "objects": [
+    {
+      "name": "peg",
+      "frame": "peg_round_16",
+      "type": "cylinder",
+      "dimensions": [
+        0.05,
+        0.008
+      ],
+      "dynamic": true
+    }
+  ]
+}

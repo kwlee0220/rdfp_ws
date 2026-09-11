@@ -16,7 +16,9 @@
     "frame 은 Isaac 이 TF 로 내보내는 프레임 이름이며 prim 이름과 같게 둔다.",
     "dimensions 순서는 shape_msgs/SolidPrimitive 규약을 따른다 (box: x, y, z).",
     "position/orientation 은 **world 기준**이고 orientation 은 ROS 규약 xyzw 다 —",
-    "Isaac 쪽 스크립트가 wxyz 로 바꿔 넣는다."
+    "Isaac 쪽 스크립트가 wxyz 로 바꿔 넣는다.",
+    "",
+    "**`cylinder_a` 의 z축 45° 회전은 Phase 3 의 쿼터니언 규약 검증 자산이다.** JSON 은 ROS xyzw, USD 는 wxyz 라 순서를 틀려도 norm 이 1 이어서 어떤 검사도 통과한다 — 축이 섞이는 비대칭 회전이 있어야 `/scene/objects` 가 같은 수를 돌려주는지로 갈린다. 실린더에 얹은 것은 z축 대칭이라 회전이 물리적으로 무의미하기 때문이다: 예전 `block_b` 에서는 같은 45° 가 평행 조에 모서리를 물려 파지 판정을 흐렸는데(대각 0.0707 m 가 최대 개구 0.08 안에 들어온다), 실린더는 그 부작용이 없다."
   ],
   "root_prim": "/World/Scene",
   "objects": [
@@ -62,8 +64,8 @@
         0.05
       ],
       "position": [
-        0.5,
-        -0.15,
+        0.42,
+        -0.1,
         0.425
       ],
       "orientation": [
@@ -86,18 +88,17 @@
       }
     },
     {
-      "name": "block_b",
-      "frame": "block_b",
-      "type": "box",
+      "name": "cylinder_a",
+      "frame": "cylinder_a",
+      "type": "cylinder",
       "dimensions": [
-        0.05,
-        0.05,
-        0.05
+        0.06,
+        0.025
       ],
       "position": [
-        0.5,
-        0.0,
-        0.425
+        0.42,
+        0.1,
+        0.43
       ],
       "orientation": [
         0.0,
@@ -117,46 +118,13 @@
         "dynamic": 0.9,
         "restitution": 0.0
       }
-    },
-    {
-      "name": "block_c",
-      "frame": "block_c",
-      "type": "box",
-      "dimensions": [
-        0.05,
-        0.05,
-        0.05
-      ],
-      "position": [
-        0.5,
-        0.15,
-        0.425
-      ],
-      "orientation": [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-      ],
-      "dynamic": true,
-      "mass": 0.1,
-      "color": [
-        0.2,
-        0.35,
-        0.85
-      ],
-      "friction": {
-        "static": 1.0,
-        "dynamic": 0.9,
-        "restitution": 0.0
-      }
     }
   ],
   "_camera_comment": [
     "고정 시점(eye-to-hand) 카메라. 해상도·주파수·자세를 여기서만 바꾼다.",
     "",
     "position/orientation 은 world 기준이고 orientation 은 ROS 규약 xyzw 다.",
-    "**로봇 정면 비스듬히 위에서 블록이 놓이는 자리(x≈0.5)를 내려다본다.**",
+    "**로봇 정면 비스듬히 위에서 탁자 위를 내려다본다.**",
     "",
     "⚠️ orientation 은 눈대중으로 넣지 않는다 — 두 번 틀렸다 (2026-09-02).",
     "  * Y축 25° 만 주었더니 시선이 테이블을 지나쳐 x=1.11 바닥을 봤다. 블록이 화면에",
@@ -167,7 +135,7 @@
     "  시선 f = normalize(목표 - 위치),  카메라 +Z = -f",
     "  카메라 +Y = normalize(월드 +Z 에서 f 성분을 뺀 것)   ← 화면 '위'",
     "  카메라 +X = +Y × +Z          그 회전행렬을 쿼터니언으로",
-    "지금 값은 위치 (1.35, 0, 0.95) 에서 (0.5, 0, 0.40) 을 겨눈 결과다.",
+    "지금 값은 위치 (1.35, 0, 0.95) 에서 **탁자 중심 (0.5, 0, 0.40)** 을 겨눈 결과다. 블록을 x=0.42 로 당긴 뒤에도 겨냥점은 그대로 둔다 — 투영으로 확인하면 두 블록이 640x480 의 (251, 196) 과 (389, 196) 에 들어와 오히려 이전(210 / 430)보다 중앙에 가깝다. 겨냥점을 옮기려면 위 look-at 절차를 다시 밟아야 하고, 눈대중으로 고쳐 두 번 틀린 곳이 여기다.",
     "",
     "fps 는 Isaac 이 **렌더링하는** 주파수다. 렌더 틱(60 Hz)에서 frame_skip 으로",
     "낮추므로 GPU 부담이 그만큼 준다 — 60 Hz 로 렌더한 뒤 버리는 방식이 아니다.",

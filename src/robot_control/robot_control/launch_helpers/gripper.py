@@ -23,11 +23,12 @@ from launch_ros.actions import Node
 from robot_control.launch_helpers.common import extra_parameter_list
 
 
-def create_gripper_node(extra_parameters: Optional[dict] = None) -> Node:
+def create_gripper_node(extra_parameters: Optional[dict] = None,
+                        condition: Optional[Condition] = None) -> Node:
     """`GripperActionNode` 를 생성한다.
 
     `control_msgs/GripperCommand` 액션 서버가 있는 스택에서 쓴다 — mock 은
-    `panda_hand_controller` 가, Isaac 은 `isaac_gripper_bridge` 가 제공한다.
+    `panda_hand_controller` 가 제공한다 — Isaac 도 ros2_control 을 쓰므로 같다.
     **백엔드가 아니라 실행 수단으로 갈린다.**
 
     **펑션베이에는 쓸 수 없다.** 액션 서버가 없고 명령 채널이 토픽이라 토픽 기반
@@ -40,6 +41,7 @@ def create_gripper_node(extra_parameters: Optional[dict] = None) -> Node:
         output="screen",
         emulate_tty=True,
         parameters=extra_parameter_list(extra_parameters),
+        condition=condition,
     )
 
 

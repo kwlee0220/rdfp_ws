@@ -1,12 +1,11 @@
 """SessionControlNode 모듈.
 
-세션/에피소드 생명주기를 관리하는 ROS2 노드. 외부 클라이언트는 5 개의
-서비스(`start_session`, `stop_session`, `start_episode`, `stop_episode`,
-`set_task_label`)로 제어 명령을 전달하고, 본 노드는 내부 상태 머신을 갱신한
-뒤 변경된 상태와 task_label 을 `session` 토픽으로 발행한다.
+세션/에피소드 생명주기를 관리하는 ROS2 노드. 외부 클라이언트는 6 개의 서비스
+(`start_session`, `stop_session`, `start_episode`, `stop_episode`, `set_task_label`,
+`get_session_state`)로 제어·조회하고, 본 노드는 내부 상태 머신을 갱신한 뒤 변경된
+상태와 task_label 을 `session` 토픽으로 발행한다.
 
-상세 스펙은 `session_control_srs.md`, 개발 절차는
-`session_control_plan.md` 를 참조한다.
+계약·상태 전이·클라이언트 사용법은 `docs/session/session_control_guide.md` 에 있다.
 """
 
 from __future__ import annotations
@@ -34,7 +33,11 @@ class SessionState(Enum):
     IN_EPISODE = 'IN_EPISODE'
 
 
-_DEFAULT_SESSION_TOPIC = "session"
+# **절대 이름이다 — 세션은 시스템에 하나다.** 로봇별 네임스페이스를 도입해도
+# 따라 붙으면 안 된다. `/clock`·`/tf` 와 같은 부류이며, 로봇이 둘 이상인 것은
+# 공동 작업으로 하나의 학습 데이터를 만든다는 뜻이다
+# (docs/topic_naming_contract.md §2.5).
+_DEFAULT_SESSION_TOPIC = "/session"
 _INVALID_COMMAND_MSG: str = 'invalid command'
 
 # stop_episode 의 outcome 허용값. '' 는 실패가 아니라 '판정 없음'이며, DB 에는
@@ -58,9 +61,8 @@ def _is_json_object(text: str) -> bool:
 class SessionControlNode(Node):
     """세션 제어 명령을 서비스로 수신하여 상태 변경을 토픽으로 발행하는 노드.
 
-    상태 전이 규칙과 토픽 발행 규칙은 `session_control_srs.md` 4 절을
-    그대로 따른다. 단일 스레드 executor 사용을 전제로 하므로 상태 보호용
-    lock 은 두지 않는다.
+    상태 전이 규칙과 토픽 발행 규칙은 가이드 §2 (상태 머신) 를 그대로 따른다.
+    단일 스레드 executor 사용을 전제로 하므로 상태 보호용 lock 은 두지 않는다.
     """
 
     def __init__(self) -> None:

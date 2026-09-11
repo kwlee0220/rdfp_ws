@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from robot_twin.config import TwinConfig, load_config
+from robot_twin.config import MoveItConfig, TwinConfig, load_config
 
 
 MINIMAL: dict[str, Any] = {
@@ -241,3 +241,37 @@ def test_load_config_rejects_non_mapping(tmp_path) -> None:
 
     with pytest.raises(ValueError):
         load_config(path)
+
+
+# ----- moveit.velocity_scaling — 인자 > 프로파일 > 코드 기본값 -----------------
+
+def test_backend_fills_velocity_scaling_from_the_profile():
+    """트윈은 `backend=` 를 팩토리에 안 넘기고 **값으로 펼치므로**, 여기서 안 채우면
+    프로파일에 적어도 트윈에만 안 먹는다."""
+    cfg = MoveItConfig.model_validate({'backend': 'functionbay'})
+
+    assert cfg.velocity_scaling == 0.4
+    assert cfg.client_kwargs()['velocity_scaling'] == 0.4
+
+
+def test_explicit_velocity_scaling_beats_the_profile():
+    """**명시한 키가 이긴다** — 이 클래스의 다른 값들과 같은 규칙이다."""
+    cfg = MoveItConfig.model_validate({'backend': 'functionbay', 'velocity_scaling': 0.1})
+
+    assert cfg.velocity_scaling == 0.1
+
+
+def test_backend_without_the_block_leaves_it_unset():
+    """프로파일에 없으면 키를 안 넘겨 팩토리/생성자 기본값이 살아야 한다."""
+    cfg = MoveItConfig.model_validate({'backend': 'mock'})
+
+    assert cfg.velocity_scaling is None
+    assert 'velocity_scaling' not in cfg.client_kwargs()
+
+
+def test_velocity_scaling_is_allowed_on_jtc():
+    """JGPC 전용 키가 아니다 — 두 클라이언트가 다 쓴다. JTC 에서 거부되면 안 된다."""
+    cfg = MoveItConfig.model_validate({'backend': 'mock', 'velocity_scaling': 0.4})
+
+    assert cfg.move_group_mode == 'jtc'
+    assert cfg.client_kwargs()['velocity_scaling'] == 0.4

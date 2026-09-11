@@ -25,18 +25,13 @@ from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 
 from .controller_startup import _chain_or_shutdown, _chain_or_skip
-from .common import MOVEIT_CONFIGS_PACKAGE_NAME, build_servo_params
+from .common import MOVEIT_CONFIGS_PACKAGE_NAME, build_servo_params, description_path
 
 # gazebo 백엔드에서 사용하는 ros2_control hardware_type 값.
 GAZEBO_HARDWARE_TYPE = "gazebo"
 
 # Fortress 는 gz-sim6 이다. ros_gz_sim/gz_sim.launch.py 의 gz_version 인자.
 GZ_SIM_VERSION = "6"
-
-
-def _rdfp_description_path(*parts: str) -> str:
-    """rdfp share 의 description 경로를 구성한다."""
-    return os.path.join(get_package_share_directory("robot_control"), "description", *parts)
 
 
 def gazebo_ros2_controllers_file() -> str:
@@ -82,11 +77,11 @@ def build_gazebo_moveit_config():
     return (
         MoveItConfigsBuilder("panda", package_name=MOVEIT_CONFIGS_PACKAGE_NAME)
         .robot_description(
-            file_path=_rdfp_description_path("panda.urdf.xacro"),
+            file_path=description_path("panda.urdf.xacro"),
             mappings={
                 "ros2_control_hardware_type": GAZEBO_HARDWARE_TYPE,
                 "ros2_controllers_file": gazebo_ros2_controllers_file(),
-                "initial_positions_file": _rdfp_description_path("initial_positions.yaml"),
+                "initial_positions_file": description_path("initial_positions.yaml"),
                 "simulate_camera": LaunchConfiguration("simulate_camera"),
             },
         )

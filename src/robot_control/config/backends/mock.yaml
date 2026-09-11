@@ -1,0 +1,50 @@
+# mock 스택 — ros2_control 의 `mock_components/GenericSystem`.
+#
+#   panda_mock.launch.py / rdfp_panda_mock.launch.py
+#
+# **물리가 없다.** 명령이 그대로 상태로 되돌아오고 중력 처짐도 페이로드도 접촉도
+# 없다. 손가락에 effort state interface 가 없어 `stalled` 이 서지 않으므로 `grasp` 의
+# `at_goal` 이 영영 도달하지 않는다. 물체끼리 얹히지도 않아 "쌓았다" 를 확인할 수 없다.
+name: mock
+description: ros2_control mock_components + JointTrajectoryController (물리 없음)
+
+# MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
+arm_command:
+  mode: jtc
+
+ros2_control:
+  hardware_type: mock_components
+  # moveit_resources 의 기본 설정을 그대로 쓴다.
+  controllers_file: null
+
+servo:
+  linear_scale: null      # moveit_servo 기본값
+
+camera:
+  # 시뮬레이터가 이미지를 안 주므로 OpenCV `camera_node` 가 장치/파일에서 캡처한다.
+  source: device
+  image_topic: /camera/image_raw
+
+scene:
+  # mock 에는 정의 파일이 없다 — `/scene/reset` 이 놓은 것만 들고 있다.
+  file: null
+
+# 녹화 토픽 목록(`config/recording_topics*.list`)은 **여기 못 넣는다** — 워크스페이스
+# 루트에 있고 `record_rosbag.sh` 가 `RECORDING_TOPICS_FILE` 로, `dataset_config.yaml` 이
+# `topics_file` 로 읽는다. 패키지 자산이 아니라 설치본(`share/`)에서 해석할 수 없다.
+# 옮기려면 파일 위치와 그 두 소비자를 함께 고쳐야 한다 — 별건이다.
+
+use_sim_time: false
+
+# 팔 끝 프레임. **`ee` 를 적지 않는 것이 의도다.**
+#
+# 이 스택의 `/ee_pose` 는 `panda_hand` 를 가리키지만 `panda_link8` 과 **평행이동이
+# 0 이고 z 축 −45° 회전만 다르다** (`panda_links.urdf.xacro` 의 `panda_hand_joint`).
+# 위치가 같으므로 펑션베이의 `grasp_center` 같은 149 mm 어긋남이 없고, 45° 는
+# **MCP 클라이언트가 이미 `to_arm_command()` 에서 곱하고 있다** — 여기에 `ee` 를
+# 적으면 트윈이 한 번 더 돌려 **90° 이중 회전**이 되어 손가락이 엉뚱한 축으로 물린다.
+#
+# ⚠️ 그 보정을 클라이언트에서 트윈으로 옮기는 것은 **계획서 5단계**의 일이다.
+# 옮길 때 이 주석과 함께 `ee: panda_hand` 를 넣는다.
+frames:
+  tip: panda_link8

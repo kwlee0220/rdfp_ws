@@ -1,11 +1,19 @@
-"""servo 출력(``std_msgs/Float64MultiArray``)을 Isaac 의 관절 명령으로 바꾼다.
+"""servo 출력(``std_msgs/Float64MultiArray``)을 ``sensor_msgs/JointState`` 로 바꾼다.
 
     /servo_node/command (Float64MultiArray)
         -> [본 노드] sensor_msgs/JointState
-        -> /isaac/arm_command
+        -> 시뮬레이터의 관절 명령 토픽
 
-**두 텔레오퍼레이션 경로가 모두 servo 로 수렴하므로 이 다리가 없으면 Isaac 을 손으로
-몰 수 없다.**
+**구현은 백엔드 중립이다** — 두 토픽 다 상대 경로이고 launch 의 remap 이 정한다.
+
+⚠️ **현재 소비자는 펑션베이뿐이다** (`panda_functionbay.launch.py`). Isaac 은 2026-09-05
+이후 ros2_control 을 쓰므로 servo 가 기본 경로(``JointTrajectory`` → JTC)로 나가 이 다리가
+필요 없다. **그런데도 이 파일이 `isaac/` 아래 있는 이유**는 `functionbay/readiness_gate_node.py`
+를 Isaac 이 쓰는 것과 같은 상황이기 때문이다 — 백엔드 중립 노드가 한쪽 디렉터리에 있을
+뿐이고, **옮기면 지금 유일한 소비자(펑션베이)의 회귀를 확인할 사람이 없다.** 세 번째
+소비자가 생기거나 펑션베이 작업이 재개될 때 중립 위치로 함께 옮긴다.
+
+**두 텔레오퍼레이션 경로가 모두 servo 로 수렴하므로 이 다리가 없으면 손으로 몰 수 없다.**
 
     teleop_keyboard  -> delta_twist_cmds ─┐
     teleop_retarget  -> ee_twist_node ────┴─> servo -> (여기)

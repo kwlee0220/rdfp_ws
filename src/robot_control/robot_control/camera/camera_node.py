@@ -32,10 +32,18 @@ _DEFAULT_CAMERA_STATUS_TOPIC = "~/camera_status"
 
 
 class CameraNode(Node):
-    """OpenCV 기반 카메라 이미지를 ROS2 토픽으로 발행하는 노드.
+    """카메라 이미지를 ROS2 토픽으로 계속 발행하는 **기본** 노드.
 
-    opencv_camera.py를 활용하여 카메라에서 이미지를 읽고,
-    sensor_msgs/Image 메시지로 변환하여 ROS2 토픽으로 발행한다.
+    **세션도 재연결도 얹지 않은 것이 이 노드의 성격이다.** 카메라 노드가 셋인데
+    셋 다 ``OpenCvCamera`` 위에 있어 구현으로는 갈리지 않는다. 갈리는 축은 둘이다:
+
+    - **세션 결합** — 여기는 없다. 노드가 살아 있는 동안 계속 발행한다.
+      ``/session`` 에 맞춰 켜고 꺼야 하면 ``rdfp`` 의 세션 인지 노드를 쓴다.
+    - **끊김을 누가 복구하나** — 여기는 **supervisor** 다. 끊기면 ``SystemExit(1)``
+      로 끝내고 launch ``respawn`` 이나 systemd ``Restart=on-failure`` 에 맡긴다.
+      노드가 스스로 재연결하기를 바라면 ``image_capture_node``(JPEG 전용)를 쓴다.
+
+    선택 표: ``docs/camera/README.md``.
     """
 
     def __init__(self) -> None:
@@ -359,9 +367,13 @@ def main(args=None) -> None:
     rclpy.init(args=args)
     logger = get_logger('camera_node.main')
     node: CameraNode | None = None
+    failed = False
 
-    # Python logging(logger="rdfp.*") 출력을 ROS2 logger로 브리지한다.
-    configure_logging_bridge(package_logger_name='rdfp')
+    # Python logging 출력을 ROS2 logger 로 브리지한다.
+    # **이 노드는 `robot_control` 소속이다** — `OpenCvCamera` 가 내는 로그가
+    # `robot_control.camera.opencv_camera.*` 라 `rdfp` 로 걸면 잡히지 않고, 브리지가
+    # 없으면 파이썬 기본 핸들러가 INFO 를 통째로 버린다(되감기 알림이 안 보인다).
+    configure_logging_bridge(package_logger_name='robot_control')
 
     try:
         # 노드 생성
@@ -374,6 +386,11 @@ def main(args=None) -> None:
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+        # **종료 코드 1 로 끝낸다.** 로그만 남기고 0 으로 끝나면 launch `respawn` 과
+        # systemd `Restart=on-failure` 가 **아무 반응도 하지 않는다** — 가이드가
+        # 안내하는 supervisor 재기동이 성립하지 않는다. 끊김 경로는 이미
+        # `SystemExit(1)` 이라 이 갈래만 어긋나 있었다. `rdfp_camera_node` 와 같은 계약.
+        failed = True
     finally:
         # 정리 작업
         if node is not None:
@@ -391,6 +408,10 @@ def main(args=None) -> None:
             rclpy.shutdown()
         except Exception:
             pass
+
+    if failed:
+        # 끊김 경로(L354)와 같은 형태로 맞춘다.
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

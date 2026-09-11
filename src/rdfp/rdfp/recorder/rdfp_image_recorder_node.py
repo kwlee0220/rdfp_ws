@@ -10,7 +10,7 @@
 녹화 엔진은 `rdfp.recorder.FFMpegMp4Recorder`를 재사용한다.
 
 녹화 1회 수행 시 다음 3개 파일이 생성된다 (`<base>=output_dir`,
-`<prefix>=session_prefix`, `<start_ts>=YYYYMMDD-HHMMSS.SSS`):
+`<prefix>=file_prefix`, `<start_ts>=YYYYMMDD-HHMMSS.SSS`):
 
 * ``<base>/<prefix>_<start_ts>.mp4`` — 영상 파일
 * ``<base>/<prefix>_<start_ts>.jsonl`` — frame-level sidecar
@@ -40,7 +40,7 @@ from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rcl_interfaces.msg import ParameterDescriptor
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 
 from rdfp_msgs.msg import SessionCommand
 
@@ -48,6 +48,7 @@ from robot_control.types import Fps, Resolution
 from robot_control.ros2_utils import (
     SYSTEM_QOS, get_parameter, parse_int, parse_str, parse_stripped_str)
 from .exceptions import EncoderUnavailableError, RecorderStateError
+from .ffmpeg_command import INPUT_MJPEG, INPUT_RAWVIDEO
 from .ffmpeg_mp4_recorder import FFMpegMp4Recorder
 
 
@@ -56,6 +57,27 @@ _STOP_TIMEOUT_SEC: float = 5.0
 # 녹화 FPS 기본값. 카메라 퍼블리셔와 반드시 일치시켜야 한다
 # (CFR 기반이므로 불일치 시 재생 속도가 어긋나거나 프레임이 drop 될 수 있다).
 _DEFAULT_FPS: int = 10
+
+
+def _validate_file_prefix(prefix: str) -> str:
+    """`file_prefix` 가 경로 탈출이 불가능한 단순 파일명 조각인지 검증한다.
+
+    이 값은 `_build_output_path` 에서 파일명 조각으로 **그대로** 삽입된다. 절대
+    경로(`/tmp/pwn`)나 하위 경로(`nested/foo`), `..` 가 들어가면 ``output_dir`` 를
+    벗어나 쓰거나 없는 부모 디렉터리로 녹화를 시도한다. 기동 시점에 막는다 —
+    첫 에피소드가 시작되고 나서야 드러나면 그 시연을 잃는다.
+
+    구형 `image_recorder_node` 에도 같은 검증이 있다. 오류 메시지의 파라미터 이름이
+    달라야 해서 공유하지 않는다 (그쪽은 `session_prefix` 다).
+
+    Raises:
+        ValueError: 빈 문자열, `.`/`..`, `/`/`\\`/OS 경로 구분자가 포함된 경우.
+    """
+    if not prefix or prefix in ('.', '..'):
+        raise ValueError(f"file_prefix cannot be empty, '.', or '..': {prefix!r}")
+    if '/' in prefix or '\\' in prefix or os.sep in prefix:
+        raise ValueError(f'file_prefix must not contain path separators: {prefix!r}')
+    return prefix
 
 
 class RdfpImageRecorderNode(Node):
@@ -93,7 +115,7 @@ class RdfpImageRecorderNode(Node):
         self.get_logger().info(
             f'RdfpImageRecorderNode parameters loaded: '
             f'output_dir={self._output_dir} '
-            f'session_prefix={self._session_prefix} '
+            f'file_prefix={self._file_prefix} '
             f'fps={self._fps} '
             f'resolution={self._resolution.width}x{self._resolution.height} '
             f'pixel_format={self._pixel_format} '
@@ -119,6 +141,8 @@ class RdfpImageRecorderNode(Node):
         self._frame_index: int = 0       # 다음에 기록될 sidecar frame_index (0부터 시작)
         self._first_stamp_ns: Optional[int] = None  # 녹화 중 첫 프레임 stamp (나노초)
         self._last_stamp_ns: Optional[int] = None   # 녹화 중 마지막 프레임 stamp (나노초)
+        # mjpeg 모드에서 metadata 의 encoding 으로 쓰는 압축 형식 (첫 유효 프레임에서 캡처)
+        self._compressed_format: str = 'jpeg'
         # metadata 에 기록되는 Image 메시지 메타 필드 (첫 유효 이미지에서 캡처)
         #   encoding 은 파라미터로부터 결정되므로 별도 필드 불필요 (_pixel_format 재사용)
         self._frame_id: str = ''
@@ -126,22 +150,29 @@ class RdfpImageRecorderNode(Node):
 
         # 6. Pending image queue 초기화
         #    각 항목: (stamp_ns: int, ndarray)
-        self._pending_queue: collections.deque[tuple[int, np.ndarray]] = (
+        # mjpeg 모드에서는 ndarray 대신 JPEG bytes 가 들어온다.
+        self._pending_queue: collections.deque[tuple[int, object]] = (
             collections.deque(maxlen=self._pending_queue_length)
         )
 
         # 7. 이미지 토픽 구독
+        compressed = self._input_format == INPUT_MJPEG
         self._image_sub = self.create_subscription(
-            Image, 'image', self._on_image, qos_profile_sensor_data,
+            CompressedImage if compressed else Image, 'image',
+            self._on_compressed_image if compressed else self._on_image,
+            qos_profile_sensor_data,
         )
         self.get_logger().info(
             f'subscribed to image topic '
             f'(effective name={self._image_sub.topic_name})'
         )
 
-        # 8. 세션 제어 토픽 구독 (publisher와 동일한 QoS)
+        # 8. 세션 제어 토픽 구독 (publisher와 동일한 QoS).
+        # **절대 이름이다** — 세션은 시스템에 하나이고 로봇별 네임스페이스를 타면
+        # 안 된다 (docs/topic_naming_contract.md §2.5). 상대로 두면 `/abc/session`
+        # 을 찾아 조용히 녹화가 시작되지 않는다.
         self._session_sub = self.create_subscription(
-            SessionCommand, 'session', self._on_session, SYSTEM_QOS,
+            SessionCommand, '/session', self._on_session, SYSTEM_QOS,
         )
         self.get_logger().info(
             f'subscribed to session topic '
@@ -156,7 +187,7 @@ class RdfpImageRecorderNode(Node):
         필수 파라미터는 ``output_dir`` / ``resolution`` 두 개이며, ``fps`` 는
         :data:`_DEFAULT_FPS` (10 FPS) 를 기본값으로 가진다 — 입력 이미지
         스트림의 실제 frame rate 와 반드시 일치시켜야 한다. 그 외에 파일명
-        prefix(``session_prefix``), recorder 핵심 설정(``pixel_format``,
+        prefix(``file_prefix``), recorder 핵심 설정(``pixel_format``,
         ``encoder_mode``, ``queue_size``), recorder 에 passthrough 되는
         설정(``bitrate``, ``gop_size``, ``preset``, ``preferred_hw_codec``,
         ``ffmpeg_binary``, ``vaapi_device``), 그리고 pending image queue 의
@@ -164,12 +195,20 @@ class RdfpImageRecorderNode(Node):
         """
         # 출력 관련 — output_dir은 필수
         self.declare_parameter('output_dir', descriptor=ParameterDescriptor(dynamic_typing=True),)
-        self.declare_parameter('session_prefix', 'session')
+        # **`session_prefix` 가 아니다.** 이 값은 파일명을 가르는 접두사일 뿐이고,
+        # `/session` 상태 머신의 세션과 무관하다. 산출물은 **에피소드마다** 하나이며
+        # (한 세션 안에서 start/stop_episode 가 반복된다), 세션은 시스템에 하나다
+        # (docs/topic_naming_contract.md §2.5). 카메라를 여러 대 한 디렉터리에
+        # 녹화할 때 이 값으로 가른다.
+        self.declare_parameter('file_prefix', 'session')
 
         # Recorder 핵심 설정 — resolution은 필수, fps는 기본값(10) 보유
         self.declare_parameter('fps', _DEFAULT_FPS)
         self.declare_parameter('resolution', descriptor=ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter('pixel_format', 'bgr8')
+        # ``mjpeg`` 로 두면 `sensor_msgs/CompressedImage`(JPEG) 를 구독해 **디코드하지
+        # 않고** ffmpeg 에 그대로 넘긴다. 시뮬레이터가 압축 이미지를 보내는 백엔드용이다.
+        self.declare_parameter('input_format', INPUT_RAWVIDEO)
         self.declare_parameter('encoder_mode', 'auto')
         self.declare_parameter('queue_size', 120)
 
@@ -197,12 +236,14 @@ class RdfpImageRecorderNode(Node):
         """
         # 출력 — output_dir은 필수 파라미터
         self._output_dir = get_parameter(self, 'output_dir', parse_stripped_str)
-        self._session_prefix = get_parameter(self, 'session_prefix', parse_str)
+        self._file_prefix = _validate_file_prefix(
+            get_parameter(self, 'file_prefix', parse_str))
 
         # Recorder 핵심 설정
         self._fps = get_parameter(self, 'fps', Fps).to_int()
         self._resolution = get_parameter(self, 'resolution', Resolution.parse)
         self._pixel_format = get_parameter(self, 'pixel_format', parse_str)
+        self._input_format = get_parameter(self, 'input_format', parse_str)
         self._encoder_mode = get_parameter(self, 'encoder_mode', parse_str)
         self._queue_size = get_parameter(self, 'queue_size', parse_int)
 
@@ -257,6 +298,7 @@ class RdfpImageRecorderNode(Node):
                 ffmpeg_binary=self._ffmpeg_binary,
                 vaapi_device=self._vaapi_device,
                 queue_size=self._queue_size,
+                input_format=self._input_format,
             )
         except EncoderUnavailableError as exc:
             raise RuntimeError(f'GPU encoder unavailable: {exc}') from exc
@@ -264,6 +306,37 @@ class RdfpImageRecorderNode(Node):
             raise RuntimeError(f'invalid recorder configuration: {exc}') from exc
 
     # ---------- Image callback ----------------------------------------------
+
+    def _on_compressed_image(self, msg: CompressedImage) -> None:
+        """압축 이미지 콜백 (`input_format="mjpeg"`).
+
+        **디코드하지 않는다.** JPEG 바이트를 그대로 큐에 넣고 ffmpeg 이 디코드·인코딩을
+        함께 하게 한다 — 실측으로 `cv2.imdecode` 를 거치는 것보다 빠르고 결과 파일도
+        작다 (`ffmpeg_command.INPUT_MJPEG` 주석).
+
+        해상도는 검증하지 않는다 — JPEG 헤더 안에 있고 ffmpeg 이 읽는다. 대신 **압축
+        형식**을 본다: mjpeg 입력은 JPEG 만 받는다.
+        """
+        fmt = (msg.format or '').lower()
+        if 'jpeg' not in fmt and 'jpg' not in fmt:
+            self.get_logger().warning(
+                f'image dropped: format={msg.format!r} is not JPEG '
+                f'(input_format={INPUT_MJPEG!r} accepts JPEG only)',
+                throttle_duration_sec=5.0,
+            )
+            return
+        if not msg.data:
+            self.get_logger().warning('image dropped: empty compressed data',
+                                      throttle_duration_sec=5.0)
+            return
+
+        self._frame_id = msg.header.frame_id
+        # 압축 이미지에는 is_bigendian 개념이 없다 — metadata 일관성을 위해 False 로 둔다.
+        self._is_bigendian = False
+        self._compressed_format = msg.format
+
+        stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        self._enqueue_frame(stamp_ns, bytes(msg.data))
 
     def _on_image(self, msg: Image) -> None:
         """이미지 토픽 콜백.
@@ -303,7 +376,14 @@ class RdfpImageRecorderNode(Node):
 
         # 타임스탬프를 나노초 정수로 변환
         stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        self._enqueue_frame(stamp_ns, frame)
 
+    def _enqueue_frame(self, stamp_ns: int, frame: object) -> None:
+        """프레임을 `pending_image_queue` 에 넣는다 — raw·압축 콜백이 공유한다.
+
+        `frame` 은 raw 모드에서 ``np.ndarray``, mjpeg 모드에서 JPEG ``bytes`` 다.
+        큐는 내용물을 해석하지 않고 나르기만 하며, 해석은 `_write_frame` 이 한다.
+        """
         # stop 이후 도착한 뒤늦은 녹화 대상 프레임 감지 (SRS §6.5.4)
         if not self._recording and self._stop_ts > 0 and stamp_ns < self._stop_ts:
             self.get_logger().warning(
@@ -313,7 +393,7 @@ class RdfpImageRecorderNode(Node):
             return
 
         # overflow 감지: 큐가 가득 찬 상태에서 삽입하면 victim 발생
-        victim: Optional[tuple[int, np.ndarray]] = None
+        victim: Optional[tuple[int, object]] = None
         if len(self._pending_queue) == self._pending_queue.maxlen:
             victim = self._pending_queue[0]
 
@@ -322,7 +402,7 @@ class RdfpImageRecorderNode(Node):
         if victim is not None:
             self._process_victim(victim)
 
-    def _process_victim(self, victim: tuple[int, np.ndarray]) -> None:
+    def _process_victim(self, victim: tuple[int, object]) -> None:
         """overflow로 밀려난 프레임을 녹화/비녹화 구간에 따라 처리한다 (SRS §6.3).
 
         녹화 구간: frame_ts >= start_ts → recorder.write(), 아니면 drop
@@ -393,12 +473,20 @@ class RdfpImageRecorderNode(Node):
         """세션 토픽 콜백.
 
         `state == "IN_EPISODE"` → start 처리 (SRS §6.4)
-        `state == "IN_SESSION"` → stop 처리 (SRS §6.5)
-        그 외 상태(`IDLE` 등)는 무시한다.
+        `state == "IN_SESSION"` 또는 `"IDLE"` → stop 처리 (SRS §6.5)
+
+        **`IDLE` 도 정지다.** 에피소드 도중 `stop_session` 을 부르면 노드는
+        `IN_SESSION`, `IDLE` 을 연달아 발행하는데, 이 노드처럼 depth 1 로 구독하면
+        앞의 것이 뒤의 것에 덮여 **`IDLE` 만 도착한다** (실측 2026-09-06 — depth 10
+        이면 둘 다 온다).
+        `IN_SESSION` 만 정지로 보면 그 경로에서 **녹화가 영영 안 끝난다** —
+        큐에 쌓인 프레임이 flush 되지 않고, mp4 가 미완결로 남고,
+        `metadata.json` 도 안 써진다. 실측에서 6초 에피소드가 sidecar 한 줄만
+        남기고 통째로 유실됐다.
         """
         if msg.state == 'IN_EPISODE':
             self._handle_start(msg)
-        elif msg.state == 'IN_SESSION':
+        elif msg.state in ('IN_SESSION', 'IDLE'):
             self._handle_stop(msg)
 
     def _handle_start(self, msg: SessionCommand) -> None:
@@ -503,7 +591,7 @@ class RdfpImageRecorderNode(Node):
     def _build_output_path(self) -> str:
         """출력 MP4 파일 경로를 생성한다 (SRS §8).
 
-        포맷: ``<output_dir>/<session_prefix>_YYYYMMDD-HHMMSS.SSS.mp4``
+        포맷: ``<output_dir>/<file_prefix>_YYYYMMDD-HHMMSS.SSS.mp4``
 
         생성된 타임스탬프 문자열(`YYYYMMDD-HHMMSS.SSS`)은 sidecar/metadata
         파일명 생성에 재사용되도록 ``self._start_ts_str`` 에 저장된다.
@@ -512,23 +600,23 @@ class RdfpImageRecorderNode(Node):
         ms = now.microsecond // 1000
         ts = now.strftime('%Y%m%d-%H%M%S') + f'.{ms:03d}'
         self._start_ts_str = ts
-        filename = f'{self._session_prefix}_{ts}.mp4'
+        filename = f'{self._file_prefix}_{ts}.mp4'
         return os.path.join(self._output_dir, filename)
 
     def _build_sidecar_path(self) -> str:
         """sidecar 파일 경로를 생성한다.
 
-        포맷: ``<output_dir>/<session_prefix>_<start_ts>.jsonl``
+        포맷: ``<output_dir>/<file_prefix>_<start_ts>.jsonl``
         """
-        filename = f'{self._session_prefix}_{self._start_ts_str}.jsonl'
+        filename = f'{self._file_prefix}_{self._start_ts_str}.jsonl'
         return os.path.join(self._output_dir, filename)
 
     def _build_metadata_path(self) -> str:
         """recording metadata 파일 경로를 생성한다.
 
-        포맷: ``<output_dir>/<session_prefix>_metadata.json`` (start_ts 미포함)
+        포맷: ``<output_dir>/<file_prefix>_metadata.json`` (start_ts 미포함)
         """
-        filename = f'{self._session_prefix}_metadata.json'
+        filename = f'{self._file_prefix}_metadata.json'
         return os.path.join(self._output_dir, filename)
 
     # ---------- Sidecar / metadata 쓰기 ------------------------------------
@@ -563,7 +651,7 @@ class RdfpImageRecorderNode(Node):
             self.get_logger().warning(f'sidecar close failed: {exc}')
         self._sidecar_file = None
 
-    def _write_frame(self, stamp_ns: int, frame: np.ndarray) -> bool:
+    def _write_frame(self, stamp_ns: int, frame: object) -> bool:
         """프레임을 recorder 에 기록하고 sidecar 에 한 줄 append 한다.
 
         recorder.write() 성공 시에만 sidecar 기록과 카운터 증가가 수행되어
@@ -573,7 +661,10 @@ class RdfpImageRecorderNode(Node):
             recorder.write 가 성공했으면 True, 실패했으면 False.
         """
         try:
-            self._recorder.write(frame)
+            if self._input_format == INPUT_MJPEG:
+                self._recorder.write_compressed(frame)
+            else:
+                self._recorder.write(frame)
         except Exception as exc:
             self.get_logger().warning(
                 f'recorder.write failed: {exc}', throttle_duration_sec=5.0,
@@ -620,7 +711,9 @@ class RdfpImageRecorderNode(Node):
         metadata_path = self._build_metadata_path()
         metadata: dict[str, Any] = {
             'resolution': f'{self._resolution.width}x{self._resolution.height}',
-            'encoding': self._pixel_format,
+            # mjpeg 모드에서는 픽셀 포맷이 아니라 **압축 형식**이 실제 encoding 이다.
+            'encoding': (self._compressed_format if self._input_format == INPUT_MJPEG
+                         else self._pixel_format),
             'frame_id': self._frame_id,
             'is_bigendian': self._is_bigendian,
             'nframe': self._frame_index,

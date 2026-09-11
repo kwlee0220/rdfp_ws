@@ -48,6 +48,29 @@ def channels_for(pixel_format: str) -> int:
         ) from exc
 
 
+# 입력 형식 — stdin 으로 들어오는 것이 **raw 픽셀인가 JPEG 인가**를 가른다.
+#
+# ``mjpeg`` 는 시뮬레이터가 `sensor_msgs/CompressedImage` (JPEG) 로 보낼 때 쓴다.
+# JPEG 바이트를 그대로 ffmpeg 에 넘기면 **우리가 디코드하지 않아도** ffmpeg 이
+# 디코드와 H.264 인코딩을 함께 한다. 실측(2026-09-08, 640x480 60프레임):
+# Python `cv2.imdecode` 를 거치면 0.24 s, 그대로 넘기면 0.15 s 이고 결과 파일도
+# 92 KB 대 99 KB 로 오히려 작다 — JPEG(yuvj420p) → BGR → yuv420p 왕복이 한 단계
+# 줄기 때문이다.
+INPUT_RAWVIDEO: Final[str] = "rawvideo"
+INPUT_MJPEG: Final[str] = "mjpeg"
+
+SUPPORTED_INPUT_FORMATS: Final[frozenset[str]] = frozenset({INPUT_RAWVIDEO, INPUT_MJPEG})
+
+
+def validate_input_format(input_format: str) -> str:
+    """지원하는 입력 형식인지 확인하고 그대로 돌려준다."""
+    if input_format not in SUPPORTED_INPUT_FORMATS:
+        raise ValueError(
+            f"unsupported input_format: {input_format!r}; "
+            f"expected one of {sorted(SUPPORTED_INPUT_FORMATS)}")
+    return input_format
+
+
 # 지원 코덱 상수 (probe / 커맨드 빌더 공용)
 CODEC_LIBX264: Final[str] = "libx264"
 CODEC_H264_NVENC: Final[str] = "h264_nvenc"
@@ -91,33 +114,56 @@ def build_input_args(
     width: int,
     height: int,
     fps: int,
+    input_format: str = INPUT_RAWVIDEO,
 ) -> list[str]:
     """ffmpeg 공통 입력부 인자를 생성한다.
 
     `-n` 은 출력 파일이 이미 존재할 경우 덮어쓰지 않도록 한다 (Python 레벨
     선검증과 함께 TOCTOU 경쟁 조건을 차단).
 
+    **`input_format="mjpeg"` 는 `-pix_fmt` 와 `-s` 를 내지 않는다.** 픽셀 포맷과
+    해상도가 JPEG 헤더 안에 있으므로 ffmpeg 이 스스로 읽는다. 여기서 `-s` 를 주면
+    실제 프레임과 어긋날 때 조용히 깨진 영상이 나온다.
+
     Args:
         pixel_format: `bgr8` / `rgb8` / `bgra8` / `rgba8` / `mono8`.
+            `input_format="mjpeg"` 에서는 쓰이지 않는다.
         width: 프레임 너비(픽셀), 양의 정수.
         height: 프레임 높이(픽셀), 양의 정수.
+            `input_format="mjpeg"` 에서는 쓰이지 않는다.
         fps: Constant frame rate 값, 양의 정수.
+        input_format: `rawvideo`(기본) 또는 `mjpeg`.
 
     Returns:
         ffmpeg 입력부 인자 리스트. `-i -` 로 stdin 파이프 입력을 지정한다.
 
     Raises:
-        ValueError: 해상도/fps 가 양의 정수가 아니거나 pixel_format 이 지원되지
-            않는 경우.
+        ValueError: 해상도/fps 가 양의 정수가 아니거나 pixel_format ·
+            input_format 이 지원되지 않는 경우.
     """
-    if width <= 0 or height <= 0:
-        raise ValueError(f"invalid resolution: width={width}, height={height}; must be positive")
+    validate_input_format(input_format)
     if fps <= 0:
         raise ValueError(f"invalid fps: {fps}; must be positive")
 
+    if input_format == INPUT_MJPEG:
+        # 해상도는 JPEG 헤더에서 읽힌다 — 검증만 하고 인자로는 넘기지 않는다.
+        # (호출자가 메타데이터·로그에 쓰는 값이라 유효성은 여전히 확인한다)
+        if width <= 0 or height <= 0:
+            raise ValueError(
+                f"invalid resolution: width={width}, height={height}; must be positive")
+        return [
+            "-n",
+            "-f", INPUT_MJPEG,
+            "-framerate", str(fps),
+            "-i", "-",
+        ]
+
+    if width <= 0 or height <= 0:
+        raise ValueError(f"invalid resolution: width={width}, height={height}; must be positive")
+
     return [
         "-n",
-        "-f", "rawvideo",
+        "-f", INPUT_RAWVIDEO,
         "-pix_fmt", to_ffmpeg_pixel_format(pixel_format),
         "-s", f"{width}x{height}",
         "-framerate", str(fps),
@@ -218,6 +264,8 @@ def build_output_args(
         gop_size: GOP 크기 (I-frame 간격). vaapi 에서는 무시된다.
         preset: libx264 preset (그 외 코덱에서는 무시).
         vaapi_device: VAAPI 디바이스 경로 (vaapi 외 코덱에서는 무시).
+        input_format: `rawvideo`(기본) 또는 `mjpeg`. `mjpeg` 면 stdin 으로 JPEG
+            바이트를 그대로 받아 ffmpeg 이 디코드한다 (`build_input_args` 참조).
 
     Returns:
         해당 코덱에 대한 ffmpeg 출력 옵션 리스트.
@@ -251,6 +299,7 @@ def build_ffmpeg_command(
     output_path: str,
     preset: str = "medium",
     vaapi_device: str = "/dev/dri/renderD128",
+    input_format: str = INPUT_RAWVIDEO,
 ) -> list[str]:
     """완전한 ffmpeg 실행 커맨드 리스트를 생성한다.
 
@@ -282,6 +331,7 @@ def build_ffmpeg_command(
             width=width,
             height=height,
             fps=fps,
+            input_format=input_format,
         )
     )
     cmd.extend(

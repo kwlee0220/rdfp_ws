@@ -16,7 +16,8 @@
 
 camera:
   enabled: true
-  # 장치 인덱스(예: 4) 또는 파일/URI 경로. 파일을 주면 반복 재생 소스가 된다.
+  # 장치 인덱스(예: 4) 또는 파일/URI 경로. 파일을 주면 끝에서 되감아 반복 재생한다
+  # (OpenCvCamera._rewind_if_file_ended). 안 그러면 영상 길이가 곧 스택의 수명이 된다.
   id: /home/kwlee/development/ros/rdfp_ws/src/robot_control/data/shibuya_7_8.mp4
   # id: 4
   image_topic: /camera/image_raw

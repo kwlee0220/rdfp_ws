@@ -187,7 +187,7 @@ ros2 run rdfp replay_gui
 
 ## 4. 주요 기능
 
-### 4.1 rdfp.moveit 모듈
+### 4.1 robot_control.moveit 모듈
 
 MoveIt2 서비스/액션 인터페이스를 사용하여 카테시안 경로를 계획하고 실행하는 통합 모듈입니다.
 외부에서 생성한 `rclpy.node.Node` 를 주입받아 서비스/액션 클라이언트를 그 위에 올립니다.
@@ -295,17 +295,17 @@ ros2 launch rdfp rdfp_panda_mock.launch.py
 (별도 console_script 로 등록되지는 않았으므로 모듈로 직접 실행합니다.)
 
 ```bash
-python3 -m rdfp.moveit.test_move_cartesian
+python3 -m robot_control.moveit.test_move_cartesian
 ```
 
 ### 7.3 커스텀 경유점 정의
 
-`rdfp.moveit` 모듈을 사용하여 자신만의 경유점을 정의할 수 있습니다.
+`robot_control.moveit` 모듈을 사용하여 자신만의 경유점을 정의할 수 있습니다.
 
 ```python
 import rclpy
 from rclpy.node import Node
-from rdfp.moveit import create_move_group_client, pose
+from robot_control.moveit import create_move_group_client, pose
 
 rclpy.init()
 node = Node('custom_cartesian_planner')
@@ -473,7 +473,7 @@ ros2 service call /image_recorder/stop_session  rdfp_msgs/srv/StopSession
 아닌 **타임스탬프 기반** 으로 판정하며, `pending_image_queue` 로 도착
 순서 차이를 보상합니다.
 
-녹화 1회 당 3개 파일이 생성됩니다 (`<prefix>=session_prefix`,
+녹화 1회 당 3개 파일이 생성됩니다 (`<prefix>=file_prefix`,
 `<start_ts>=YYYYMMDD-HHMMSS.SSS`):
 
 * `<output_dir>/<prefix>_<start_ts>.mp4` — 영상
@@ -491,10 +491,9 @@ ros2 service call /image_recorder/stop_session  rdfp_msgs/srv/StopSession
 뒤 변경된 상태(`state`)와 `task_label` 을 `session` 토픽으로 발행하여 다른
 노드가 수신·반응할 수 있게 합니다.
 
-상세 사용 설명은 [docs/session/session_control_guide.md](../../docs/session/session_control_guide.md)
-를, Python 클라이언트 (`SessionControlClient`) 사용 가이드는
-[docs/session/session_control_client_guide.md](../../docs/session/session_control_client_guide.md)
-를 참고하세요.
+상세 사용 설명과 Python 클라이언트 (`SessionControlClient`) 사용법은
+[docs/session/session_control_guide.md](../../docs/session/session_control_guide.md)
+한 문서에 있습니다.
 
 ### 10.1 사전 요구사항
 
@@ -508,7 +507,7 @@ source install/setup.bash
 ### 10.2 실행 예
 
 ```bash
-# 단독 실행 — 서비스/토픽은 /session_control 네임스페이스 하위에 노출됨
+# 단독 실행 — 서비스는 /session_control/<name>, 토픽은 /session (루트) 에 노출됨
 ros2 run rdfp session_control_node
 
 # launch 파일로 실행
@@ -538,20 +537,25 @@ ros2 launch rdfp rdfp_advanced.launch.py
   `(IDLE, <L>)` 순서로 두 메시지를 연속 발행하여 `IN_EPISODE → IN_SESSION →
   IDLE` 의 논리적 2 단계 전이를 구독자에게 노출합니다. 이 원자적 동작은
   `stop_session` 핸들러 내부에서 처리되므로 클라이언트는 한 번만 호출하면 됩니다.
+  다만 **depth 1 로 구독하면 앞의 `IN_SESSION` 이 덮여 `IDLE` 만 도착**하므로,
+  구독자는 `IDLE` 도 에피소드 종료로 처리해야 합니다.
 
 ### 10.4 서비스 호출
 
-세션 제어 명령은 5 개의 분할된 서비스로 제공됩니다. 4 개는 `std_srvs/srv/Trigger`,
-`set_task_label` 만 `rdfp_msgs/srv/SetString` 를 사용합니다.
+세션 제어 명령은 5 개의 분할된 서비스로 제공됩니다. `start_session` · `stop_session` ·
+`start_episode` 는 `std_srvs/srv/Trigger`, `stop_episode` 는 `rdfp_msgs/srv/StopEpisode`
+(종료 시점의 성패 `outcome` 과 부가정보 `metadata` 를 받는다), `set_task_label` 은
+`rdfp_msgs/srv/SetString` 을 사용합니다. 조회용 `get_session_state` 까지 합치면 6 개입니다.
 
 ```bash
 # 세션 시작/종료
 ros2 service call /session_control/start_session std_srvs/srv/Trigger "{}"
 ros2 service call /session_control/stop_session std_srvs/srv/Trigger "{}"
 
-# 에피소드 시작/종료
+# 에피소드 시작/종료 — stop_episode 는 성패와 부가정보를 실을 수 있다 (둘 다 생략 가능)
 ros2 service call /session_control/start_episode std_srvs/srv/Trigger "{}"
-ros2 service call /session_control/stop_episode std_srvs/srv/Trigger "{}"
+ros2 service call /session_control/stop_episode rdfp_msgs/srv/StopEpisode \
+  "{outcome: 'success', metadata: '{\"seed\": 7}'}"
 
 # task label 설정 (빈 문자열이면 task clear)
 ros2 service call /session_control/set_task_label rdfp_msgs/srv/SetString \
@@ -582,7 +586,7 @@ ros2 service call /session_control/get_session_state \
 연결해야 하며, `ros2 topic echo` 로 직접 확인할 때는 다음 플래그가 필요합니다.
 
 ```bash
-ros2 topic echo /session_control/session rdfp_msgs/msg/SessionCommand \
+ros2 topic echo /session rdfp_msgs/msg/SessionCommand \
   --qos-durability transient_local \
   --qos-reliability reliable
 ```

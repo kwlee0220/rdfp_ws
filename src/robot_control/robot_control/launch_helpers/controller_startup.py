@@ -6,13 +6,18 @@ from launch.events import Shutdown
 
 
 def _chain_or_shutdown(next_actions, spawner_name: str):
-    """성공 시 다음 액션으로 진행하고 실패 시 런치를 종료한다."""
+    """성공 시 다음 액션으로 진행하고 실패 시 런치를 종료한다.
+
+    목록의 ``None`` 은 **"이 백엔드에는 그 노드가 없다"** 는 뜻이라 건너뛴다 —
+    `create_raw_image_source_node()` 가 `camera.source: native` 에서 그렇게 돌려준다.
+    거르지 않으면 launch 가 기동 도중에 죽고, 증상이 카메라와 무관해 보인다.
+    """
 
     def _handler(event, _context):
         if event.returncode == 0:
             if isinstance(next_actions, list):
-                return next_actions
-            return [next_actions]
+                return [action for action in next_actions if action is not None]
+            return [next_actions] if next_actions is not None else []
         return [
             EmitEvent(
                 event=Shutdown(

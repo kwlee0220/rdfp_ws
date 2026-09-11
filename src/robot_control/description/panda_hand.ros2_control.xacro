@@ -1,11 +1,15 @@
 <?xml version="1.0"?>
 <!--
   moveit_resources_panda_moveit_config 의 panda_hand.ros2_control.xacro 를
-  포크하여 `gazebo` (ign_ros2_control) 하드웨어 분기를 추가한 버전이다.
+  포크하여 `gazebo` (ign_ros2_control) 하드웨어 분기와, `isaac` 한정
+  effort state_interface 를 추가한 버전이다.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:macro name="panda_hand_ros2_control" params="name ros2_control_hardware_type">
+    <xacro:macro name="panda_hand_ros2_control"
+                 params="name ros2_control_hardware_type
+                         isaac_joint_commands_topic:=/isaac_joint_commands
+                         isaac_joint_states_topic:=/isaac_joint_states">
         <ros2_control name="${name}" type="system">
             <hardware>
                 <xacro:if value="${ros2_control_hardware_type == 'mock_components'}">
@@ -13,8 +17,12 @@
                 </xacro:if>
                 <xacro:if value="${ros2_control_hardware_type == 'isaac'}">
                     <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
-                    <param name="joint_commands_topic">/isaac_joint_commands</param>
-                    <param name="joint_states_topic">/isaac_joint_states</param>
+                    <!-- 토픽 이름은 상위에서 주입한다. Isaac 그래프가 팔·손을 **다른
+                         토픽**으로 받으므로(각각 ArticulationController 가 붙어 있다)
+                         두 시스템이 같은 이름을 쓰면 한쪽이 굶는다. 기본값은 상위
+                         MoveIt 원본과 같다. -->
+                    <param name="joint_commands_topic">${isaac_joint_commands_topic}</param>
+                    <param name="joint_states_topic">${isaac_joint_states_topic}</param>
                 </xacro:if>
                 <xacro:if value="${ros2_control_hardware_type == 'gazebo'}">
                     <plugin>ign_ros2_control/IgnitionSystem</plugin>
@@ -28,6 +36,16 @@
                 <state_interface name="velocity">
                     <param name="initial_value">0.0</param>
                 </state_interface>
+                <!-- effort 는 isaac 에서만 싣는다. `grasp` 의 at_goal 판정이
+                     GripperNode 의 stall_effort 로 이뤄지는데, 그 값의 출처가
+                     이 인터페이스다. mock 은 손가락 effort 를 만들어내지 못해
+                     (GenericSystem 이 0 을 보고한다) 켜면 '항상 안 물림'이라는
+                     거짓을 말하므로 넣지 않는다. -->
+                <xacro:if value="${ros2_control_hardware_type == 'isaac'}">
+                    <state_interface name="effort">
+                        <param name="initial_value">0.0</param>
+                    </state_interface>
+                </xacro:if>
             </joint>
             <!-- panda_finger_joint2 는 finger_joint1 을 mimic 한다. ign_ros2_control
                  (Fortress) 의 mimic 처리를 위해 command_interface 없이 state 만 둔다. -->
@@ -43,6 +61,11 @@
                 <state_interface name="velocity">
                     <param name="initial_value">0.0</param>
                 </state_interface>
+                <xacro:if value="${ros2_control_hardware_type == 'isaac'}">
+                    <state_interface name="effort">
+                        <param name="initial_value">0.0</param>
+                    </state_interface>
+                </xacro:if>
             </joint>
         </ros2_control>
     </xacro:macro>

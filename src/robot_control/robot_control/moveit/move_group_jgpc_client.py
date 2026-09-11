@@ -50,6 +50,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
                  arm_command_topic: str = DEFAULT_COMMAND_TOPIC,
                  arm_command_joint_names: Optional[list[str]] = None,
                  arm_command_format: str = COMMAND_FORMAT_FLOAT64_MULTI_ARRAY,
+                 gravity_compensator=None,
+                 publish_rate: Optional[float] = None,
                  **kwargs) -> None:
         """JGPC 클라이언트를 초기화한다.
 
@@ -62,6 +64,21 @@ class MoveGroupJgpcClient(MoveGroupClient):
                 ros2_control JGPC) 또는 ``'joint_state'`` (토픽 연동형 시뮬레이터).
                 후자에서는 조회할 컨트롤러 노드가 없으므로
                 ``arm_command_joint_names`` 를 함께 준다.
+            publish_rate: 명령 발행 주기(Hz)의 **기본값**. 각 이동 메서드의
+                ``publish_rate`` 인자가 이것보다 우선한다. ``None`` 이면 궤적의 원래
+                point 시각을 그대로 따르는데, MoveIt 의 데카르트 궤적은 **10 Hz 로
+                재샘플**되므로(TOTG `resample_dt=0.1`) 명령이 계단으로 나간다 —
+                컨트롤러가 보간해 주는 JTC 와 달리 이 경로에는 보간할 주체가 없다.
+                **접촉을 동반하는 정밀 작업에서는 그 계단이 실제로 문제가 된다**:
+                여유 0.5 mm 짜리 구멍에 peg 을 넣을 때 10 Hz 로는 입구에서 튕겨
+                나갔고 50 Hz 에서는 들어갔다 (2026-09-11 펑션베이 실측).
+                보통 직접 주지 않고 백엔드 프로파일의 `arm_command.publish_rate` 가
+                팩토리를 통해 채운다.
+            gravity_compensator: :class:`robot_control.gravity.GravityCompensator` 또는
+                ``None``. 주면 스트리밍하는 **모든 명령점**에 ``τ_g(q)/Kp`` 를 더해
+                중력 처짐을 상쇄한다. 보통 직접 주지 않고
+                :func:`robot_control.moveit.move_group_factory.create_move_group_client`
+                가 백엔드 프로파일에서 채운다.
             **kwargs: :class:`MoveGroupClient` 생성자 인자.
         """
         super().__init__(node, **kwargs)
@@ -69,6 +86,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
         self._arm_command_topic = arm_command_topic
         self._arm_command_joint_names = arm_command_joint_names
         self._arm_command_format = arm_command_format
+        self._gravity_compensator = gravity_compensator
+        self._publish_rate = publish_rate
         self._streamer: Optional[TrajectoryStreamer] = None
 
     # ----- Lifecycle ------------------------------------------------------
@@ -216,7 +235,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
                     result_future.set_exception(exc)
                     return
                 stream_future = self._get_streamer().stream_async(
-                    future.result(), time_scaling=time_scaling, publish_rate=publish_rate,
+                    future.result(), time_scaling=time_scaling,
+                    publish_rate=self._rate(publish_rate),
                     externally_spun=externally_spun
                 )
                 stream_future.add_done_callback(_on_stream_done)
@@ -366,7 +386,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
                     trajectory = self.scale_trajectory_velocity(trajectory, vs)
 
                 stream_future = self._get_streamer().stream_async(
-                    trajectory, time_scaling=time_scaling, publish_rate=publish_rate,
+                    trajectory, time_scaling=time_scaling,
+                    publish_rate=self._rate(publish_rate),
                     externally_spun=externally_spun
                 )
                 stream_future.add_done_callback(_on_stream_done)
@@ -392,6 +413,17 @@ class MoveGroupJgpcClient(MoveGroupClient):
         return result_future
 
     # ----- 스트리밍 기본기 --------------------------------------------------
+
+    def _rate(self, publish_rate: Optional[float]) -> Optional[float]:
+        """발행 주기를 정한다 — **호출 인자가 생성자 기본값을 이긴다.**
+
+        ⚠️ **스트리밍 진입점이 넷이고 그중 셋은 비동기다.** 동기 경로
+        (`stream_trajectory`)에만 기본값을 넣었다가 **비동기 경로 셋이 그대로 10 Hz 로
+        나갔다** (2026-09-11). 트윈의 `move_linear` 가 그 비동기 경로라 "설정했는데 안
+        먹는다" 가 됐고, `/health` 는 50 Hz 라고 보고하는데 팔은 뚝뚝 끊겨 움직였다 —
+        **사람이 눈으로 보고 알려 줘서 찾았다.** 새 진입점을 만들면 여기를 거친다.
+        """
+        return self._publish_rate if publish_rate is None else publish_rate
 
     def stream_trajectory(self, trajectory: RobotTrajectory, *, time_scaling: float = 1.0,
                           publish_rate: Optional[float] = None,
@@ -419,7 +451,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
         """
         self._require_open()
         return self._get_streamer().stream(trajectory, time_scaling=time_scaling,
-                                           publish_rate=publish_rate,
+                                           publish_rate=self._rate(publish_rate),
                                            externally_spun=externally_spun)
 
     def move_to_named_target_streamed(self, name: str, *,
@@ -500,7 +532,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
                     result_future.set_exception(exc)
                     return
                 stream_future = self._get_streamer().stream_async(
-                    future.result(), time_scaling=time_scaling, publish_rate=publish_rate,
+                    future.result(), time_scaling=time_scaling,
+                    publish_rate=self._rate(publish_rate),
                     externally_spun=externally_spun
                 )
                 stream_future.add_done_callback(_on_stream_done)
@@ -551,5 +584,6 @@ class MoveGroupJgpcClient(MoveGroupClient):
         if self._streamer is None:
             self._streamer = TrajectoryStreamer(self._node, command_topic=self._arm_command_topic,
                                                 joint_names=self._arm_command_joint_names,
-                                                command_format=self._arm_command_format)
+                                                command_format=self._arm_command_format,
+                                                gravity_compensator=self._gravity_compensator)
         return self._streamer

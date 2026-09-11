@@ -8,7 +8,6 @@
 #   ./scripts/run_isaac_sim.sh --headless      창 없이 전 과정 자동 (검사·CI 용)
 #   ./scripts/run_isaac_sim.sh                 전체 편집기. 스테이지는 Script Editor 로
 #   ./scripts/run_isaac_sim.sh --gui --phase 3         카메라 없이 (조작 계열만)
-#
 # **`--gui` 면 Script Editor 를 쓸 일이 없다.** 로봇 적재부터 Play 까지 스크립트가
 # 다 한다. 인자 없는 형태는 Isaac 의 **전체 편집기**가 필요할 때(자산 브라우저,
 # 프로퍼티 편집 등)만 쓴다 — 그때만 목록을 손으로 돌린다.
@@ -16,6 +15,9 @@
 # 뜨고 나면 ROS 쪽 스택을 따로 올린다:
 #
 #   ros2 launch robot_control panda_isaac.launch.py
+#
+# Isaac 은 관절 상태를 **`/isaac_joint_states`** 로 낸다 — `/joint_states` 는
+# `joint_state_broadcaster` 가 가져가기 때문이다.
 #
 #
 # ── 1. 왜 스크립트가 필요한가 ────────────────────────────────────────────────
@@ -84,6 +86,7 @@ isaac_env=(
 )
 
 echo "[isaac] root=$ISAAC_ROOT  domain=$DOMAIN  workspace=$WORKSPACE"
+echo "[isaac] 관절상태=/isaac_joint_states  짝=panda_isaac.launch.py"
 
 if [[ "$HEADLESS" == "1" ]]; then
     echo "[isaac] 전 과정 자동 기동 (PHASE=$PHASE, 창=$([ "$WINDOW" = 1 ] && echo 켬 || echo 끔))"

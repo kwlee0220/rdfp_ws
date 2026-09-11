@@ -125,6 +125,10 @@ def _same_pose(actual: Any, wanted: Any, elapsed_sec: float = 0.0) -> bool:
     return dot >= 1.0 - _ORIENTATION_TOLERANCE
 
 
+# 하트비트 한 줄에 나열할 TF 프레임 수 상한. 넘으면 '(+N more)' 로 밝힌다.
+_FRAME_LOG_LIMIT = 12
+
+
 class IsaacSceneStateNode(Node):
     """Isaac 물체 TF 를 읽어 `/scene/objects` 로 발행한다."""
 
@@ -178,6 +182,8 @@ class IsaacSceneStateNode(Node):
 
         self._missing_logged: dict[str, float] = {}
         self._last_heartbeat = 0.0
+        # 직전에 몇 개를 풀었는지. None 은 '아직 한 번도 안 찍었다' 라 첫 회는 반드시 남는다.
+        self._last_resolved: Optional[int] = None
 
         self.get_logger().info(
             f'IsaacSceneStateNode started: {len(self._objects)} object(s) -> {scene_topic}')
@@ -388,23 +394,47 @@ class IsaacSceneStateNode(Node):
         return response
 
     def _heartbeat(self, resolved: int) -> None:
-        """주기적으로 "몇 개를 풀었는지"와 "TF 에 무엇이 있는지"를 남긴다.
+        """"몇 개를 풀었는지"를 **바뀔 때만** 남긴다.
 
         조회 실패 경고만으로는 **TF 를 못 받는 것**인지 **프레임 이름이 다른 것**인지
         가릴 수 없어서, 버퍼가 아는 프레임을 함께 찍는다.
+
+        **주기 발행 노드라 이 줄을 매번 찍으면 안 된다.** 예전에는 `warn_interval` 마다
+        무조건 찍어서, 다 정상인 스택에서도 5 초마다 같은 줄이 콘솔을 채웠다 — 정작 봐야
+        할 다른 노드의 로그가 밀려난다. 지금은
+
+        * 정상(전부 해결)으로 **바뀐 순간** INFO 한 줄, 그 뒤로는 조용하다.
+        * 하나라도 못 풀면 WARNING 이고, **그 상태가 이어지는 동안에는** `warn_interval`
+          마다 되풀이한다 — 조용해지면 고쳐진 줄로 오해하기 때문이다.
+
+        즉 정상 구간은 침묵, 문제 구간은 반복이다.
         """
+        total = len(self._objects)
+        degraded = resolved < total
         now = self.get_clock().now().nanoseconds * 1e-9
-        if now - self._last_heartbeat < self._warn_interval:
+        changed = self._last_resolved != resolved
+        if not changed and not (degraded and now - self._last_heartbeat >= self._warn_interval):
             return
+        self._last_resolved = resolved
         self._last_heartbeat = now
+
         try:
             known = sorted(self._buffer.all_frames_as_yaml().splitlines())
             frames = [line.split(':')[0] for line in known if line and not line.startswith(' ')]
         except Exception:
             frames = []
-        self.get_logger().info(
-            f'scene: resolved {resolved}/{len(self._objects)} object(s); '
-            f'tf knows {len(frames)} frame(s): {frames[:12]}')
+        # 목록은 잘라 싣되 **잘랐다는 것을 밝힌다** — 예전에는 "15 frame(s)" 뒤에 12 개만
+        # 나열해 목록이 곧 전부인 것처럼 보였다.
+        shown = frames[:_FRAME_LOG_LIMIT]
+        suffix = '' if len(frames) <= _FRAME_LOG_LIMIT else f' (+{len(frames) - len(shown)} more)'
+        message = (f'scene: resolved {resolved}/{total} object(s); '
+                   f'tf knows {len(frames)} frame(s): {shown}{suffix}')
+        # 레벨을 변수에 담아 한 줄에서 부르면 rclpy 가 ValueError 를 던진다 (호출 지점마다
+        # severity 를 기억한다). 갈라서 각 줄에서 부른다.
+        if degraded:
+            self.get_logger().warning(message)
+        else:
+            self.get_logger().info(message)
 
 
 def main(args=None) -> int:

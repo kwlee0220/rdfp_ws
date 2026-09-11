@@ -222,6 +222,40 @@ def _move_to_joints(runtime: 'RobotTwinRuntime', client: Optional[Any],
     return _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
 
 
+def _resolve_frame(runtime: 'RobotTwinRuntime', pose: dict,
+                   frame: Optional[str]) -> dict:
+    """`frame` 이 EE 프레임이면 **tip link 지령으로 옮긴다.**
+
+    데카르트 목표는 MoveIt 그룹의 tip link 기준으로 해석되는데, 상태 변수 `ee_pose` 는
+    EE 프레임(펑션베이는 `grasp_center`)을 가리킨다. 그 값을 그대로 목표로 넣으면
+    **149 mm 어긋난 곳으로 간다** — 에러가 아니라 "왜 여기로 가지" 로 나타난다.
+
+    `frame` 을 생략하면 **설정의 `ee_frame`** 을 쓴다. `ee_pose` 를 읽어 그대로 넣는
+    것이 가장 흔한 사용이라 그쪽을 기본으로 둔다. tip 기준 좌표를 직접 아는 호출자는
+    `frame` 에 tip 프레임 이름을 준다. **아는 이름이 아니면 거절한다** — 변환할 수
+    없는 프레임을 조용히 통과시키면 다시 149 mm 문제가 된다.
+    """
+    moveit = runtime.config.moveit
+    target = frame or moveit.ee_frame or moveit.tip_frame
+    if target == moveit.tip_frame:
+        return pose
+    if target != moveit.ee_frame:
+        known = [moveit.tip_frame] + ([moveit.ee_frame] if moveit.ee_frame else [])
+        raise ValueError(f'unknown frame {target!r}; this twin knows {known}')
+
+    from robot_control.moveit.utils import tip_pose_for_ee
+
+    translation, rotation = runtime.lookup_tip_to_ee()
+    position = pose['position']
+    orientation = pose['orientation']
+    tip_position, tip_rotation = tip_pose_for_ee(
+        (position['x'], position['y'], position['z']),
+        (orientation['x'], orientation['y'], orientation['z'], orientation['w']),
+        translation, rotation)
+    return {'position': dict(zip('xyz', tip_position)),
+            'orientation': dict(zip('xyzw', tip_rotation))}
+
+
 def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
                  op: OperationConfig, session: Session,
                  timeout: float) -> dict[str, Any]:
@@ -234,6 +268,7 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
         raise BackendUnavailable('MoveGroup client is not ready')
 
     pose = _require_pose(session.inputs.get('pose'))
+    pose = _resolve_frame(runtime, pose, session.inputs.get('frame'))
     waypoints = [_to_ros_pose(pose)]
 
     kwargs: dict[str, Any] = {'externally_spun': True,
@@ -417,8 +452,35 @@ def _sample_scene(recipe: dict[str, Any], seed: int) -> list[dict[str, Any]]:
             'dimensions': [float(v) for v in (spec.get('size') or [])],
             'position': {axis: _sample_axis(rng, spec.get(axis, 0.0), f'{name}.{axis}')
                          for axis in ('x', 'y', 'z')},
+            **_sample_yaw(rng, spec, name),
         })
     return out
+
+
+def _sample_yaw(rng: 'random.Random', spec: dict[str, Any], name: str) -> dict[str, Any]:
+    """레시피의 `yaw`(**도**)를 뽑아 자세로 만든다. 없으면 회전 없음이다.
+
+    위치만 흩어 놓으면 물체가 늘 같은 방향을 보므로, 파지 자세가 **한 번도 안 바뀐다** —
+    학습 데이터로도 검사로도 다양성이 없다. 축은 z 하나다: 탁자 위 물체를 옆으로 눕히는
+    것은 배치가 아니라 다른 작업이고, 위에서 잡는 경로가 성립하지 않는다.
+
+    **대칭을 넘겨 뽑지 않는다.** 정육면체는 90° 마다 같은 모양이라 [0, 360) 으로 뽑으면
+    같은 자세를 네 번 세는 셈이고, 실린더는 어떤 각도든 같아 뽑을 의미가 없다. 범위는
+    레시피가 정한다 — 정육면체면 [0, 90] 이다.
+
+    돌려주는 dict 에는 `orientation`(ROS xyzw)과 사람이 읽을 `yaw_deg` 가 함께 들어간다.
+    호출자(`outputs.objects`)가 그대로 받아 에피소드 metadata 로 쓰므로, 재현의 근거인
+    쿼터니언과 눈으로 확인할 각도를 같이 남긴다.
+    """
+    raw = spec.get('yaw')
+    if raw is None:
+        return {'yaw_deg': 0.0,
+                'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}}
+    degrees = _sample_axis(rng, raw, f'{name}.yaw')
+    half = math.radians(degrees) / 2.0
+    return {'yaw_deg': degrees,
+            'orientation': {'x': 0.0, 'y': 0.0,
+                            'z': math.sin(half), 'w': math.cos(half)}}
 
 
 def _sample_axis(rng: 'random.Random', raw: Any, what: str) -> float:
@@ -520,8 +582,12 @@ def _make_scene_object(spec: dict[str, Any]) -> Any:
     obj.pose.position.x = float(position['x'])
     obj.pose.position.y = float(position['y'])
     obj.pose.position.z = float(position['z'])
-    # 계약은 ROS xyzw 다. 레시피에 자세가 없으므로 회전 없음으로 둔다.
-    obj.pose.orientation.w = 1.0
+    # 계약은 ROS xyzw 다. 레시피에 `yaw` 가 없으면 `_sample_yaw` 가 단위 쿼터니언을 넣는다.
+    quat = spec.get('orientation') or {'w': 1.0}
+    obj.pose.orientation.x = float(quat.get('x', 0.0))
+    obj.pose.orientation.y = float(quat.get('y', 0.0))
+    obj.pose.orientation.z = float(quat.get('z', 0.0))
+    obj.pose.orientation.w = float(quat.get('w', 1.0))
     return obj
 
 

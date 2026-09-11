@@ -97,8 +97,28 @@ class MoveItConfig(_Base):
     (설계서 2.6).
     """
 
-    move_group_mode: MoveGroupMode
+    # 백엔드 이름 하나로 아래 넷을 채운다 (`robot_control.moveit.BACKEND_PROFILES`).
+    # **그 표가 "어느 스택이 JTC 인가"의 정본이다** — 여기 손으로 적으면 백엔드가
+    # 바뀔 때 한쪽만 뒤처지고, 어긋남은 에러가 아니라 "명령이 안 먹는다"로 나온다.
+    #
+    # 명시한 키가 프로파일을 이기므로 `backend` 와 개별 키를 섞어 쓸 수 있다.
+    # 모든 프로파일이 확정 모드(`jtc`/`jgpc`)를 가지므로 어느 것이든 쓸 수 있다 —
+    # mock 계열은 `mock`(JTC) 과 `mock_jgpc`(JGPC) 로 나뉘어 있다.
+    backend: Optional[str] = None
+
+    move_group_mode: Optional[MoveGroupMode] = None
     planning_group: str = 'panda_arm'
+
+    # --- 프레임 ---
+    #
+    # **데카르트 목표는 `tip_frame` 기준으로 해석된다** (MoveIt 그룹의 tip link).
+    # 그런데 사람이 다루는 프레임은 보통 그것이 아니다 — 펑션베이는 `/ee_pose` 가
+    # `grasp_center` 를 가리키고 tip(`panda_link8`) 과 **149 mm** 떨어져 있다.
+    #
+    # `move_linear` 의 `frame` 입력이 `ee_frame` 이면 트윈이 TF 로 변환한다. 둘이
+    # 같으면 변환이 항등이라 mock·Isaac 은 영향이 없다.
+    ee_frame: Optional[str] = None
+    tip_frame: str = 'panda_link8'
 
     # --- JGPC 명령 채널 (토픽 연동형 시뮬레이터용) ---
     #
@@ -110,6 +130,76 @@ class MoveItConfig(_Base):
     arm_command_topic: Optional[str] = None
     arm_command_format: Optional[ArmCommandFormat] = None
     arm_command_joint_names: Optional[list[str]] = None
+
+    # --- 팔 이동 속도 ---
+    #
+    # 생략하면 `backend` 프로파일의 `motion.velocity_scaling` 이 채우고, 그것도 없으면
+    # `create_move_group_client` 의 코드 기본값(1.0)이 된다. 여기 적으면 프로파일보다
+    # 우선한다 — **명시한 키가 이긴다**는 이 클래스의 다른 값들과 같은 규칙이다.
+    velocity_scaling: Optional[float] = None
+
+    # --- 명령 스트리밍 주기 (JGPC 전용) ---
+    #
+    # 생략하면 `backend` 프로파일의 `arm_command.publish_rate` 가 채운다. 안 채워지면
+    # 데카르트 궤적이 **10 Hz 계단**으로 나간다 (MoveIt 이 TOTG 로 재샘플하고 이 경로에는
+    # 보간할 컨트롤러가 없다). 접촉을 동반하는 작업에서 그 계단이 실제로 실패를 만든다 —
+    # 여유 0.5 mm 인 `peg_tray` 삽입이 10 Hz 로는 3회 모두 입구에서 튕겼다 (2026-09-11).
+    arm_command_publish_rate: Optional[float] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _expand_backend(cls, data: Any) -> Any:
+        """`backend` 를 네 값으로 펼친다. **명시한 키가 이긴다.**
+
+        `robot_control.backend_profiles` 는 **`rclpy` 를 끌어오지 않는다** — 이 모듈이
+        ROS 없이도 import 되어야 하기 때문이다(설정만 읽는 경로가 있다). 지연 import 는
+        `robot_control` 이 없는 환경에서도 나머지 설정을 읽을 수 있게 남겨 둔다.
+        """
+        if not isinstance(data, dict) or not data.get('backend'):
+            return data
+
+        from robot_control.backend_profiles import resolve_backend_channel
+
+        channel = resolve_backend_channel(
+            data['backend'],
+            arm_command_mode=data.get('move_group_mode'),
+            arm_command_topic=data.get('arm_command_topic'),
+            arm_command_format=data.get('arm_command_format'),
+            arm_command_joint_names=data.get('arm_command_joint_names'))
+
+        # 우선순위(명시 > 프로파일)는 `resolve_backend_channel` 이 이미 적용했다.
+        # `setdefault` 는 그것을 다시 확인하는 것일 뿐이라 결과가 같다.
+        filled = dict(data)
+        # **팔 이동 속도도 프로파일에서 온다.** 트윈은 `backend=` 를 팩토리에 넘기지 않고
+        # 여기서 값으로 펼치므로(`client_kwargs`), 이 줄이 없으면 프로파일에 적어도
+        # 트윈에만 안 먹는다 — 그 어긋남은 "왜 트윈으로 움직일 때만 빠르지" 로 나타난다.
+        from robot_control.backend_profiles import BACKEND_PROFILES
+        profile = BACKEND_PROFILES[data['backend']]
+        motion = profile.get('motion') or {}
+        if motion.get('velocity_scaling') is not None:
+            filled.setdefault('velocity_scaling', motion['velocity_scaling'])
+
+        # **프레임 이름도 프로파일에서 온다.** launch 의 `ee_pose_node` 가 읽는 것과
+        # 같은 값이어야 `ee_pose` 가 가리키는 프레임과 트윈의 변환 기준이 일치한다 —
+        # 두 곳에 적으면 어긋남이 에러 없이 **149 mm 빗나간 이동**으로 나타난다.
+        rate = profile.get('arm_command_publish_rate')
+        if rate is not None:
+            filled.setdefault('arm_command_publish_rate', rate)
+
+        frames = profile.get('frames') or {}
+        for key in ('ee', 'tip'):
+            if frames.get(key):
+                filled.setdefault(f'{key}_frame', frames[key])
+        filled.setdefault('move_group_mode', channel['arm_command_mode'])
+        # JTC 로 결정되면 명령 채널은 넣지 않는다 — 아래 `_check_arm_command` 가
+        # 그 조합을 거부하는데, 프로파일이 채운 값 때문에 걸리면 사용자는 자기가
+        # 안 적은 키로 실패하는 셈이 된다.
+        if filled['move_group_mode'] != 'jtc':
+            for key in ('arm_command_topic', 'arm_command_format',
+                        'arm_command_joint_names'):
+                if channel[key]:
+                    filled.setdefault(key, channel[key])
+        return filled
 
     @field_validator('move_group_mode', mode='before')
     @classmethod
@@ -124,6 +214,12 @@ class MoveItConfig(_Base):
     @model_validator(mode='after')
     def _check_arm_command(self) -> 'MoveItConfig':
         """명령 채널 설정의 짝을 맞춘다. **조용히 무시되는 키를 만들지 않는다.**"""
+        # `backend` 로도 안 채워졌으면 여전히 필수다.
+        if self.move_group_mode is None:
+            raise ValueError(
+                'moveit.move_group_mode is required (or give moveit.backend to fill it)')
+        # **`velocity_scaling` 은 여기 없다** — JGPC 전용이 아니라 두 클라이언트가 다
+        # 쓰는 값이라 JTC 에서도 정당하다.
         given = {
             'arm_command_topic': self.arm_command_topic,
             'arm_command_format': self.arm_command_format,
@@ -149,7 +245,13 @@ class MoveItConfig(_Base):
         return self
 
     def client_kwargs(self) -> dict:
-        """`create_move_group_client` 에 넘길 추가 인자. 지정한 것만 담는다."""
+        """`create_move_group_client` 에 넘길 추가 인자. 지정한 것만 담는다.
+
+        **JSON 으로 나갈 수 있는 값만 담는다** — `/health` 가 이 결과를 `arm_command`
+        로 그대로 실어 보내기 때문이다. 중력 보상기 같은 객체는 여기 넣지 않고
+        :meth:`gravity_compensator` 로 따로 준다 (2026-09-11 에 여기 넣었다가
+        `/health` 가 500 으로 죽었다).
+        """
         kwargs = {}
         if self.arm_command_topic is not None:
             kwargs['arm_command_topic'] = self.arm_command_topic
@@ -157,7 +259,28 @@ class MoveItConfig(_Base):
             kwargs['arm_command_format'] = self.arm_command_format
         if self.arm_command_joint_names is not None:
             kwargs['arm_command_joint_names'] = list(self.arm_command_joint_names)
+        if self.velocity_scaling is not None:
+            kwargs['velocity_scaling'] = self.velocity_scaling
+        # **JGPC 로 풀릴 때만 넘긴다** — JTC 생성자는 이 인자를 모른다. 팩토리도 JTC
+        # 분기에서 지우지만, 여기서 안 넣는 편이 의도가 분명하다.
+        if self.arm_command_publish_rate is not None and self.move_group_mode != 'jtc':
+            kwargs['publish_rate'] = self.arm_command_publish_rate
         return kwargs
+
+    def gravity_compensator(self):
+        """백엔드의 중력 보상기. 설정이 없으면 `None`.
+
+        **팩토리가 대신 해 주지 않는다.** 팩토리는 `backend=` 를 받았을 때만 프로파일을
+        읽는데, 트윈은 백엔드를 **값으로 펼쳐** 넘기므로(`client_kwargs`) 그 훅이 안
+        걸린다. 이것이 없으면 **같은 로봇인데 스크립트로 움직일 때는 보상이 걸리고
+        트윈으로 움직일 때는 안 걸린다** — 증상은 "트윈으로만 팔이 몇 mm 어긋난 곳에
+        선다" 뿐이다 (2026-09-11 실측).
+        """
+        if not self.backend:
+            return None
+        from robot_control.gravity import load_gravity_compensator
+
+        return load_gravity_compensator(self.backend)
 
 
 class QosConfig(_Base):

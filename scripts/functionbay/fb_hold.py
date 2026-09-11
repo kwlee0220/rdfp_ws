@@ -5,45 +5,52 @@
 유지하지 못하고 중력 토크에 비례하는 정상상태 오차가 남는다. 이 스크립트는
 그 오차가 수렴하는지(정상상태) 발산하는지(불안정) 가른다.
 
-현재 자세를 그대로 목표로 주므로, **팔이 처진 만큼 더 처진다.** 반복 실행하면
-누적되어 자기충돌 자세까지 갈 수 있다 — `fb_recover.py` 로 되돌린다.
+현재 자세를 그대로 목표로 주므로, **팔이 처진 만큼 더 처진다.** 그래서 측정 전에
+반드시 `ready` 로 옮긴다 — 그러지 않으면 회차마다 시작 자세가 달라 기준선과 비교할
+수 없고, 반복하면 처짐이 누적되어 자기충돌 자세까지 간다. 이동은 `fb_ready` 가 맡는다.
 
-    ./fb_hold.py 15        # 15초간 유지하며 1.5초 간격으로 추적
+    ./fb_hold.py 15             # ready 로 옮긴 뒤 15초간 유지하며 추적
+    ./fb_hold.py 15 --no-ready  # 현재 자세에서 그대로 (자세별 반복 측정용)
 
-인자: [유지 시간(초), 기본 15]
+인자: [유지 시간(초), 기본 15] [--no-ready] [--ramp <초>, 기본 5]
+
+**`--no-ready` 는 B-4(자세별 처짐)처럼 의도적으로 다른 자세에서 재는 경우에만 쓴다.**
 """
 from __future__ import annotations
 
 import sys
 import time
 
+import fb_ready
 import rclpy
 from sensor_msgs.msg import JointState
 
-ARM = [f'panda_joint{i}' for i in range(1, 8)]
-REPORT_TOPIC = '/output/panda_joint'
-COMMAND_TOPIC = '/input/panda_joint'
-RATE_HZ = 50.0
-# 시뮬레이터 수신 주기(50 Hz) 에 맞춘다 (문서 §10.3).
-COMMAND_PERIOD_SEC = 1.0 / RATE_HZ
+ARM = fb_ready.ARM
+REPORT_TOPIC = fb_ready.REPORT_TOPIC
+COMMAND_TOPIC = fb_ready.COMMAND_TOPIC
+RATE_HZ = fb_ready.RATE_HZ
+COMMAND_PERIOD_SEC = fb_ready.COMMAND_PERIOD_SEC
 SAMPLE_INTERVAL_SEC = 1.5
 
 
 def main():
+    skip_ready = fb_ready.take_flag('--no-ready')
+    keep_grasp = fb_ready.take_flag('--keep-grasp')
+    ramp_sec = fb_ready.DEFAULT_RAMP_SEC
+    if '--ramp' in sys.argv:
+        i = sys.argv.index('--ramp')
+        ramp_sec = float(sys.argv[i + 1])
+        del sys.argv[i:i + 2]
     hold_sec = float(sys.argv[1]) if len(sys.argv) > 1 else 15.0
 
     rclpy.init()
     node = rclpy.create_node('fb_hold')
-    cur: dict[str, float] = {}
-    node.create_subscription(JointState, REPORT_TOPIC,
-                             lambda m: cur.update(zip(m.name or ARM, m.position)), 10)
-    pub = node.create_publisher(JointState, COMMAND_TOPIC, 10)
-
-    deadline = time.time() + 5.0
-    while rclpy.ok() and time.time() < deadline and not cur:
-        rclpy.spin_once(node, timeout_sec=0.1)
-    if not cur:
-        raise SystemExit(f'no JointState received on {REPORT_TOPIC}')
+    cur, pub = fb_ready.attach(node)
+    if skip_ready:
+        fb_ready.wait_for_state(node, cur)
+        print('[ready] 건너뜀 (--no-ready) — 현재 자세에서 측정한다')
+    else:
+        fb_ready.goto_ready(node, cur, pub, ramp_sec=ramp_sec, open_gripper=not keep_grasp)
 
     target = [float(cur[j]) for j in ARM]
     print('고정 목표 (현재 자세):', [round(v, 4) for v in target])

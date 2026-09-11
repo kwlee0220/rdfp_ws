@@ -8,10 +8,10 @@
         -> [본 노드]
         -> /gripper_states (rdfp_msgs/GripperState)  주기 발행
 
-**백엔드가 아니라 실행 수단으로 이름 붙였다.** 액션 서버만 있으면 되므로 mock 과
-Isaac 이 같은 노드를 쓴다 — Isaac 은 ros2_control 이 없지만 `isaac_gripper_bridge` 가
-같은 이름의 액션 서버를 연다. 액션 서버가 없는 펑션베이는 별도 구현이 필요하다.
-(예전 이름 `MockGripperNode` 는 Isaac 이 쓰는 순간 거짓이 됐다.)
+**백엔드가 아니라 실행 수단으로 이름 붙였다.** `control_msgs/GripperCommand` 액션
+서버만 있으면 되므로 mock · Gazebo · Isaac 이 같은 노드를 쓴다 — 셋 다 ros2_control 의
+`panda_hand_controller` 가 그 서버를 연다. 액션 서버가 없는 펑션베이는 별도 구현이
+필요하다. (예전 이름 `MockGripperNode` 는 Isaac 이 쓰는 순간 거짓이 됐다.)
 
 **명령을 받는 노드가 상태도 낸다.** `GripperState.goal` 때문이다 — 명령을 아는 쪽이
 상태를 내면 목표가 자연히 손에 있고 경합도 없다. 나누면 상태 발행자가 명령 토픽을 따로
@@ -229,10 +229,17 @@ class GripperActionNode(Node):
             self.get_logger().error(f'[gripper] {goal}: result failed: {exc}')
             return
         status = getattr(response, 'status', GoalStatus.STATUS_UNKNOWN)
+        # **레벨을 변수에 담아 한 줄에서 부르면 안 된다.** rclpy 로거는 호출 지점
+        # (파일·행)마다 severity 를 기억하고, 같은 줄이 다른 레벨로 다시 불리면
+        # `ValueError: Logger severity cannot be changed between calls.` 를 던진다.
+        # 그 예외가 done_callback 안에서 터지면 **노드가 죽는다** — 실제로 Isaac
+        # 파지 중에 그렇게 죽었고, 증상은 '그리퍼가 명령을 무시한다'였다.
         # CANCELED 는 후속 명령에 의한 선점이라 실패가 아니다.
-        level = (self.get_logger().info if status == GoalStatus.STATUS_SUCCEEDED
-                 else self.get_logger().warning)
-        level(f'[gripper] {goal}: action finished (status={status})')
+        message = f'[gripper] {goal}: action finished (status={status})'
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info(message)
+        else:
+            self.get_logger().warning(message)
 
     # ── 관측 ────────────────────────────────────────────────────
 

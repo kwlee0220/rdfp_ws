@@ -18,9 +18,40 @@ import pathlib
 
 import pytest
 
-# 테이블 상단 높이. 중심 z + 두께/2 로 나오며, 블록은 그 위에 반높이만큼 얹힌다.
+# 테이블 상단 높이. 중심 z + 두께/2 로 나오며, 물체는 그 위에 반높이만큼 얹힌다.
 TABLE_TOP_Z = 0.4
-BLOCK_REST_Z = 0.425
+
+
+def _half_height(spec) -> float:
+    """안착 z 를 정하는 반높이. **`size` 순서가 타입마다 다르다.**"""
+    kind = spec.get('type', 'box')
+    if kind == 'box':
+        return float(spec['size'][2]) / 2.0          # [x, y, z]
+    if kind == 'cylinder':
+        return float(spec['size'][0]) / 2.0          # [높이, 반지름]
+    raise AssertionError(f'{spec["name"]}: unsupported type {kind!r}')
+
+
+def _footprint_half(spec) -> tuple:
+    """탁자 위에서 차지하는 x·y 반폭.
+
+    실린더는 **반지름 하나가 x·y 양쪽 반폭**이다 — `size[1]` 을 y 전용으로 쓰면
+    폭을 절반으로 잘못 보고, 그러면 겹침·이탈 검사가 통과해 버린다.
+    """
+    kind = spec.get('type', 'box')
+    if kind == 'box':
+        return float(spec['size'][0]) / 2.0, float(spec['size'][1]) / 2.0
+    if kind == 'cylinder':
+        r = float(spec['size'][1])
+        return r, r
+    raise AssertionError(f'{spec["name"]}: unsupported type {kind!r}')
+
+
+def _span(raw) -> tuple:
+    """축 값이 숫자(고정)면 폭 0 인 구간으로, [최소, 최대] 면 그대로."""
+    if isinstance(raw, (list, tuple)):
+        return float(raw[0]), float(raw[1])
+    return float(raw), float(raw)
 
 
 def _twin_config_dir() -> pathlib.Path:
@@ -97,11 +128,11 @@ def test_recipe_geometry_matches_the_stage():
             assert size == pytest.approx(dims), f'{scene_name}/{spec["name"]}: size'
 
 
-def test_recipe_z_keeps_blocks_on_the_table():
-    """z 를 흔들면 블록이 공중에서 떨어지거나 테이블에 박힌다.
+def test_recipe_z_keeps_objects_on_the_table():
+    """z 를 흔들면 물체가 공중에서 떨어지거나 테이블에 박힌다.
 
-    5 cm 블록은 테이블 상단(0.4)에 반높이만큼 얹혀 0.425 다. 범위가 아니라 **고정값**
-    이어야 하는 유일한 축이다.
+    테이블 상단(0.4)에 **반높이만큼** 얹힌다 — 5 cm 블록은 0.425, 높이 6 cm 실린더는
+    0.43 이다. 범위가 아니라 **고정값**이어야 하는 유일한 축이다.
     """
     config, _ = _load()
     for scene_name, recipe in _recipes(config).items():
@@ -109,8 +140,10 @@ def test_recipe_z_keeps_blocks_on_the_table():
             z = spec['z']
             assert isinstance(z, (int, float)), (
                 f'{scene_name}/{spec["name"]}: z must be fixed, got {z!r}')
-            assert float(z) == pytest.approx(BLOCK_REST_Z), (
-                f'{scene_name}/{spec["name"]}: z={z} but the table top is {TABLE_TOP_Z}')
+            want = TABLE_TOP_Z + _half_height(spec)
+            assert float(z) == pytest.approx(want), (
+                f'{scene_name}/{spec["name"]}: z={z} but resting on the table '
+                f'({TABLE_TOP_Z}) would be {want}')
 
 
 def test_sampled_blocks_do_not_overlap():
@@ -120,23 +153,51 @@ def test_sampled_blocks_do_not_overlap():
     뽑아 보는 것으로는 운 좋게 통과할 수 있다.
     """
     config, _ = _load()
-
-    def _span(raw):
-        if isinstance(raw, (list, tuple)):
-            return float(raw[0]), float(raw[1])
-        return float(raw), float(raw)
-
     for scene_name, recipe in _recipes(config).items():
         specs = recipe['objects']
         for i, a in enumerate(specs):
             for b in specs[i + 1:]:
-                half = (float(a['size'][0]) + float(b['size'][0])) / 2.0
-                gaps = []
-                for axis in ('x', 'y'):
+                a_half = _footprint_half(a)
+                b_half = _footprint_half(b)
+                for axis, k in (('x', 0), ('y', 1)):
+                    need = a_half[k] + b_half[k]
                     a_lo, a_hi = _span(a[axis])
                     b_lo, b_hi = _span(b[axis])
                     # 두 구간이 가장 가까워지는 거리. 겹치면 0 이다.
-                    gaps.append(max(0.0, max(a_lo - b_hi, b_lo - a_hi)))
-                assert max(gaps) >= half, (
-                    f'{scene_name}: {a["name"]} and {b["name"]} can overlap '
-                    f'(worst-case gap {max(gaps):.3f} m < {half:.3f} m)')
+                    gap = max(0.0, max(a_lo - b_hi, b_lo - a_hi))
+                    if gap >= need:
+                        break       # 이 축만으로 떨어져 있으면 충분하다
+                else:
+                    raise AssertionError(
+                        f'{scene_name}: {a["name"]} and {b["name"]} can overlap '
+                        f'on every axis')
+
+
+def test_sampled_blocks_stay_on_the_table_footprint():
+    """x·y 를 흔들면 블록이 테이블 밖으로 나가 바닥으로 떨어진다.
+
+    z 는 위에서 고정값으로 묶었지만 **x·y 는 범위 추출이라 최악값이 테이블을 넘을 수
+    있다.** 넘으면 물리가 블록을 떨어뜨리고, `/scene/objects` 는 레시피와 다른 자리를
+    말한다 — 실패가 배치 시점이 아니라 파지 시점에 드러난다.
+
+    테이블 자체는 `dynamic: false` 라 `_load()` 의 stage 에 없다. 여기서만 필요하므로
+    JSON 에서 직접 읽는다.
+    """
+    config, _ = _load()
+    with open(_isaac_scene_json(), encoding='utf-8') as handle:
+        scene = json.load(handle)
+    table = next(o for o in scene['objects'] if o['name'] == 'table')
+    tx, ty, _tz = table['position']
+    tdx, tdy, _tdz = table['dimensions']
+    bounds = {'x': (tx - tdx / 2.0, tx + tdx / 2.0), 'y': (ty - tdy / 2.0, ty + tdy / 2.0)}
+
+    for scene_name, recipe in _recipes(config).items():
+        for spec in recipe['objects']:
+            for axis, k in (('x', 0), ('y', 1)):
+                half = _footprint_half(spec)[k]
+                lo, hi = _span(spec[axis])
+                low, high = bounds[axis]
+                assert lo - half >= low and hi + half <= high, (
+                    f'{scene_name}/{spec["name"]}: {axis} range '
+                    f'[{lo - half:.3f}, {hi + half:.3f}] leaves the table '
+                    f'[{low:.3f}, {high:.3f}]')

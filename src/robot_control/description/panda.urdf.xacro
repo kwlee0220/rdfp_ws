@@ -1,37 +1,49 @@
 <?xml version="1.0"?>
 <!--
-  rdfp 패키지용 Panda 최상위 URDF xacro.
+  robot_control 패키지용 Panda 최상위 URDF xacro. **모든 백엔드의 단일 출처다**
+  (`launch_helpers.common.build_moveit_config()` 가 이것을 읽는다).
 
   moveit_resources 의 원본 구조를 따르되, 다음을 추가한다.
   - 물리 시뮬레이션용 inertial 이 보강된 링크(panda_links.urdf.xacro).
   - ros2_control 하드웨어 분기에 `gazebo`(ign_ros2_control) 추가.
   - `gazebo` 선택 시 ign_ros2_control 시스템 플러그인 + (옵션) 카메라 센서.
 
-  mock_components / isaac 로 빌드하면 기존 mock 스택과 동일한 robot_description
-  을 생성한다(추가된 inertial 은 mock 동작에 무해). 즉 단일 description 으로
-  mock / gazebo / isaac 백엔드를 모두 커버한다.
+  moveit_resources 원본과 링크·관절·한계·충돌형상이 완전히 같다(구조 비교로
+  확인). 더해지는 것은 inertial 12개와 하드웨어 분기뿐이며, inertial 은
+  mock 동작에 무해하다.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="panda">
-    <xacro:arg name="initial_positions_file" default="$(find rdfp)/description/initial_positions.yaml" />
+    <xacro:arg name="initial_positions_file" default="$(find robot_control)/description/initial_positions.yaml" />
     <xacro:arg name="ros2_control_hardware_type" default="mock_components" />
+    <!-- isaac(plugin) 백엔드에서 TopicBasedSystem 이 쓸 토픽. 팔과 손이 다른 것은
+         Isaac 그래프가 둘을 따로 받기 때문이다. bridge 방식에서는 쓰이지 않는다. -->
+    <xacro:arg name="isaac_arm_command_topic" default="/isaac_joint_commands" />
+    <xacro:arg name="isaac_gripper_command_topic" default="/isaac_joint_commands" />
+    <xacro:arg name="isaac_joint_states_topic" default="/isaac_joint_states" />
     <!-- gazebo 백엔드에서 ign_ros2_control 플러그인에 넘길 컨트롤러 YAML 절대경로. -->
     <xacro:arg name="ros2_controllers_file" default="$(find moveit_resources_panda_moveit_config)/config/ros2_controllers.yaml" />
     <!-- gazebo 백엔드에서 손목 카메라 센서를 포함할지 여부. -->
     <xacro:arg name="simulate_camera" default="false" />
 
     <!-- 링크/조인트 + inertial (geometry 는 moveit_resources 메시 참조) -->
-    <xacro:include filename="$(find rdfp)/description/panda_links.urdf.xacro" />
+    <xacro:include filename="$(find robot_control)/description/panda_links.urdf.xacro" />
 
     <!-- ros2_control description -->
-    <xacro:include filename="$(find rdfp)/description/panda.ros2_control.xacro" />
-    <xacro:include filename="$(find rdfp)/description/panda_hand.ros2_control.xacro" />
+    <xacro:include filename="$(find robot_control)/description/panda.ros2_control.xacro" />
+    <xacro:include filename="$(find robot_control)/description/panda_hand.ros2_control.xacro" />
 
-    <xacro:panda_ros2_control name="PandaSystem" initial_positions_file="$(arg initial_positions_file)" ros2_control_hardware_type="$(arg ros2_control_hardware_type)" />
-    <xacro:panda_hand_ros2_control name="PandaHandSystem" ros2_control_hardware_type="$(arg ros2_control_hardware_type)" />
+    <xacro:panda_ros2_control name="PandaSystem" initial_positions_file="$(arg initial_positions_file)"
+                              ros2_control_hardware_type="$(arg ros2_control_hardware_type)"
+                              isaac_joint_commands_topic="$(arg isaac_arm_command_topic)"
+                              isaac_joint_states_topic="$(arg isaac_joint_states_topic)" />
+    <xacro:panda_hand_ros2_control name="PandaHandSystem"
+                                   ros2_control_hardware_type="$(arg ros2_control_hardware_type)"
+                                   isaac_joint_commands_topic="$(arg isaac_gripper_command_topic)"
+                                   isaac_joint_states_topic="$(arg isaac_joint_states_topic)" />
 
     <!-- gazebo 전용: ign_ros2_control 시스템 플러그인 + (옵션) 카메라 -->
     <xacro:if value="${'$(arg ros2_control_hardware_type)' == 'gazebo'}">
-        <xacro:include filename="$(find rdfp)/description/panda.gazebo.xacro" />
+        <xacro:include filename="$(find robot_control)/description/panda.gazebo.xacro" />
         <xacro:panda_world_anchor />
         <xacro:panda_gazebo_ros2_control ros2_controllers_file="$(arg ros2_controllers_file)" />
         <xacro:if value="$(arg simulate_camera)">

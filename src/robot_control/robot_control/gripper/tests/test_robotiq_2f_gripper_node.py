@@ -168,3 +168,49 @@ def test_residual_takes_the_worst_axis():
     s = _Stub(goal='close', target=_spread(CLOSED), positions=positions)
     assert s._residual() == pytest.approx(0.05)
     assert s._at_goal() is False
+
+
+# --- 개폐 램프 (2026-09-11) ---------------------------------------------------
+#
+# 시뮬레이터의 그리퍼 서보는 **계단 지령을 자기 최대 속도로** 쫓는다. 천천히 물리려면
+# 지령 자체를 나눠 보내야 한다 — `fb_gripper.set_span` 이 쓰던 방식이다. 노드는
+# 목표를 한 번에 던지고 있었고, **사람이 움직임을 보고 알려 줘서** 드러났다.
+
+def test_ramp_defaults_to_off_so_other_stacks_are_unchanged() -> None:
+    """**기본은 0(계단)** 이다 — 프로파일이 켠 스택만 나눠 보낸다."""
+    from robot_control.gripper.profile import GripperProfile
+
+    bare = GripperProfile({'axis_count': 2, 'axis_signs': [1.0, -1.0]}, 'test')
+    assert bare.command_ramp_sec == 0.0
+
+
+def test_recurdyn_profile_ramps_like_the_reference_script() -> None:
+    """r2 프로파일은 `fb_gripper.set_span` 의 기본값(2.0초)과 같게 둔다."""
+    from robot_control.gripper.profile import load_gripper_profile
+
+    assert load_gripper_profile('functionbay').command_ramp_sec == 2.0
+
+
+def test_ramp_interpolates_from_where_the_fingers_are() -> None:
+    """출발점은 **보고된 현재값**이다.
+
+    목표에서 시작하면 첫 발행이 그대로 점프가 되어 나눠 보내는 의미가 없다.
+    """
+    from robot_control.gripper.profile import load_gripper_profile
+
+    profile = load_gripper_profile('functionbay')
+    # 절반쯤 닫힌 상태를 보고했다고 하면
+    positions = [0.3625, -0.3625]
+    assert profile.scalar_from_report(positions) == pytest.approx(0.3625)
+
+
+def test_ramp_endpoints_are_exact() -> None:
+    """램프가 끝나면 **정확히 목표값**을 보낸다 — 보간 잔차를 남기지 않는다.
+
+    잔차가 남으면 `at_goal` 의 자세 조건(`position_tolerance` 0.005)이 영영 안 선다.
+    """
+    start, target = 0.0, 0.725
+    for ratio in (0.0, 0.5, 1.0):
+        value = start + (target - start) * ratio
+        assert value == pytest.approx(target * ratio)
+    assert start + (target - start) * 1.0 == target

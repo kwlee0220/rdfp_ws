@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from robot_twin.backends import _sample_axis, _sample_scene
@@ -107,3 +109,63 @@ def test_resource_accepts_a_bare_string() -> None:
     """단일 문자열도 같은 형태로 읽혀야 호출부가 두 경우를 나눠 다루지 않는다."""
     assert OperationConfig(name='x', kind='sync', resource='arm').resource_names == ('arm',)
     assert OperationConfig(name='x', kind='sync').resource_names == ()
+
+
+# ---------- 자세(yaw) ----------
+#
+# 위치만 흩어 놓으면 물체가 늘 같은 방향을 보고, 파지 자세가 한 번도 안 바뀐다.
+# **대칭을 넘겨 뽑지 않는 것이 요점이다** — 정육면체는 90° 마다 같은 모양이라
+# [0, 360) 으로 뽑으면 같은 자세를 네 번 세는 셈이다.
+
+RECIPE = ONE_CUBE
+
+CUBE_WITH_YAW = {'objects': [{'name': 'block_a', 'type': 'box', 'size': [0.05, 0.05, 0.05],
+                              'x': 0.4, 'y': 0.0, 'z': 0.425, 'yaw': [0, 90]}]}
+
+
+def _yaw_deg(quat: dict) -> float:
+    return math.degrees(math.atan2(2.0 * (quat['w'] * quat['z']),
+                                   1.0 - 2.0 * quat['z'] * quat['z']))
+
+
+def test_yaw_absent_means_no_rotation() -> None:
+    """`yaw` 를 안 쓴 레시피(실린더 등)는 단위 쿼터니언이어야 한다."""
+    obj = _sample_scene(RECIPE, 0)[0]
+
+    assert obj['orientation'] == {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}
+    assert obj['yaw_deg'] == 0.0
+
+
+def test_yaw_is_sampled_inside_the_declared_range() -> None:
+    seen = [_sample_scene(CUBE_WITH_YAW, seed)[0]['yaw_deg'] for seed in range(40)]
+
+    assert all(0.0 <= value <= 90.0 for value in seen), seen
+    assert len(set(seen)) > 30, '씨앗이 달라도 각도가 거의 안 바뀐다'
+
+
+def test_yaw_becomes_a_z_only_quaternion() -> None:
+    """탁자 위 물체를 눕히면 위에서 잡는 경로가 성립하지 않는다 — z축만 돈다."""
+    for seed in range(10):
+        quat = _sample_scene(CUBE_WITH_YAW, seed)[0]['orientation']
+        assert quat['x'] == 0.0 and quat['y'] == 0.0
+        assert abs(quat['x'] ** 2 + quat['y'] ** 2 + quat['z'] ** 2 + quat['w'] ** 2 - 1.0) < 1e-9
+
+
+def test_quaternion_matches_the_reported_angle() -> None:
+    """`yaw_deg` 는 사람이 읽는 값이고 재현의 근거는 쿼터니언이다 — 둘이 어긋나면 안 된다."""
+    for seed in range(10):
+        obj = _sample_scene(CUBE_WITH_YAW, seed)[0]
+        assert abs(_yaw_deg(obj['orientation']) - obj['yaw_deg']) < 1e-6
+
+
+def test_yaw_follows_the_seed() -> None:
+    assert (_sample_scene(CUBE_WITH_YAW, 5)[0]['yaw_deg']
+            == _sample_scene(CUBE_WITH_YAW, 5)[0]['yaw_deg'])
+    assert (_sample_scene(CUBE_WITH_YAW, 5)[0]['yaw_deg']
+            != _sample_scene(CUBE_WITH_YAW, 6)[0]['yaw_deg'])
+
+
+def test_yaw_accepts_a_fixed_number() -> None:
+    recipe = {'objects': [dict(CUBE_WITH_YAW['objects'][0], yaw=30.0)]}
+
+    assert _sample_scene(recipe, 0)[0]['yaw_deg'] == 30.0

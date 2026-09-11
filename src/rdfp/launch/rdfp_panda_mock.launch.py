@@ -62,7 +62,7 @@ from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch_ros.actions import Node
 
-from robot_control.launch_helpers.camera import create_camera_node
+from robot_control.launch_helpers.camera import create_raw_image_source_node
 from robot_control.launch_helpers.controller import (
     create_joint_state_broadcaster_spawner,
     create_panda_arm_controller_spawner,
@@ -87,11 +87,16 @@ from robot_control.launch_helpers.common import (
     create_servo_node,
     create_static_tf_node,
 )
+from robot_control.backends import get_backend
 from robot_control.launch_helpers.scene import create_mock_scene_node, declare_scene_arguments
 
 # YAML 설정 파일의 기본 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
 DEFAULT_CONFIG_RELPATH = os.path.join("config", "panda_robot.yaml")
+
+
+# 카메라의 raw 출처를 프로파일에서 고르기 위해 쓴다 (`camera.source`).
+_BACKEND = get_backend('mock')
 
 
 def _default_config_path() -> str:
@@ -205,7 +210,8 @@ def _build_actions(context: LaunchContext) -> list:
     move_group_node = create_move_group_node(moveit_config)
     servo_node = create_servo_node(moveit_config, servo_params)
     rviz_node = create_rviz_node(moveit_config)
-    camera_node = create_camera_node()
+    # raw 출처는 프로파일이 정한다 (`camera.source: device` → OpenCV camera_node).
+    camera_node = create_raw_image_source_node(_BACKEND)
     ee_pose_node = create_ee_pose_node()
     gripper_node = create_gripper_node()
     # scene 노드는 move_group 의 planning scene 에 의존하지만 생성자에서 서비스를
@@ -234,7 +240,7 @@ def _build_actions(context: LaunchContext) -> list:
         name="rdfp_image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[
             ("image", LaunchConfiguration("camera_image_topic")),
         ],

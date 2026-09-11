@@ -10,7 +10,7 @@
 
 **액션 이름을 그대로 쓴다는 점이 이 단계의 핵심이다.** mock 백엔드에서는
 ros2_control 의 `GripperActionController` 가, Isaac 에서는
-`gripper_action_bridge` 가 같은 이름의 서버를 연다. 상위 경로(teleop·twin·재생)는
+`panda_hand_controller`(ros2_control) 가 그 서버다. 상위 경로(teleop·twin·재생)는
 백엔드를 몰라도 된다 — 그 사실을 여기서 검증한다.
 
     ./is_check_phase2.py
@@ -19,6 +19,8 @@ ros2_control 의 `GripperActionController` 가, Isaac 에서는
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
 
 import rclpy
@@ -30,8 +32,10 @@ from control_msgs.action import GripperCommand as GripperCommandAction
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
-ARM_COMMAND_TOPIC = '/isaac/arm_command'
+# 같은 디렉터리의 모듈이라 경로를 넣어야 한다 (패키지가 아니라 스크립트 모음이다).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from is_backend import create_arm_client, mode_banner, move_to_named  # noqa: E402
+
 # 그리퍼를 시험하기 전에 팔을 여기로 보낸다. scene 에 테이블이 생긴 뒤로 **자세에 따라
 # 손가락 끝이 상판 안에 박혀** 그리퍼가 물리적으로 막힌다 — 실제로 그 상태를
 # "그리퍼 고장"으로 오독했다(이동 0.0018 m). `ready` 는 손이 상판 위로 뜬다.
@@ -116,16 +120,12 @@ def goto_anchor() -> bool:
     """팔을 기준 자세로 보낸다. 그리퍼가 scene 과 간섭하지 않는 자리를 만든다."""
     from rclpy.parameter import Parameter as RclParameter
 
-    from robot_control.moveit.move_group_factory import create_move_group_client
-
     planner = rclpy.create_node(
         'is_check_phase2_planner',
         parameter_overrides=[RclParameter('use_sim_time', value=True)])
     try:
-        client = create_move_group_client(
-            planner, mode='jgpc', arm_command_topic=ARM_COMMAND_TOPIC,
-            arm_command_joint_names=ARM_JOINT_NAMES, arm_command_format='joint_state')
-        client.move_to_named_target_streamed(ANCHOR_POSE, publish_rate=50.0)
+        client = create_arm_client(planner)
+        move_to_named(client, ANCHOR_POSE)
         ok, detail = True, f'{ANCHOR_POSE} 로 이동'
     except Exception as exc:
         ok, detail = False, f'{type(exc).__name__}: {exc}'
@@ -197,6 +197,7 @@ def main() -> int:
     rclpy.init()
     node = Phase2Checker()
     print('Isaac Phase 2 수용 기준 검사')
+    print(f'  {mode_banner()}')
 
     results = [check_playback(node)]
     if results[0]:

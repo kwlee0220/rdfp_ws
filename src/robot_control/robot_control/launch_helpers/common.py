@@ -13,12 +13,27 @@ from moveit_configs_utils import MoveItConfigsBuilder
 MOVEIT_CONFIGS_PACKAGE_NAME = "moveit_resources_panda_moveit_config"
 MOVEIT_SERVO_PACKAGE_NAME = "moveit_servo"
 
+# description 을 소유한 패키지. robot_description(URDF) 만 이 포크에서 오고,
+# SRDF/kinematics/joint_limits/planning_pipelines 는 계속 moveit_resources 것을 쓴다.
+DESCRIPTION_PACKAGE_NAME = "robot_control"
 
-def declare_ros2_control_hardware_type_argument() -> DeclareLaunchArgument:
-    """ros2_control hardware 타입 launch argument를 선언한다."""
+
+def description_path(*parts: str) -> str:
+    """`robot_control` share 의 description 경로를 구성한다."""
+    return os.path.join(
+        get_package_share_directory(DESCRIPTION_PACKAGE_NAME), "description", *parts)
+
+
+def declare_ros2_control_hardware_type_argument(
+        default_value: str = "mock_components") -> DeclareLaunchArgument:
+    """ros2_control hardware 타입 launch argument를 선언한다.
+
+    백엔드 launch 가 자기 기본값을 준다 (Isaac plugin 은 `isaac`). 값은
+    `description/panda.ros2_control.xacro` 의 분기 이름과 일치해야 한다.
+    """
     return DeclareLaunchArgument(
         "ros2_control_hardware_type",
-        default_value="mock_components",
+        default_value=default_value,
         description=(
             "ROS 2 control hardware interface type "
             "(e.g. mock_components for fake hardware)"
@@ -36,16 +51,29 @@ def declare_log_level_argument() -> DeclareLaunchArgument:
     )
 
 
-def build_moveit_config(joint_limits_file: Optional[str] = None):
-    """Panda MoveIt 설정 객체를 생성한다."""
+def build_moveit_config(joint_limits_file: Optional[str] = None,
+                        description_mappings: Optional[dict[str, Any]] = None):
+    """Panda MoveIt 설정 객체를 생성한다.
+
+    **URDF 는 `robot_control/description/` 의 포크를 쓴다.** moveit_resources 원본과
+    링크·관절·한계·충돌형상이 완전히 같고(구조 비교로 확인), 더해지는 것은 inertial
+    12개와 `gazebo`/`isaac` 하드웨어 분기뿐이다. 원본을 쓰면 백엔드별 분기를 넣을
+    자리가 없어 — 외부 패키지를 고칠 수는 없으므로 — 포크가 단일 출처가 된다.
+
+    Args:
+        joint_limits_file: 관절 한계 YAML 절대경로 (Isaac 은 실제 Franka 스펙을 쓴다).
+        description_mappings: xacro 에 추가로 넘길 인자. Isaac plugin 이
+            `isaac_arm_command_topic` 등 토픽 이름을 여기로 주입한다.
+    """
     return (
         MoveItConfigsBuilder("panda", package_name=MOVEIT_CONFIGS_PACKAGE_NAME)
         .robot_description(
-            file_path="config/panda.urdf.xacro",
+            file_path=description_path("panda.urdf.xacro"),
             mappings={
                 "ros2_control_hardware_type": LaunchConfiguration(
                     "ros2_control_hardware_type"
-                )
+                ),
+                **(description_mappings or {}),
             },
         )
         .robot_description_semantic(file_path="config/panda.srdf")

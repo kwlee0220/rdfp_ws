@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import os
 import sys
 import time
 
@@ -33,8 +34,11 @@ from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformListener
 
-ARM_JOINT_NAMES = [f'panda_joint{i}' for i in range(1, 8)]
-JOINT_STATE_TOPIC = '/joint_states'
+# 같은 디렉터리의 모듈이라 경로를 넣어야 한다 (패키지가 아니라 스크립트 모음이다).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from is_backend import (  # noqa: E402
+    ARM_JOINT_NAMES, JOINT_STATE_TOPIC, create_arm_client, mode_banner)
+
 BASE_FRAME = 'world'
 EE_FRAME = 'panda_hand'
 # use_sim_time 이 반드시 켜져 있어야 하는 노드들.
@@ -142,16 +146,14 @@ def check_tf(node: Phase0Checker) -> bool:
 def check_planning() -> bool:
     """기준 5 — named target 계획이 성공하는가 (실행하지 않는다)."""
     # MoveGroupClient 는 자체 Node 를 spin 하므로 검사 노드와 분리해서 만든다.
-    from robot_control.moveit.move_group_factory import create_move_group_client
-
     # 계획 노드는 move_group 과 시간 기준을 맞춘다.
     planner_node = rclpy.create_node(
         'is_check_phase0_planner',
         parameter_overrides=[Parameter('use_sim_time', value=True)])
     try:
-        # mode 를 명시한다 — auto 판별은 토픽 그래프를 보므로 Phase 0 처럼 명령
-        # 경로가 아직 없는 단계에서는 오판한다.
-        client = create_move_group_client(planner_node, mode='jgpc')
+        # `create_arm_client` 가 mode 를 못박는다 — auto 판별은 토픽 그래프를 보므로
+        # Phase 0 처럼 명령 경로가 아직 없는 단계에서는 오판한다.
+        client = create_arm_client(planner_node)
         # SRDF 파싱과 관절 이름 계약은 named target **목록**으로 확인한다.
         names = client.get_named_targets()
         # 계획은 `ready` 로 한다. `extended` 는 j4=0 을 요구하는데 실제 Franka 스펙의
@@ -177,6 +179,7 @@ def main() -> int:
     rclpy.init()
     node = Phase0Checker()
     print(f'Isaac Phase 0 수용 기준 검사 — {observe_sec:.0f}초 관측')
+    print(f'  {mode_banner()}')
 
     deadline = time.time() + observe_sec
     while rclpy.ok() and time.time() < deadline:

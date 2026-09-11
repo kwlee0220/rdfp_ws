@@ -17,7 +17,8 @@ import numpy as np
 from robot_control.types import Resolution
 from .encoder_probe import select_encoder
 from robot_control.types import InvalidFrameError
-from .ffmpeg_command import SUPPORTED_ENCODINGS, build_ffmpeg_command, channels_for
+from .ffmpeg_command import (INPUT_MJPEG, INPUT_RAWVIDEO, SUPPORTED_ENCODINGS,
+                             build_ffmpeg_command, channels_for, validate_input_format)
 from .state import RecorderState, RecorderStateMachine
 
 
@@ -106,6 +107,7 @@ class FFMpegMp4Recorder:
         queue_size: int = _DEFAULT_QUEUE_SIZE,
         overflow_policy: str = _OVERFLOW_WAIT,
         logger: Optional[logging.Logger] = None,
+        input_format: str = INPUT_RAWVIDEO,
     ) -> None:
         """
         Args:
@@ -114,6 +116,7 @@ class FFMpegMp4Recorder:
                 `(width, height)` 튜플, `"WIDTHxHEIGHT"` 문자열을 지원한다.
                 내부에서 `Resolution` 으로 변환한다.
             pixel_format: `bgr8` / `rgb8` / `bgra8` / `rgba8` / `mono8` 중 하나.
+                `input_format="mjpeg"` 에서는 쓰이지 않는다.
             encoder_mode: `auto` / `cpu` / `gpu`.
             preferred_hw_codec: 지정 시 해당 HW 인코더만 probe.
             bitrate: ffmpeg `-b:v` 값 (예: `"4M"`).
@@ -140,6 +143,7 @@ class FFMpegMp4Recorder:
         # 1. 인자 검증
         if not isinstance(fps, int) or isinstance(fps, bool) or fps <= 0:
             raise ValueError(f"invalid fps: {fps}; must be a positive int")
+        self._input_format = validate_input_format(input_format)
         parsed_resolution = Resolution.parse(resolution, "resolution")
         if pixel_format not in SUPPORTED_ENCODINGS:
             raise ValueError(
@@ -270,6 +274,7 @@ class FFMpegMp4Recorder:
                 pixel_format=self._pixel_format,
                 width=self._resolution.width,
                 height=self._resolution.height,
+                input_format=self._input_format,
                 fps=self._fps,
                 codec=self._selected_codec,
                 bitrate=self._bitrate,
@@ -361,6 +366,11 @@ class FFMpegMp4Recorder:
         # 빠른 상태 체크 (snapshot)
         self._state_machine.require(RecorderState.RECORDING)
 
+        if self._input_format == INPUT_MJPEG:
+            raise InvalidFrameError(
+                "write_bytes() expects raw pixels, but this recorder was created with "
+                f"input_format={INPUT_MJPEG!r}; use write_compressed() instead")
+
         h, w = self._resolution.height, self._resolution.width
         expected = h * w * channels_for(self._pixel_format)
 
@@ -384,8 +394,54 @@ class FFMpegMp4Recorder:
             self._state_machine.require(RecorderState.RECORDING)
             self._enqueue(payload)
 
+    def write_compressed(self, data: bytes | memoryview | bytearray | array) -> None:
+        """이미 압축된 프레임(JPEG) 바이트를 큐에 enqueue 한다.
+
+        ``input_format="mjpeg"`` 로 만든 레코더에서만 쓴다. `sensor_msgs/CompressedImage`
+        의 ``data`` 를 **그대로** 넘기면 ffmpeg 이 디코드와 H.264 인코딩을 함께 하므로
+        우리 쪽에 `cv2.imdecode` 가 필요 없다.
+
+        **크기를 검증하지 않는다** — JPEG 은 프레임마다 길이가 다르다. `write_bytes()` 가
+        ``height * width * channels`` 로 검증하는 것과 갈리는 지점이며, 그래서 진입점을
+        따로 둔다(그 검증을 조건부로 끄면 raw 경로의 안전장치까지 약해진다).
+
+        Args:
+            data: JPEG 바이트. ``bytes`` / ``bytearray`` / contiguous ``memoryview`` /
+                ``array.array('B', ...)`` (rclpy 의 ``CompressedImage.data`` 표준 타입).
+
+        Raises:
+            RecorderStateError: 현재 상태가 ``RECORDING`` 이 아닌 경우.
+            InvalidFrameError: raw 입력 레코더에서 호출했거나 데이터가 비어 있는 경우.
+        """
+        self._state_machine.require(RecorderState.RECORDING)
+
+        if self._input_format != INPUT_MJPEG:
+            raise InvalidFrameError(
+                f"write_compressed() requires input_format={INPUT_MJPEG!r}, "
+                f"but this recorder was created with {self._input_format!r}; "
+                "use write() or write_bytes() for raw frames")
+
+        if isinstance(data, memoryview) and not data.contiguous:
+            if not self._non_contiguous_warned:
+                self._logger.warning(
+                    "received non-contiguous memoryview; copying to contiguous bytes")
+                self._non_contiguous_warned = True
+            data = bytes(data)
+
+        payload = data if isinstance(data, bytes) else bytes(data)
+        if not payload:
+            raise InvalidFrameError("compressed frame is empty")
+
+        with self._state_machine.lock:
+            self._state_machine.require(RecorderState.RECORDING)
+            self._enqueue(payload)
+
     def _prepare_frame_bytes(self, image: np.ndarray) -> bytes:
         """프레임을 검증하고 raw bytes 로 직렬화한다."""
+        if self._input_format == INPUT_MJPEG:
+            raise InvalidFrameError(
+                "write() expects a raw ndarray, but this recorder was created with "
+                f"input_format={INPUT_MJPEG!r}; use write_compressed() instead")
         if not isinstance(image, np.ndarray):
             raise InvalidFrameError(f"image must be np.ndarray, got {type(image).__name__}")
 

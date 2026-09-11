@@ -21,7 +21,7 @@ ImageViewerNode
     - ``image`` 를 ``camera_image_topic`` (기본 ``/camera/image_raw``) 으로
       remap 해 구독하므로 CameraNode 와 함께 쓰면 별도 설정 없이 미리보기가
       가능하다.
-    - ``enable_image_viewer_node:=false`` 로 비활성화 가능.
+    - ``enable_image_viewer:=false`` 로 비활성화 가능.
     - 헤드리스 환경(DISPLAY 미설정 등)에서는 뷰어 기동이 실패하므로
       비활성화하여 사용한다.
 
@@ -93,14 +93,14 @@ def _build_actions(context: LaunchContext) -> list:
 
     # 이미지 뷰어 노드 (parent ImageViewerNode). 카메라가 발행하는 토픽을 그대로
     # 구독하도록 `image` -> camera_image_topic 으로 remap. 헤드리스 환경에서는
-    # `enable_image_viewer_node:=false` 로 끄고 사용한다.
+    # `enable_image_viewer:=false` 로 끄고 사용한다.
     image_viewer_node = Node(
         package="robot_control",
         executable="image_viewer_node",
         name="image_viewer_node",
         output="screen",
         emulate_tty=True,
-        condition=IfCondition(LaunchConfiguration("enable_image_viewer_node")),
+        condition=IfCondition(LaunchConfiguration("enable_image_viewer")),
         remappings=[
             ("image", LaunchConfiguration("camera_image_topic")),
         ],

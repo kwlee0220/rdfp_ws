@@ -21,7 +21,7 @@
 # 사용 예 — 전체 인자는 `--show-args` 로 본다.
 #
 #   ./scripts/run_rdfp_panda_functionbay.sh image_recorder_fps:=10   # 현재 소스에 맞춤
-#   ./scripts/run_rdfp_panda_functionbay.sh image_recorder_auto_start:=true
+#   ./scripts/run_rdfp_panda_functionbay.sh image_recorder_fps:=10
 #   ./scripts/run_rdfp_panda_functionbay.sh enable_image_recorder_node:=false
 #   ./scripts/run_rdfp_panda_functionbay.sh --show-args
 

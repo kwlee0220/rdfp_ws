@@ -24,7 +24,7 @@ docstring 은 규약대로 한국어이며, 위 방식으로 실행하면 편집
 
     PHASE 0  상태 경로 (읽기 전용)
         OnPlaybackTick ─┬─> ROS2PublishClock       → /clock
-                        └─> ROS2PublishJointState  → /joint_states
+                        └─> ROS2PublishJointState  → /isaac_joint_states
         IsaacReadSimulationTime ─> 두 노드의 timeStamp
         ROS2Context(domain_id=31) ─> 모든 ROS2 노드의 context
 
@@ -47,8 +47,8 @@ docstring 은 규약대로 한국어이며, 위 방식으로 실행하면 편집
 
 **로봇은 이 스크립트가 불러오지 않는다.** 스테이지에 이미 올라와 있는
 articulation 을 찾아 쓴다. 에셋 경로는 Isaac 버전마다 바뀌지만 "articulation 이
-하나 있다"는 사실은 변하지 않기 때문이다. 먼저 UI 에서 Franka(Panda) 를 스테이지에
-올린 뒤 이 스크립트를 실행한다.
+하나 있다"는 사실은 변하지 않기 때문이다. **앞 단계의 `load_robot.py` 가 올린다**
+(`headless_bringup.py` 의 순서: load_robot → setup_scene → setup_graph → …).
 
 실행 후 **Play(▶) 를 눌러야** 그래프가 돈다 — ``OnPlaybackTick`` 은 재생 중에만
 tick 을 낸다. 정지 상태에서는 토픽이 하나도 보이지 않는 것이 정상이다.
@@ -56,14 +56,14 @@ tick 을 낸다. 정지 상태에서는 토픽이 하나도 보이지 않는 것
 
 import os as _os
 
-# 워크스페이스·로그 경로. 배포 구성 네 가지를 모두 지원한다 (문서 §1).
+# 워크스페이스·로그 경로. 어느 배포에서도 동작한다 (문서 §1).
 #
 #   환경변수 RDFP_WORKSPACE / RDFP_LOG_DIR 가 있으면 그것을 쓴다. **Isaac 머신과
 #   스택 머신이 다른 구성(§1 C·D)에서는 반드시 지정한다** — 그때는 Isaac 쪽에
 #   저장소 사본이 따로 있고, 로그도 Isaac 머신에 떨어진다.
 #
 #   없으면 같은 머신을 가정한 기본값을 쓴다.
-#     Windows : UNC 로 WSL 파일시스템 (§1 A)
+#     Windows : UNC 로 WSL 파일시스템 (§1 부록)
 #     Linux   : 로컬 경로 (§1 B)
 _IS_WINDOWS = _os.name == "nt"
 _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
@@ -91,7 +91,10 @@ PHASE = int(_os.environ.get("ISAAC_PHASE", "4"))
 # ROS 쪽 계약. docs/simulation/isaac_backend_skeleton.md §3 토픽 계약표와 일치해야 한다.
 ROS_DOMAIN_ID = 31
 CLOCK_TOPIC = "/clock"
-JOINT_STATE_TOPIC = "/joint_states"
+# **`/joint_states` 가 아니다** — 그것은 `joint_state_broadcaster` 가 소유한다.
+# 같은 토픽에 둘이 발행하면 `TopicBasedSystem` 이 자기 출력을 되읽는 고리가 생기고,
+# 소비자는 주기가 다른 발행자 둘을 보게 된다.
+JOINT_STATE_TOPIC = "/isaac_joint_states"
 ARM_COMMAND_TOPIC = "/isaac/arm_command"
 GRIPPER_COMMAND_TOPIC = "/isaac/gripper_command"
 

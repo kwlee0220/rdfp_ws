@@ -20,38 +20,17 @@ from typing import Optional
 
 import sys
 import select
-import termios
-import tty
 from dataclasses import dataclass
 
 import rclpy
 from rclpy.node import Node
 
 from robot_control.ros2_utils import get_parameter, parse_int, parse_str_list
-from ..session.session_control_client import SessionControlClient
+from ..session import SessionControlClient
+from .key_hold import TerminalRawMode
 
 
 _DEFAULT_TASKS = ["touch", "pick_and_place", "push", "stack", "wipe"]
-
-
-class TerminalRawMode:
-    """터미널 raw 모드 컨텍스트 매니저.
-
-    컨텍스트 종료 시(예외 포함) 터미널 설정을 자동 복원한다.
-    """
-
-    def __enter__(self):
-        self._stdin_fd = sys.stdin.fileno()
-        self._old_term = termios.tcgetattr(self._stdin_fd)
-        tty.setcbreak(self._stdin_fd)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """터미널 설정을 복원한다."""
-        try:
-            termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, self._old_term)
-        except Exception:
-            pass
 
 
 @dataclass

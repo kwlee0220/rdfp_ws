@@ -159,18 +159,23 @@ def test_joint_names_is_required():
 
 # ---------- launch 쪽 servo 파라미터 오버라이드 ----------
 
-def _isaac_launch():
-    """`panda_isaac.launch.py` 를 모듈로 읽어 온다 (launch 실행은 하지 않는다)."""
+def _bridge_launch():
+    """`panda_functionbay.launch.py` 를 모듈로 읽어 온다 (launch 실행은 하지 않는다).
+
+    **이 노드의 유일한 사용처가 펑션베이다.** Isaac 은 ros2_control 을 쓰므로 servo 가
+    기본 경로(`JointTrajectory` → JTC)로 나가고 다리가 필요 없다. 옛 Isaac bridge
+    백엔드가 이 계약을 함께 태웠으나 2026-09-05 에 삭제됐다.
+    """
     import importlib.util
     import pathlib
 
     pytest.importorskip('launch_ros', reason='requires ROS 2 launch')
     # robot_control/robot_control/isaac/tests/<this> -> src/robot_control/launch/
     path = (pathlib.Path(__file__).resolve().parents[3]
-            / 'launch' / 'panda_isaac.launch.py')
+            / 'launch' / 'panda_functionbay.launch.py')
     if not path.is_file():
         pytest.skip('launch 파일이 없는 트리 (installed)')
-    spec = importlib.util.spec_from_file_location('panda_isaac_launch', path)
+    spec = importlib.util.spec_from_file_location('panda_functionbay_launch', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -180,8 +185,8 @@ def test_servo_must_not_publish_velocities():
     """**선택이 아니라 필수다.** 켜 두면 servo 의 파라미터 검증이 실패해 노드가
     아예 기동하지 못한다 — 증상은 '팔이 안 움직인다' 뿐이라 원인이 안 보인다.
     """
-    launch = _isaac_launch()
-    params = launch.override_servo_params_for_isaac(
+    launch = _bridge_launch()
+    params = launch.override_servo_params_for_functionbay(
         {'moveit_servo': {'publish_joint_velocities': True}})['moveit_servo']
 
     assert params['publish_joint_velocities'] is False
@@ -191,8 +196,8 @@ def test_servo_must_not_publish_velocities():
 
 def test_servo_output_topic_is_not_a_controller_name():
     """컨트롤러가 없는 스택에서 `/panda_arm_controller/...` 를 쓰면 오해를 부른다."""
-    launch = _isaac_launch()
-    topic = launch.override_servo_params_for_isaac(
+    launch = _bridge_launch()
+    topic = launch.override_servo_params_for_functionbay(
         {'moveit_servo': {}})['moveit_servo']['command_out_topic']
 
     assert topic == launch.SERVO_COMMAND_TOPIC
@@ -201,7 +206,7 @@ def test_servo_output_topic_is_not_a_controller_name():
 
 def test_bridge_joint_names_match_the_arm_group():
     """배열 순서가 곧 관절 순서다 — launch 가 넘기는 이름이 팔 7관절이어야 한다."""
-    launch = _isaac_launch()
+    launch = _bridge_launch()
     assert launch.ARM_JOINT_NAMES == JOINTS
 
 

@@ -37,6 +37,8 @@ from robot_control.ros2_utils import (SYSTEM_QOS, get_optional_parameter, get_pa
 from robot_control.types import Fps, Resolution
 
 
+# `/clock` 발행자가 디스커버리에 잡히기까지 기다리는 시간.
+_SIM_TIME_CHECK_DELAY_SEC: float = 5.0
 _READ_FAIL_LOG_INTERVAL_SEC: float = 5.0
 _CONVERT_FAIL_LOG_INTERVAL_SEC: float = 5.0
 _DEFAULT_FALLBACK_FPS: float = 30.0
@@ -57,7 +59,11 @@ _ACTIVE_STATES = ('IN_SESSION', 'IN_EPISODE')
 
 
 class RdfpCameraNode(Node):
-    """세션 상태에 따라 카메라 캡처·이미지 발행을 제어하는 노드.
+    """카메라를 **세션에 맞춰** 켜고 끄는 노드 — 재연결을 스스로 한다.
+
+    ``camera_node`` 와 갈리는 축이 이것이다. 구현은 같은 ``OpenCvCamera`` 를 쓰므로
+    갈리는 것은 **세션 결합**과 **끊김을 누가 복구하는가** 둘뿐이다.
+    선택 표: ``docs/camera/README.md``.
 
     ``session`` 토픽의 state 값에 따라 동작이 결정된다:
 
@@ -109,14 +115,24 @@ class RdfpCameraNode(Node):
         self._last_convert_fail_log_ts: float = 0.0
         # CameraInfo 매트릭스 계산에 사용하는 실제 카메라 해상도
         self._actual_resolution: Optional[Resolution] = None
+        # 마지막으로 발행한 이미지의 stamp(ns). 에피소드 경계 감사에 쓴다.
+        self._last_published_ns: int = 0
 
         # TRANSIENT_LOCAL 이므로 초기 상태를 한 번 실어 둔다 — 그러지 않으면
         # 첫 세션 전이 전까지 late-joiner 가 latch 된 값을 하나도 못 받는다.
         self._publish_status(_STATUS_DISCONNECTED)
 
         # 6. 세션 토픽 구독 (SessionControlNode 발행 QoS와 동일)
-        self._session_sub = self.create_subscription(SessionCommand, 'session', self._on_session,
-                                                     SYSTEM_QOS)
+        # 절대 이름이다 — 세션은 시스템에 하나이고 로봇별 네임스페이스를 타면 안 된다
+        # (docs/topic_naming_contract.md §2.5). 상대로 두면 `/abc/session` 을 찾아
+        # 조용히 아무것도 못 받는다.
+        self._session_sub = self.create_subscription(SessionCommand, '/session',
+                                                     self._on_session, SYSTEM_QOS)
+
+        # 시계 불일치 검사는 **한 박자 늦게** 한다 — 기동 직후에는 `/clock` 발행자가
+        # 아직 디스커버리에 안 잡힌다.
+        self._sim_time_check_timer: Optional[Any] = self.create_timer(
+            _SIM_TIME_CHECK_DELAY_SEC, self._check_clock_source)
 
         # 로그용 마스킹 camera_id (RTSP URL 자격증명 보호)
         self._masked_camera_id = mask_camera_id_for_log(self._camera_id)
@@ -164,6 +180,9 @@ class RdfpCameraNode(Node):
         state = msg.state
         prev = self._prev_state
 
+        if prev == 'IN_EPISODE' and state != 'IN_EPISODE':
+            self._audit_episode_tail(msg)
+
         if state == 'IDLE':
             self._handle_idle()
         elif state == 'IN_SESSION':
@@ -175,6 +194,54 @@ class RdfpCameraNode(Node):
             return
 
         self._prev_state = state
+
+    def _check_clock_source(self) -> None:
+        """`/clock` 이 도는데 `use_sim_time` 이 꺼져 있으면 알린다 (한 번만).
+
+        **증상이 '이미지가 DB 에 하나도 없다'뿐이라 원인이 안 보인다.** 세션은 sim
+        time 으로 stamp 를 찍고 이 노드는 벽시계로 찍으므로 (Isaac 실측 기준 1745초
+        대 17억초) 이미지가 에피소드 창에서 통째로 벗어난다. rosbag 에는 멀쩡히
+        남아 있어서 "녹화는 됐는데 적재만 안 됐다"로 보인다.
+        """
+        self._cancel_sim_time_check()
+
+        if self.get_parameter('use_sim_time').value:
+            return
+        if self.count_publishers('/clock') == 0:
+            return
+
+        self.get_logger().error(
+            '/clock is being published but use_sim_time is false — image stamps will be '
+            'wall-clock while session stamps are sim time, so every image falls outside the '
+            'episode window (rosbag keeps them, the dataset does not). '
+            'Pass -p use_sim_time:=true.')
+
+    def _cancel_sim_time_check(self) -> None:
+        """시계 검사 타이머를 취소·파기한다 (한 번만 돌면 되고, 종료 시에도 부른다)."""
+        if self._sim_time_check_timer is None:
+            return
+        self._sim_time_check_timer.cancel()
+        self.destroy_timer(self._sim_time_check_timer)
+        self._sim_time_check_timer = None
+
+    def _audit_episode_tail(self, msg: SessionCommand) -> None:
+        """에피소드를 나갈 때, 정지 stamp 보다 늦은 이미지를 발행했는지 살핀다.
+
+        **막을 수는 없고 알릴 수만 있다.** 발행 시점에는 정지 stamp 를 아직 모른다 —
+        메시지가 t₁ 에 나가고 t₁+δ 에 도착하는데, 그 사이에 도는 타이머 콜백은
+        ``_publishing`` 이 아직 True 라 발행해 버린다. 막으려면 프레임을 한 주기
+        미뤄 두었다가 내보내야 하는데, 그러면 뷰어·텔레오퍼레이션이 그만큼 늦게
+        본다. 그래서 **경계 교정은 하위 소비자에게 맡긴다** — 레코더와 데이터셋
+        적재가 모두 ``header.stamp`` 로 창을 거른다. 여기서는 **조용히 버려지는
+        일이 없도록 로그로 드러내기만 한다.**
+        """
+        stop_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        if stop_ns <= 0 or self._last_published_ns <= stop_ns:
+            return
+        overshoot_ms = (self._last_published_ns - stop_ns) / 1e6
+        self.get_logger().warning(
+            f'episode tail: last image stamp is {overshoot_ms:.1f} ms after the stop stamp; '
+            'downstream stamp windows will drop it')
 
     def _handle_idle(self) -> None:
         """IDLE 상태 처리: 타이머 취소, 카메라 해제, 플래그 리셋."""
@@ -219,6 +286,15 @@ class RdfpCameraNode(Node):
 
         self._publishing = True
         self.get_logger().info('session IN_EPISODE: publishing started')
+
+        # **전이 즉시 한 장 찍는다.** 타이머는 자유 주행이라 전이가 주기를 앞당기지
+        # 않는다. 그대로 두면 에피소드 시작 직후 **최대 한 주기**(10 Hz면 100 ms)
+        # 동안 이미지가 없다 — 실측 86~92 ms. 찍은 뒤 타이머를 리셋해 그 다음
+        # 간격이 비정상적으로 짧아지지 않게 한다.
+        if self._timer is not None and self._camera.is_opened:
+            self._timer_callback()
+            if self._timer is not None:      # 콜백이 끊김을 만나 타이머를 멈췄을 수 있다
+                self._timer.reset()
 
     def _open_camera_and_start_timer(self) -> None:
         """카메라를 열고 캡처 타이머를 생성한다.
@@ -348,6 +424,7 @@ class RdfpCameraNode(Node):
         ros_image.header.stamp = stamp
         ros_image.header.frame_id = self._frame_id
         self._image_pub.publish(ros_image)
+        self._last_published_ns = stamp.sec * 1_000_000_000 + stamp.nanosec
 
         camera_info = self._create_camera_info_msg()
         if camera_info is not None:
@@ -428,6 +505,7 @@ class RdfpCameraNode(Node):
     def destroy_node(self) -> None:
         """노드 종료 시 타이머를 취소하고 카메라를 해제한다."""
         self._cancel_timer()
+        self._cancel_sim_time_check()
         if self._retry_timer is not None:
             self._retry_timer.cancel()
             self.destroy_timer(self._retry_timer)
@@ -447,6 +525,8 @@ def main(args: Optional[list[str]] = None) -> None:
 
     from robot_control.logging_bridge import configure_logging_bridge
     configure_logging_bridge(package_logger_name='rdfp')
+    # `OpenCvCamera` 는 `robot_control` 것이라 따로 걸어야 로그가 보인다.
+    configure_logging_bridge(package_logger_name='robot_control')
 
     node: Optional[RdfpCameraNode] = None
     try:

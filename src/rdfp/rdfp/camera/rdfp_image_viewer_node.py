@@ -70,7 +70,11 @@ from robot_control.camera.image_viewer_node import ImageViewerNode
 from robot_control.ros2_utils import SYSTEM_QOS, log_periodic
 
 
-_DEFAULT_SESSION_TOPIC = 'session'
+# **절대 이름이다 — 세션은 시스템에 하나다.** 로봇별 네임스페이스를 도입해도
+# 따라 붙으면 안 된다. `/clock`·`/tf` 와 같은 부류이며, 로봇이 둘 이상인 것은
+# 공동 작업으로 하나의 학습 데이터를 만든다는 뜻이다
+# (docs/topic_naming_contract.md §2.5).
+_DEFAULT_SESSION_TOPIC = '/session'
 _DEFAULT_NODE_NAME = 'rdfp_image_viewer_node'
 _DEFAULT_WINDOW_NAME = 'rdfp_image_viewer'
 
