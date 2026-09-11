@@ -405,9 +405,9 @@ end_task(outcome='success')                   → 배치는 자동으로 metadat
 
 **부수 효과**: MCP 서버가 ROS 를 몰라도 되므로 `source install/setup.bash` 없이 어느 머신에서나 돈다.
 
-### 5.2 코드 위치 — `robot-twin` 프로젝트 안
+### 5.2 코드 위치 — 클라이언트 프로젝트 안
 
-**후보**: (a) `robot-twin` 프로젝트 안 (b) 별도 uv 프로젝트 (c) `rdfp_ws` 의 ROS 패키지(`robot_twin`)
+**후보**: (a) 클라이언트 프로젝트(`robot-twin-client`) 안 (b) 별도 uv 프로젝트 (c) `rdfp_ws` 의 ROS 패키지(`robot_twin`)
 
 **결정**: (a).
 
