@@ -300,7 +300,7 @@ TCP 오프셋 10.3 cm 와 `panda_link8` 의 45° yaw 를 보정하는 일을 이
 
 ```bash
 cd ~/development/mdtpy/robot-twin
-uv run python -c "from robot_twin_client import RobotTwin; print(RobotTwin(port=8802, twin_id='panda_isaac').health())"
+uv run python -c "from robot_twin_client import RobotTwinClient; print(RobotTwinClient(port=8802, twin_id='panda_isaac').health())"
 ```
 
 ### A-1. 파지 만들기 (A 의 시작 상태)
@@ -310,10 +310,10 @@ uv run python -c "from robot_twin_client import RobotTwin; print(RobotTwin(port=
 ```bash
 # ~/development/mdtpy/robot-twin 에서
 uv run python - <<'PY'
-from robot_twin_client import RobotTwin
+from robot_twin_client import RobotTwinClient
 from robot_twin_client.pick_n_place import pick, grasp_pose_of, above_of
 
-twin = RobotTwin(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
 objs = twin.run('reset_scene', {'scene': 'one_block'})['outputs']['objects']
 g = grasp_pose_of(objs[0])
 print('grasp at', g['position'])
@@ -350,10 +350,10 @@ joint5 를 나란히 기록한다(`--csv`). `--input` 은 m/s 가 아니라 [-1,
 ```bash
 uv run python - <<'PY'
 import json
-from robot_twin_client import RobotTwin
+from robot_twin_client import RobotTwinClient
 from robot_twin_client.ops import set_gripper
 
-twin = RobotTwin(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
 assert set_gripper(twin, 'open')['at_goal']
 r = twin.run('move_to_joints', {'joints': json.load(open('/tmp/start_A.json')),
                                 'velocity_scaling': 0.2})
@@ -371,10 +371,10 @@ PY
 
 ```bash
 uv run python - <<'PY'
-from robot_twin_client import RobotTwin
+from robot_twin_client import RobotTwinClient
 from robot_twin_client.pick_n_place import pick, grasp_pose_of, above_of
 
-twin = RobotTwin(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
 objs = twin.run('reset_scene', {'scene': 'one_block'})['outputs']['objects']
 g = grasp_pose_of(objs[0])
 assert pick(twin, above_of(g), g)

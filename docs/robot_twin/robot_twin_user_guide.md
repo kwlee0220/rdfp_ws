@@ -1097,7 +1097,7 @@ class TwinError(Exception):
         self.body = body
 
 
-class RobotTwin:
+class RobotTwinClient:
     def __init__(self, host: str = '127.0.0.1', port: int = 8801,
                  twin_id: str = 'panda01') -> None:
         self.base = f'http://{host}:{port}/api/v1/robot_twins/{twin_id}'
@@ -1172,7 +1172,7 @@ class RobotTwin:
 
 
 if __name__ == '__main__':
-    twin = RobotTwin()
+    twin = RobotTwinClient()
 
     h = twin.health()
     print(f"move_group={h['move_group']}  estop={h['estop']}")
@@ -1199,7 +1199,7 @@ import random
 import time
 
 
-def run_with_retry(twin: RobotTwin, operation: str, inputs: dict,
+def run_with_retry(twin: RobotTwinClient, operation: str, inputs: dict,
                    *, attempts: int = 5) -> dict:
     """자원이 비기를 기다렸다가 실행한다. jitter 로 재시도 몰림을 막는다."""
     for i in range(attempts):
@@ -1264,7 +1264,7 @@ while True:
 `COMPLETED` 는 도달을 뜻하지 않는다 (4.2). `outputs` 에 `fraction` 이 없으므로 **요청한 pose 와 `final_pose` 를 비교하는 것이 유일한 확인 수단**이다.
 
 ```python
-def move_linear_verified(twin: RobotTwin, pose: dict, *, tol_m: float = 0.005) -> dict:
+def move_linear_verified(twin: RobotTwinClient, pose: dict, *, tol_m: float = 0.005) -> dict:
     """직선 이동 후 실제 도달했는지 확인한다.
 
     반환 dict 의 `reached` 가 False 면 경로 일부만 실행된 것이다 — 트윈은 이를
@@ -1328,7 +1328,7 @@ if not check['reached']:
 값이 된다 — 그 숫자는 `GripperNode` 의 `targets` 파라미터가 갖는다.
 
 ```python
-def set_gripper(twin: RobotTwin, target: str) -> dict:
+def set_gripper(twin: RobotTwinClient, target: str) -> dict:
     """그리퍼를 조작하고 상태를 그대로 돌려준다.
 
     **성패는 at_goal 하나로 읽는다.** goal 별 판정식은 GripperNode 가 이미 적용했다
@@ -1371,13 +1371,13 @@ else:
 ARM_PREFIX = 'panda_joint'
 
 
-def capture_pose(twin: RobotTwin) -> dict:
+def capture_pose(twin: RobotTwinClient) -> dict:
     """현재 팔 자세를 move_to_joints 입력 형태로 저장한다."""
     position = twin.read('joint_states')['position']
     return {k: v for k, v in position.items() if k.startswith(ARM_PREFIX)}
 
 
-def restore_pose(twin: RobotTwin, joints: dict, *, tol_rad: float = 0.01) -> bool:
+def restore_pose(twin: RobotTwinClient, joints: dict, *, tol_rad: float = 0.01) -> bool:
     """저장해 둔 자세로 복귀하고 실제 도달을 확인한다."""
     result = twin.run('move_to_joints', {'joints': joints, 'velocity_scaling': 0.2})
     if result['status'] != 'COMPLETED':
@@ -1414,7 +1414,7 @@ twin.run('move_to_joints', {'joints': {'panda_joint1': 0.5}})   # 1번 축만 �
 올리는 최소 흐름이다.
 
 ```python
-def pick(twin: RobotTwin, above: dict, grasp: dict) -> bool:
+def pick(twin: RobotTwinClient, above: dict, grasp: dict) -> bool:
     """접근 → 하강 → 파지 → 상승. 각 단계의 결과를 확인하고 진행한다."""
     if not set_gripper(twin, 'open')['at_goal']:
         print('그리퍼를 열지 못했다'); return False
@@ -1451,7 +1451,7 @@ def above_of(grasp: dict, *, clearance_m: float = 0.10) -> dict:
 
 
 def main() -> int:
-    twin = RobotTwin()
+    twin = RobotTwinClient()
 
     # 팔 연산은 MoveGroup 이 준비되어야 시작된다. 그리퍼만 쓸 거라면 불필요하다 (9.3).
     health = twin.health()
@@ -1506,7 +1506,7 @@ reset_scene(seed=i) ─ move_to_named_target(ready) ─┬─ start_episode
 데이터에 섞인다.
 
 ```python
-def collect(twin: RobotTwin, episodes: int, *, scene: str = 'one_cube',
+def collect(twin: RobotTwinClient, episodes: int, *, scene: str = 'one_cube',
             task_label: str = 'pick_red_cube') -> None:
     """에피소드를 연속으로 수집한다. 실패도 유효한 데이터로 남긴다."""
     # 이전 실행이 남긴 열린 에피소드를 정리한다 (IDLE 에서는 거부되므로 먼저 확인).

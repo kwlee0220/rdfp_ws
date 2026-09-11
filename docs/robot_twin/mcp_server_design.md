@@ -478,7 +478,7 @@ end_task(outcome='success')                   → 배치는 자동으로 metadat
 **결정**: `pyproject.toml` 의 `[project.optional-dependencies]` 에 둔다.
 
 **근거**: MCP SDK 가 pydantic / starlette / uvicorn 등 30개 이상을 끌고 온다.
-`RobotTwin` 클라이언트만 쓰는 쪽이 그 비용을 질 이유가 없다 — 이 프로젝트는 "표준 라이브러리만 쓴다"가 특징이었다.
+`RobotTwinClient` 만 쓰는 쪽이 그 비용을 질 이유가 없다 — 이 프로젝트는 "표준 라이브러리만 쓴다"가 특징이었다.
 
 **따라오는 제약**: `__init__.py` 가 `mcp_server` 를 import 하면 안 된다. 그러면 extra 없는 환경에서 `import robot_twin` 자체가 실패한다. 주석으로 명시했고 테스트로 확인한다.
 
@@ -494,7 +494,7 @@ low-level 은 `types.Tool(name=, description=, input_schema=)` 를 직접 만들
 
 **결정**: 도구 실행을 `asyncio.to_thread(tools.call, ...)` 로 감싼다.
 
-**근거**: `RobotTwin` 은 `urllib` 기반 동기 호출이고 팔 이동은 수십 초가 걸린다. MCP SDK 는 asyncio 이므로 이벤트 루프에서 직접 돌리면 **그동안 상태 조회조차 응답하지 못한다.** 카탈로그 조회(`tools/list`)도 HTTP 이므로 같이 내렸다.
+**근거**: `RobotTwinClient` 은 `urllib` 기반 동기 호출이고 팔 이동은 수십 초가 걸린다. MCP SDK 는 asyncio 이므로 이벤트 루프에서 직접 돌리면 **그동안 상태 조회조차 응답하지 못한다.** 카탈로그 조회(`tools/list`)도 HTTP 이므로 같이 내렸다.
 
 ### 5.12 도구 실패를 예외가 아니라 `is_error` 결과로
 
@@ -547,7 +547,7 @@ low-level 은 `types.Tool(name=, description=, input_schema=)` 를 직접 만들
 
 ### 6.5 타임아웃이 두 층에 있다
 
-`RobotTwin.run()` 의 폴링 상한(기본 120초)과 **MCP 클라이언트 쪽 타임아웃**이 별개다. 클라이언트가 먼저 끊으면 로봇은 계속 움직이는데 에이전트는 결과를 못 받는다. 긴 연산이 잦으면 클라이언트 타임아웃을 늘려야 한다.
+`RobotTwinClient.run()` 의 폴링 상한(기본 120초)과 **MCP 클라이언트 쪽 타임아웃**이 별개다. 클라이언트가 먼저 끊으면 로봇은 계속 움직이는데 에이전트는 결과를 못 받는다. 긴 연산이 잦으면 클라이언트 타임아웃을 늘려야 한다.
 
 ### 6.6 mock 백엔드에서는 파지 판정이 서지 않는다
 
