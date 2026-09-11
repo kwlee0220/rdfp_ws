@@ -214,7 +214,7 @@ launch 가 띄우므로 직접 실행할 일은 드물다.
 ros2 run robot_control gripper_action_node --ros-args -r __node:=gripper
 ```
 
-**띄우는 launch** — `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `replay_panda_mock` 은 항상, `panda_isaac` / `rdfp_panda_isaac` 은 `enable_gripper:=true` 일 때 (`isaac_gripper_bridge` 와 함께).
+**띄우는 launch** — `panda_mock`, `panda_jgpc_mock`, `panda_gazebo`, `rdfp_panda_mock`, `rdfp_panda_jgpc_mock`, `replay_panda_mock` 은 항상, `panda_isaac` / `rdfp_panda_isaac` 은 `enable_gripper:=true` 일 때 (`panda_hand_controller` 와 함께).
 
 `panda_functionbay` 는 **띄우지 않는다** — 액션 서버가 없어 이 구현을 쓸 수 없다.
 
@@ -256,11 +256,11 @@ create_gripper_node({'targets.pinch': [0.015, 10.0]})
 
 ## 7. Isaac 도 이 노드를 쓴다 — 이름이 그래서 `Action` 이다
 
-Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다. 대신 `isaac_gripper_bridge` 가 **같은 이름의 액션 서버**를 열고 받은 목표를 관절 위치 토픽으로 바꾼다. 명령 경로가 mock 과 동일해지므로 이 노드를 그대로 쓴다.
+Isaac 에는 ros2_control 이 없어 `panda_hand_controller` 액션 서버가 없다. 대신 `panda_hand_controller` 가 **같은 이름의 액션 서버**를 열고 받은 목표를 관절 위치 토픽으로 바꾼다. 명령 경로가 mock 과 동일해지므로 이 노드를 그대로 쓴다.
 
 ```text
 mock    /gripper_cmds → GripperActionNode → gripper_cmd 액션 → panda_hand_controller
-Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → isaac_gripper_bridge
+Isaac   /gripper_cmds → GripperActionNode → gripper_cmd 액션 → panda_hand_controller
                                                                 → /isaac/gripper_command
 ```
 

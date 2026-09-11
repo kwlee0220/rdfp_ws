@@ -100,27 +100,6 @@
 달고 있지만 그쪽은 *우리가 짓지 않은 외부 규약*이고 모든 백엔드에서 같다. 그리퍼는
 우리 노드이고 구현마다 갈렸다 — 남길 이유가 없다.
 
-#### 폐기 기록 — `gripper_action_states` (2026-09-02)
-
-`GripperActionState` 와 `/gripper_control/gripper_action_states` 는 **삭제됐다.**
-`GripperState` 와 필드가 겹쳤고, 남길 근거로 들었던 둘이 모두 해소됐기 때문이다.
-
-| 남길 근거였던 것 | 어떻게 해소됐나 |
-|---|---|
-| 트윈의 명령 완료 신호 (주기 발행인 `gripper_states` 로는 "갱신됨"이 "끝남"을 뜻하지 않는다) | `at_goal` 이 **판정을 값 안에 담는다.** 갱신 여부를 볼 필요가 없어졌다 |
-| Isaac 의 유일한 파지 지표 (`stalled = not reached`) | 해소되지 않았다 — 아래 |
-
-**부채였던 Isaac 파지 관측은 해소됐다 (2026-09-02).** `GripperActionNode` 에
-`stall_effort` 파라미터가 생겼고 Isaac 은 `1.0` N·m 로 켠다 — 실측에서 빈손은
-0.13 N·m 를 넘지 않고 파지는 22.4 N·m 로 유지된다
-([GripperNode_Design.md](gripper/GripperNode_Design.md) §4).
-
-> **학습 신호로서는 잃은 것이 없다.** action 은 `gripper_cmds`(의도)가, 관측은
-> `gripper_states` 가 담는다. 사라진 `reached_goal`/`status` 는 진단값이었다.
->
-> **mock 은 애초에 파지를 관측할 수 없다** — planning scene 물체에 물리가 없어 어느
-> 채널이든 `stalled` 가 무의미하다.
-
 ### 2.3 명령 (action)
 
 | 채널 | 정규 이름 | 타입 | 비고 |
@@ -162,8 +141,21 @@
 
 | 채널 | 정규 이름 | 비고 |
 |---|---|---|
-| 세션 상태 | `session` | `TRANSIENT_LOCAL` |
+| 세션 상태 | **`/session`** | `TRANSIENT_LOCAL`. **절대 이름 — 시스템 전역이다** (아래). 규약의 유일한 예외 |
 | scene 리셋 | `scene/reset` | **서비스** (`rdfp_msgs/srv/ResetScene`) |
+
+> **세션은 시스템에 하나다 — `/clock` 과 같은 부류다.** 로봇이 둘 이상이어도 그것은
+> **공동 작업으로 하나의 학습 데이터를 만든다**는 뜻이지 각자 수집한다는 뜻이 아니다.
+> 서로 다른 학습 작업은 **`ROS_DOMAIN_ID` 를 나눠서** 한다.
+>
+> 그래서 세션은 §5 의 로봇별 네임스페이스에 **들어가지 않는다.** 나누면 한쪽 조작자의
+> `stop_episode` 가 다른 쪽 에피소드를 자르고, 에피소드 경계가 로봇마다 갈려 공동
+> 작업이 하나의 시연으로 안 묶인다.
+>
+> **그래서 이 채널만 노드 코드에 절대 이름으로 적는다** — §4 의 "절대 경로를 쓰지
+> 않는다"에 대한 **명시적 예외**다. 상대로 두고 launch 에서 되remap 하는 길도 있지만,
+> remap 을 빠뜨리면 조용히 실패하므로 택하지 않았다. 서비스(`/session_control/*`)도
+> 같은 이유로 `SessionControlClient` 의 기본 namespace 가 절대다.
 
 > **그리퍼의 하드웨어 접점은 규약에 없다.** mock 은
 > `panda_hand_controller/gripper_cmd` 액션을 부르고, 펑션베이는 관절 토픽을 쓰며,
@@ -186,6 +178,10 @@
 
 **이것을 통일하지 않는다.** 컨트롤러 유무와 메시지 타입이 근본적으로 다르고, 통일하려면
 어느 한쪽에 억지 어댑터를 넣어야 한다.
+
+**타입이 갈리므로 remap 으로도 못 잇는다** — 그래서 이 채널만은 파라미터로 받는다
+(트윈의 `moveit.arm_command_*`). 이것은 임의의 예외가 아니라 §4.1 기준 ①의 대표
+사례다.
 
 대신 **`target_joint_cmds` 가 그 위의 정규 채널**이다. `target_joint_cmds_publisher` 가
 스택별 명령을 이 하나로 변환해 발행하고, 데이터셋은 그것만 본다.
@@ -212,13 +208,34 @@
 - remap 은 **백엔드 launch 안에서만** 쓴다.
 - 상위 계층(수집·트윈·teleop·검사 스크립트)은 **정규 이름만** 안다.
 - 노드 코드에는 **절대 경로를 쓰지 않는다.** 상대로 두면 remap 도 네임스페이스도 모두
-  통한다.
+  통한다. **유일한 예외가 세션이다** (`/session`, `/session_control/*`) — 전역이어야
+  하므로 네임스페이스를 타면 안 된다 (§2.5).
+
+### 4.1 그럼 언제 파라미터로 받나
+
+**판단 기준은 하나다 — 이름만 바꾸면 되는가, 아니면 노드가 그 값을 *알아야* 하는가.**
+전자는 remap, 후자는 파라미터다. remap 은 연결을 바꿀 뿐이라 노드는 자기가 무슨 이름에
+붙었는지 모른다.
+
+| 파라미터가 필요한 경우 | 왜 remap 으로 안 되나 | 예 |
+|---|---|---|
+| ① **메시지 타입이 갈린다** | remap 은 **이름만** 바꾼다. 타입이 다르면 ROS 2 는 **에러 없이 연결하지 않는다** — 증상이 "성공했다고 보고하면서 아무것도 안 한다"가 된다 | 트윈의 `moveit.arm_command_*` (§3) |
+| ② **노드가 이름에서 무언가를 유도한다** | 노드가 이름을 값으로 읽어야 한다 | `TrajectoryStreamer` 가 `command_topic` 에서 컨트롤러 노드 이름을 만들어 `joints` 를 조회한다 ([trajectory_streamer.py](../src/robot_control/robot_control/moveit/trajectory_streamer.py) `controller_node_name=None`) |
+| ③ **launch 를 안 거친다** | remap 을 쓸 자리가 없다 | `replay_gui` 같은 CLI·GUI |
+
+①은 §3 을 일반화한 것이다 — arm 명령이 규약에서 빠진 것은 임의의 예외가 아니라 **이
+기준의 대표 사례**다.
+
+**그 밖에는 파라미터를 쓰지 않는다.** 아래 표의 상당수가 여기에 해당한다 — 세 조건 중
+어디에도 안 들어가면서 파라미터로 받고 있고, 기본값이 절대라 네임스페이스도 안 먹는다.
 
 ### 지금 어긋나 있는 곳
 
 | 위치 | 문제 |
 |---|---|
 | `image_pipeline.yaml` 의 `image_topic` 등 | 기본값이 절대(`/camera/image_raw`) |
+| `mock_scene_state_node` 의 `scene_topic` | 기본값 **`/scene/objects`** — 절대. §4.1 의 세 조건에 안 든다 |
+| `joint_state_fusion_node` 의 `input_topic`/`output_topic` | 기본값 **`/output/panda_joint`**, **`/joint_states`** — 절대이고 **백엔드 이름이 노드 코드에 박혀 있다** |
 | `ARM_COMMAND_TOPIC` 류 상수 | 절대. 백엔드 이름이 박혀 있다 |
 | `scripts/isaac/is_check_*.py` | 절대 이름 11종 |
 | `robot_twin/config/*.yaml` | 절대 이름 8종 |
@@ -249,6 +266,7 @@ GroupAction([
 | 항목 | 판단 |
 |---|---|
 | `/clock` | **전역 유지.** 네임스페이스에 들어가면 sim time 이 깨진다 |
+| `/session` · `/session_control/*` | **전역 유지** (§2.5). **이미 절대 이름으로 바꿔 뒀다** — 발행자·소비자 넷과 클라이언트 기본 namespace 전부. 네임스페이스를 도입해도 추가 작업이 없다 |
 | `/tf`, `/tf_static` | 전역 유지 + **프레임 이름에 접두사**(`abc/panda_link0`). URDF·SRDF·MoveIt 설정까지 번지는 **별도 작업**이다 |
 | MoveIt · ros2_control | 네임스페이스 안에서 동작하지만 검증 비용이 가장 크다 |
 | 소비자(스크립트·트윈·녹화 목록) | 네임스페이스를 주입할 경로가 필요하다 |

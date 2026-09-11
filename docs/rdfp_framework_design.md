@@ -107,8 +107,21 @@ flowchart LR
 | 출력 | 카메라 RGB | `/camera/image_raw` | `sensor_msgs/Image` |
 | **제어** | 에피소드 경계 | `/session` | `rdfp_msgs/SessionCommand` (TRANSIENT_LOCAL) |
 
+> **위 표는 런타임에 보이는 절대 이름이다. 노드 코드는 상대 이름으로 선언한다** —
+> `'/joint_states'` 가 아니라 `'joint_states'` 다. 그래야 백엔드 경계에서 remap 이
+> 통하고, 로봇별 네임스페이스가 나중에 자동으로 붙는다. 채널을 새로 만들거나 이름을
+> 바꿀 때의 규칙(단수/복수, remap 을 쓸 곳, 파라미터로 받아야 하는 예외)은
+> [topic_naming_contract.md](topic_naming_contract.md) 가 정본이다.
+
 `/session` 만 성격이 다르다 — 로봇을 움직이는 명령이 아니라 **데이터 수집 구간을
 선언**하는 신호이며, 에피소드 생성기와 저장기가 함께 본다.
+
+**그래서 세션은 시스템에 하나다.** 로봇이 둘 이상이면 그것은 **공동 작업으로 하나의
+학습 데이터를 만든다**는 뜻이지 각자 수집한다는 뜻이 아니다 — 나누면 한쪽의
+`stop_episode` 가 다른 쪽 에피소드를 잘라 공동 작업이 하나의 시연으로 안 묶인다.
+**서로 다른 학습 작업은 `ROS_DOMAIN_ID` 를 나눠서** 한다. 이 결정 때문에 `/session`
+은 로봇별 네임스페이스에 들어가지 않는다
+([topic_naming_contract.md](topic_naming_contract.md) §2.5).
 
 > **`/session` 의 QoS 는 `TRANSIENT_LOCAL` 이다.** 늦게 뜬 녹화기도 현재 상태를 보게
 > 하기 위한 것이며, 구독자와 `ros2 topic echo` 모두 QoS 를 맞춰야 한다.

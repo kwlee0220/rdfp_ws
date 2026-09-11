@@ -45,7 +45,7 @@ ros2_control    /controller_manager  /joint_state_broadcaster
                 /static_transform_publisher  /robot_state_publisher
 moveit          /move_group  /servo_node
 rviz            /rviz2
-robot_control   /rdfp_image_viewer_node       (enable_image_viewer_node)
+robot_control   /rdfp_image_viewer_node       (enable_image_viewer)
                 /gripper_control
                 + replay_arm_path 에 따른 arm 구동 노드 (1-4 참고)
 ```
@@ -190,7 +190,7 @@ CLI `arg:=value` 가 YAML 보다 우선하고, `config_file:=<path>` 로 YAML �
 | 인자 | YAML 키 | 기본값 | 설명 |
 |---|---|---|---|
 | `replay_arm_path` | `replay.arm_path` | `ee_twist` | arm 구동 경로 (`ee_twist` / `target_joint_cmds` / `none`) |
-| `enable_image_viewer_node` | `image_viewer.enabled` | `true` | 이미지 뷰어 기동 여부 |
+| `enable_image_viewer` | `image_viewer.enabled` | `true` | 이미지 뷰어 기동 여부 |
 | `camera_image_topic` | `image_viewer.image_topic` | `/camera/image_raw` | 뷰어가 구독할 이미지 토픽 |
 | `ee_twist_source_topic` | `replay.ee_twist.source_topic` | `/ee_pose` | 차분 대상 PoseStamped 토픽 |
 | `ee_twist_output_topic` | `replay.ee_twist.output_topic` | `/servo_node/delta_twist_cmds` | twist 출력 토픽 |

@@ -60,6 +60,26 @@ cd ~/development/mdtpy/robot-twin
 
 > `--scope local` 로 등록하면 **등록할 때의 프로젝트 디렉터리에서만** 잡힌다. 로봇 작업은 보통 `rdfp_ws` 쪽에서 하므로 거기서 도구가 보이지 않는다. 기본이 `user` 인 이유다.
 
+##### `claude` 명령이 없을 때 — `.mcp.json` (2026-09-11)
+
+위 스크립트는 `claude mcp` 를 부른다. **VSCode 확장으로 쓰면 그 CLI 가 PATH 에 없을 수 있다.** 그때는 프로젝트 루트에 `.mcp.json` 을 직접 둔다 — Claude Code 가 프로젝트 범위 서버로 읽는다.
+
+```jsonc
+// ~/development/ros/rdfp_ws/.mcp.json
+{ "mcpServers": {
+    "robot-twin": {
+      "command": "/home/kwlee/development/mdtpy/robot-twin/.venv/bin/robot-twin-mcp",
+      "args": ["--port", "8803", "--twin-id", "panda_functionbay"] } } }
+```
+
+**인자 둘은 필수다.** 서버 기본값이 `--port 8801 --twin-id panda01`(mock)이라, 펑션베이에서 생략하면 **엉뚱한 트윈에 붙거나 연결 자체가 안 된다.**
+
+**`uv run` 이 아니라 venv 콘솔 스크립트를 쓴다.** `uv run` 은 매 기동마다 의존성을 확인하느라 느리고, MCP 클라이언트가 그 지연을 타임아웃으로 읽을 수 있다. 대신 **의존성을 바꾸면 `uv sync --extra mcp` 를 한 번 돌려 venv 를 갱신해야 한다** — `uv run` 처럼 자동으로 따라오지 않는다.
+
+⚠️ **`~/.claude.json`(user scope)과 `.mcp.json`(project scope)에 같은 이름을 두지 않는다.** 어느 쪽이 이기는지를 기억에 의존하게 된다. 트윈을 둘 쓸 거면 이름을 나눈다 (`robot-twin` / `robot-twin-fb`).
+
+⚠️ **`.mcp.json` 을 고쳐도 돌고 있는 서버는 안 바뀐다** — 확장이 시작할 때 읽는다. 창을 다시 로드해야 한다(`Developer: Reload Window`). **서버 *코드*를 고쳤을 때도 같다** — 실제로 이번에 `mcp_server.py` 를 고쳐 놓고 옛 코드가 도는 서버로 호출해, `move_linear` 이 10 cm 어긋난 곳으로 갔다.
+
 #### 기동 — 매번
 
 배치도(§1.3)의 **아래에서 위로** 띄운다. 각 층은 아래 층이 없으면 기다리지 않고 실패한다.
@@ -73,7 +93,7 @@ ros2 launch robot_control panda_mock.launch.py
 rdfp_env
 ./scripts/run_robot_twin.sh
 
-# Claude Code — /mcp 로 확인 (도구 18개면 정상)
+# Claude Code — /mcp 로 확인 (도구 21개면 정상; peg 도구 4개 포함)
 ```
 
 **터미널마다 `rdfp_env` 가 필요하다.** `~/.bashrc` 는 `~/.devrc` 를 읽어 `ros2_env` / `rdfp_env` 를 **정의만** 한다 — 환경을 켜지는 않는다(옵트인). 무조건 켜면 모든 셸에 `PYTHONPATH` 가 박혀 ROS 와 무관한 uv 프로젝트까지 오염되기 때문이다. `rdfp_env` 한 번이 네 가지를 한다 — `.ros2rc`(배포판 자동 판별 → humble, `ROS_DOMAIN_ID=31`, `rmw_fastrtps_cpp`) · `RDFP_*` 변수 · `install/setup.bash` · 워크스페이스로 `cd`.
@@ -262,7 +282,7 @@ GET /operations (11개)
                                    도구 18개
 ```
 
-### 4.2 실제 도구 목록 (18개)
+### 4.2 실제 도구 목록 (21개 — 2026-09-11 에 peg 도구 4개 추가)
 
 **자동 생성 (5)** — 카탈로그의 `description` 과 `inputs_schema` 를 그대로 쓴다.
 
@@ -291,6 +311,52 @@ GET /operations (11개)
 | 기하 (로봇을 움직이지 않음) | `pose_above`, `pose_rotated_about_base_z`, `grasp_pose_of_object` |
 | 작업 경계 | `begin_task`, `end_task` |
 | 안전 | `emergency_stop`, `release_emergency_stop` |
+| **peg-in-hole** (2026-09-11) | `peg_status`, `pick_peg`, `place_peg`, `move_peg` |
+
+### 4.2a peg-in-hole 도구 — **절차를 도구로 올린 첫 사례**
+
+앞의 도구들은 연산 하나를 감싸거나 좌표를 계산할 뿐이다. peg 도구 넷은 다르다 —
+**여러 연산에 걸친 절차와 그 판정**을 통째로 가진다. 구현은 트윈이 아니라 클라이언트
+(`robot_twin_client.peg_in_hole`)에 있고, MCP 서버는 **설명과 스키마만** 얹는다.
+
+| 도구 | 자연어 지시 | 돌려주는 것 |
+|---|---|---|
+| `peg_status` | *"어디 있어?"* · 목적지 해석 | `at` · `destinations` · `tilt_deg` |
+| `move_peg` | *"다른 hole 로 옮겨서 꽂아줘"* | `seated` · `error_m` |
+| `pick_peg` | *"peg 을 뽑아줘"* | `grasp_gap_m` — **`place_peg` 에 그대로 넘긴다** |
+| `place_peg` | *"거기에 꽂아줘"* | `seated` · `error_m` |
+
+**`peg_status` 가 없으면 *"다른 hole"* 을 해석할 수 없다.** `fixtures` 변수를 직접
+읽게 하면 에이전트가 peg 이 어느 자리 위에 있는지 **발자국 계산**을 해야 하는데, 그
+산수는 틀려도 조용하다. 도구가 대신 풀어 `destinations` 로 준다.
+
+**수치를 도구 설명에 적지 않는다.** 손끝 오프셋 · 입구 높이 · 정상 파지 간격 · 반경
+여유는 전부 코드가 갖는다. 적으면 에이전트가 그것으로 산수를 하게 되고, 틀려도 조용하다.
+설명이 말하는 것은 **언제 무엇을 부르고 실패를 어떻게 읽는가** 다 — 시험이 그 경계를
+지킨다 (`test_descriptions_carry_no_magic_numbers`).
+
+**실패 문장이 `holding` 으로 갈린다.** 쥔 채로 멈췄으면 *"재시도하지 말고, 열지도 말고,
+사람에게 알려라"*, 움직이기 전이면 *"로봇 상태는 안전하다"*. 놓아도 되는 상황과 놓으면
+물체를 잃는 상황이 겉보기로 같아서, 말해 주지 않으면 에이전트가
+`move_gripper_to_target open` 을 부른다.
+
+### 4.2b 프롬프트 — `peg_in_hole` (2026-09-11)
+
+서버가 `prompts/list` · `prompts/get` 을 제공한다. 프롬프트 하나가 있다.
+
+**경계가 요점이다.**
+
+| | 담는 것 |
+|---|---|
+| **코드** | 수치와 절차 — 에이전트가 틀릴 여지를 없앤다 |
+| **프롬프트** | 언제 무엇을 읽고, 실패를 어떻게 읽고, **무엇을 하면 안 되는가** |
+
+가장 중요한 한 줄은 *"`move_gripper_to_target open` 을 직접 부르지 않는다"* 이다. 그
+도구는 목록에 그대로 보이고(다른 작업에는 필요하다) 부르면 성공하는데, 고정물 밖에서
+놓으면 **물체를 영구히 잃는다** — 그래서 **도구 이름을 대어** 막는다.
+
+⚠️ **프롬프트 시험은 프로토콜 위에서 돈다.** `_PROMPTS` 를 채워도 핸들러를 등록하지
+않으면 클라이언트에는 아무것도 안 보인다 — 단위 시험은 그것을 통과시킨다.
 
 ### 4.3 설명 보강
 

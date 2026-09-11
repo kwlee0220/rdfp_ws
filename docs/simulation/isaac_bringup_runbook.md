@@ -7,7 +7,20 @@
 
 ---
 
-## 1. 어느 모드로 띄울까
+## 1. 어떻게 띄울까
+
+시뮬레이터는 `run_isaac_sim.sh` 하나로 띄운다. **연동 방식은 하나뿐이며**(ros2_control,
+`topic_based_ros2_control`), 짝이 되는 스택은 `panda_isaac.launch.py` 다.
+
+Isaac 은 관절 상태를 **`/isaac_joint_states`** 로 내고 `/joint_states` 는
+`joint_state_broadcaster` 가 갖는다 — 안 비키면 `TopicBasedSystem` 이 자기 출력을
+되읽는 고리가 생긴다.
+
+> ros2_control 없이 토픽만으로 잇던 옛 경로(`bridge`)는 2026-09-05 에 삭제했다. 경위는
+> [isaac_backend_skeleton.md](isaac_backend_skeleton.md) §0 D1″.
+
+
+### 창 / 자동화
 
 ```bash
 ./scripts/run_isaac_sim.sh --gui        # 창 + 전 과정 자동  ← 평소 이것
@@ -23,13 +36,26 @@
 
 **세 모드가 같은 스크립트 목록을 돈다.** 차이는 누가 실행하느냐뿐이다.
 
-`--phase 3` 을 붙이면 카메라를 빼고 조작 계열만 만든다.
+`--phase 3` 을 붙이면 카메라를 빼고 조작 계열만 만든다. `ISAAC_RUN_SECONDS=<초>` 를
+주면 그 시간 뒤 스스로 종료한다 — CI 나 회귀 실행에 쓴다.
 
 > **`~/isaac_ros2_env.sh` 를 소싱하지 않는다.** `/opt/ros/humble` 이 Isaac 의 내장
 > ROS(파이썬 3.12)를 가려 **ROS 확장이 조용히 죽는다.** 증상은 `/isaac_sim_control`
 > 노드가 없는 것뿐이다. `run_isaac_sim.sh` 가 환경을 대신 맞춘다.
 
 ---
+
+### 선행 조건
+
+전부 이 문서의 다른 자리에서 한 번씩 언급되지만, 새 머신에서는 **각각 다른 증상으로**
+막히므로 한자리에 모은다.
+
+| 조건 | 없으면 |
+|---|---|
+| Isaac Sim 6.0 이 `$ISAAC_ROOT` (기본 `~/isaacsim`) | `run_isaac_sim.sh` 가 `Isaac not found` 로 즉시 종료 — 유일하게 친절한 실패다 |
+| `ros-humble-topic-based-ros2-control` | `ros2_control_node` 가 하드웨어 플러그인을 못 찾아 **컨트롤러 사슬이 서지 않는다** |
+| `ros-humble-simulation-interfaces` | `/scene/reset` 이 열리지 않는다 (아래 터미널 2 상자) |
+| `colcon build` 한 워크스페이스 | `isaac_scene_state_node` 가 `install/share` 의 `isaac_scene.json` 을 읽는다 — `src` 만 고치면 **Isaac 과 ROS 가 다른 물체 목록을 본다** |
 
 ## 2. 절차
 
@@ -40,7 +66,9 @@ cd ~/development/ros/rdfp_ws
 ./scripts/run_isaac_sim.sh --gui
 ```
 
-`[bringup] PLAY` 가 찍히면 준비된 것이다.
+`[bringup] PLAY` 가 찍히면 준비된 것이다. 기동 로그에
+`[isaac] 관절상태=/isaac_joint_states  짝=panda_isaac.launch.py` 가 찍히므로 터미널 2 와
+짝이 맞는지 눈으로 확인할 수 있다.
 
 > **첫 실행은 로봇이 몇 초 늦게 나타난다.** 자산이 원격(S3)이라 내려받는 동안 뷰포트가
 > 비어 있는데, 실패처럼 보인다.
@@ -58,13 +86,20 @@ ros2 launch robot_control panda_isaac.launch.py
 
 | 인자 | 기본 | |
 |---|:-:|---|
-| `enable_gripper` | **`true`** | `gripper_action_bridge` + `gripper_action_node` |
+| `enable_gripper` | **`true`** | `gripper_action_node` (액션 서버는 `panda_hand_controller`) |
 | `enable_scene` | **`true`** | `isaac_scene_state_node` → `/scene/objects` · `/scene/reset` |
-| `enable_servo` | **`true`** | `servo_node` + 브리지 — teleop 두 경로가 여기로 수렴한다 |
+| `enable_servo` | **`true`** | `servo_node` + auto_start — teleop 두 경로가 여기로 수렴한다 |
 | `enable_image_viewer` | **`true`** | 카메라 이미지 창 (`image_viewer_node`) |
 | `enable_rviz` | **`false`** | Isaac 이 이미 뷰포트를 그린다. 계획 결과를 보려면 켠다 |
 
-⚠️ **화면이 없는 곳에서는 뷰어를 끈다.**
+기동은 `readiness_gate` → `ros2_control_node` → `joint_state_broadcaster` →
+`panda_arm_controller` → `panda_hand_controller` → 나머지 순이다. 게이트가 CM 앞에
+있는 이유는 `/clock` 없이 CM 을 띄우면 update 루프가 시각 0 에 멈춘 채 **컨트롤러는
+active 인데 아무것도 안 움직이는** 상태가 되기 때문이다.
+
+⚠️ **`--headless` 짝이면 뷰어를 끈다.** 화면이 없으면 죽고, 원격 데스크톱처럼
+`DISPLAY` 가 **있으면** 사용자 화면에 창이 뜬다 — 헤드리스 시뮬레이터에 뷰어 창은
+어차피 볼 것이 없다.
 
 ```bash
 ros2 launch robot_control panda_isaac.launch.py enable_image_viewer:=false
@@ -76,12 +111,21 @@ ros2 launch robot_control panda_isaac.launch.py enable_image_viewer:=false
 `ros2 run rqt_image_view rqt_image_view` 를 대신 쓸 수도 있다.
 
 > **수집 계열은 자기 뷰어가 따로 있다.** `rdfp_panda_isaac.launch.py` 의
-> `enable_image_viewer_node:=true` 는 `rdfp_image_viewer_node` 를 띄우는데, 그쪽은
+> `enable_image_viewer:=true` 는 `rdfp_image_viewer_node` 를 띄우는데, 그쪽은
 > 프레임에 **`/session` 상태를 겹쳐 그린다** — 에피소드 경계를 눈으로 확인하기 위한
 > 것이다. 제어 계열의 것은 그냥 보기 위한 것이다.
 
 **도메인은 31 이다.** `setup_graph.py` 가 그 값을 그래프에 박으므로, 다르면 브리지
 토픽이 다른 도메인으로 나가 **에러 없이 아무것도 안 보인다.**
+
+> ⚠️ **`ros-humble-simulation-interfaces` 가 없으면 `/scene/reset` 이 열리지 않는다.**
+> `isaac_scene_state_node` 가 기동 때 ERROR 한 줄을 남기고 서비스를 닫는데, 스택은 정상
+> 기동하므로 **에피소드를 시작하고 나서야** 물체를 다시 놓을 수 없다는 것을 알게 된다.
+> 트윈의 `reset_scene` 도 같이 막힌다.
+>
+>     sudo apt install ros-humble-simulation-interfaces
+>
+> 기동 로그에서 확인: `grep simulation_interfaces` 에 걸리는 줄이 있으면 없는 것이다.
 
 ### 터미널 3 (선택) — 로봇 트윈
 
@@ -90,6 +134,27 @@ ros2 run robot_twin robot_twin --config src/robot_twin/config/robot_twin_panda_i
 ```
 
 `http://localhost:8802/api/v1/robot_twins/panda_isaac` 로 REST 조작이 열린다.
+
+`moveit` 블록은 `move_group_mode: jtc` 하나로 끝난다 — 팔이 JTC 라 MoveGroup 액션으로
+실행되므로 명령 채널을 따로 지정할 필요가 없다. **`arm_command_*` 가 보이면 옛 bridge
+설정을 되살린 것이고, 그 조합은 설정 로드에서 `ValidationError` 로 거부되어 트윈이 아예
+안 뜬다** — 조용히 어긋나지 않으므로 로그의 그 예외를 보면 된다.
+
+> **twin id 는 `panda_isaac` 으로 파일 이름과 다르다.** REST 경로가 스택 구성에
+> 묶이면 안 되기 때문이다.
+> 같은 로봇·같은 시뮬이라 변형이 갈려도 REST 경로는 하나로 둔다. 변형은 설정
+> 파일명과 노드 이름만 구분한다.
+
+### 수집까지 갈 때
+
+터미널 2 를 `ros2 launch rdfp rdfp_panda_isaac.launch.py` 로 바꾸면 위 스택에
+`session_control` · `target_joint_cmds_publisher` · `image_recorder` 가 얹힌다.
+**절차와 인자는 [src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) 가 정본이다.**
+여기서 알아 둘 것은 둘뿐이다:
+
+- **`enable_rviz` 기본이 `true` 로 뒤집힌다** (제어 launch 는 `false`)
+- 녹화 토픽 목록은 **`config/recording_topics_isaac.list`** 다 — mock 용을 그대로 쓰면
+  카메라 토픽 이름이 달라 **이미지가 한 장도 안 담긴다**
 
 ---
 
@@ -114,7 +179,7 @@ for _s in ("load_robot", "setup_scene", "setup_graph", "place_robot",
 | 순서 | 스크립트 | 하는 일 | **빠뜨리면** |
 |:-:|---|---|---|
 | 1 | `load_robot` | Franka 를 `/World/franka` 에 올린다 | `setup_graph` 가 `no articulation root` 로 멈춘다 |
-| 2 | `setup_scene` | 테이블 · 블록 3개 · 카메라 prim · **돔 라이트** | scene TF 가 없어 `/scene/objects` 가 빈다 |
+| 2 | `setup_scene` | 테이블 · 블록 1 + 실린더 1 · 카메라 prim · **조명 둘**(주광 `DistantLight` + 보조 `DomeLight`) | scene TF 가 없어 `/scene/objects` 가 빈다 |
 | 3 | `setup_graph` | OmniGraph — clock · joint_states · 팔·그리퍼 명령 · scene TF · 카메라 | **ROS 로 아무것도 안 나간다** |
 | 4 | `place_robot` | `panda_link0` 을 월드 원점으로 | 그리퍼가 "도달했다"면서 **허공을 쥔다** (§6) |
 | 5 | `set_home_pose` | Play 시작 자세를 `ready` 로 | 접힌 자세로 시작해 첫 계획이 막힌다 |
@@ -148,12 +213,27 @@ source install/setup.bash && export ROS_DOMAIN_ID=31
 
 python3 scripts/isaac/is_topics.py          # 배관 진단 — 먼저 이것
 python3 scripts/isaac/is_check_phase0.py    # 골격          5/5
-python3 scripts/isaac/is_check_phase1.py    # 팔 명령       4/5 (τ 는 기준 초과)
+python3 scripts/isaac/is_check_phase1.py    # 팔 명령       5/5
 python3 scripts/isaac/is_check_phase2.py    # 그리퍼        6/6
 python3 scripts/isaac/is_check_phase3.py    # scene 객체    5/5
 python3 scripts/isaac/is_check_phase4.py    # 카메라        6/6
 python3 scripts/isaac/is_check_phase6.py    # 물리 파지     6/6
 ```
+
+> ⚠️ **`phase6` 는 파지 상태로 끝난다 — 다시 돌리기 전에 `is_recover.py` 를 부른다.**
+> 손가락이 블록을 문 채 남으므로 다음 실행의 「기준 자세」 검사가 실패한다(실측: 개구
+> 폭 0.0448 m, 관절오차 0.0256 rad). 복구는 그리퍼를 열고 servo 를 멈춘 뒤 계획 없이
+> `ready` 로 되돌린다.
+>
+>     python3 scripts/isaac/is_recover.py
+>
+> **복구 뒤 `/gripper_states.goal` 은 `grasp` 로 남는다.** `is_recover` 는 그리퍼를
+> 액션으로 직접 열어 `GripperNode` 를 거치지 않기 때문이다 — 폭은 열렸는데 `goal` 은
+> 직전 `phase6` 의 것이라 "grasp 가 실패한 채 멈췄다"로 읽기 쉽다. 다음 명령을 보내면
+> 갱신되므로 실해는 없다.
+>
+> ⚠️ **`phase1` 의 계단 응답에는 JTC 보간이 섞인다** (최소 도달 10 ms + CM update 주기).
+> 시뮬레이터만의 τ 가 아니라 **명령 사슬 전체**의 값이다 — 실측 35.5 ms.
 
 빠른 확인만 필요하면:
 
@@ -164,10 +244,31 @@ ros2 topic echo /gripper_states --once      # width · stalled · at_goal
 ros2 run tf2_ros tf2_echo panda_link0 block_a
 ```
 
-> ⚠️ **`kill_stack.sh` 직후에는 `ros2` CLI 가 빈 결과를 준다.** 데몬을 함께 지우므로
-> 캐시가 비어 있어서다 — `ros2 node list` / `topic echo` 가 아무것도 못 찾으면 몇 초
-> 뒤 다시 하거나, 확실히 하려면 직접 구독하는 스크립트로 본다. **노드가 죽은 것이
-> 아니다.**
+> ⚠️ **위 넷 중 셋(`hz`·`hz`·`echo`)은 `ros2` 데몬을 탄다.** 데몬이 낡은 캐시를 든 채
+> 살아 있으면 두 가지로 나타난다: **빈 결과**(`topic echo` 가 20초를 기다려도 아무것도
+> 안 낸다) 또는 **traceback**(`xmlrpc.client.Fault: RuntimeError: !rclpy.ok()`).
+> **노드가 죽은 것이 아니다.**
+>
+>     ros2 daemon stop            # 한 번이면 풀린다 (다음 호출이 새로 띄운다)
+>     ros2 topic echo --no-daemon /gripper_states --once     # 또는 데몬을 아예 우회
+>
+> `tf2_echo` 는 데몬을 안 쓰므로 늘 동작한다. 「배관 진단은 `is_topics.py` 를 먼저」가
+> 이 문제를 피하는 길이기도 하다 — 직접 구독하므로 데몬과 무관하다.
+
+### 그 밖의 스택 쪽 스크립트 (필요할 때만)
+
+`scripts/isaac/` 에는 검사 말고도 둘이 더 있다. 정기 절차가 아니라 **막혔을 때** 쓴다.
+
+| 스크립트 | 하는 일 |
+|---|---|
+| `is_recover.py` | 팔을 **계획 없이** 기준 자세로 되돌린다. 시작 자세가 충돌이면 MoveIt 이 계획 자체를 거부하므로(`INVALID_MOTION_PLAN`, -2) 트윈 팔 오퍼레이션·replay GUI 의 「위치 초기화」·텔레오퍼레이션 복귀가 **전부 동시에** 막힌다 — 빠져나오려면 계획을 안 거치는 경로가 필요하다. `--target extended` / `--no-gripper` |
+| `is_probe_srdf.py` | `/move_group/get_parameters` 가 어떤 조건에서 응답하는지 2×2(파라미터 크기 × `use_sim_time`)로 가른다. Phase 0 에서 "`use_sim_time` 은 되는데 계획은 타임아웃"이 나왔을 때 쓴 진단이다 |
+
+> **`is_recover.py` 는 servo 를 먼저 멈춘다.** servo 가 충돌 정지 상태일 때 명령 채널에
+> 직접 쓰면 내부 상태가 깨져 **이후 출력이 전부 NaN** 이 되는데, 그러면서 status 는
+> `NO_WARNING` 을 유지해 지표만 보면 정상으로 보인다. `stop_servo`/`start_servo` 쌍을
+> 쓰며, `pause`/`unpause` 는 쓰지 않는다 — `unpause_servo` 가 성공을 반환하면서 발행을
+> 되살리지 못한 적이 있다.
 
 ---
 
@@ -198,6 +299,30 @@ Warning: TF_OLD_DATA ignoring data from the past for frame panda_link1 at time 7
 
 **조치:** `./scripts/kill_stack.sh --ros` 후 스택만 다시 띄운다.
 
+### 시뮬레이터 재시작 — **Stop/Play 와 프로세스 재시작을 구분한다** (plugin)
+
+**타임라인 Stop → Play 는 스택을 다시 띄울 필요가 없다.** `resetOnStop` 이 꺼져 있어
+sim 시계가 되감기지 않는다 — 정지 중에는 토픽이 멎지만 Play 하면 스스로 돌아온다
+(실측 `TF_OLD_DATA` 0 건). 헤드리스에서는 서비스로 건다:
+
+```bash
+ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationState "{state: {state: 0}}"   # Stop
+ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationState "{state: {state: 1}}"   # Play
+```
+
+**프로세스를 다시 띄웠을 때만 스택도 다시 띄운다.** 그때는 시계가 0 으로 돌아가 TF
+버퍼에 미래 타임스탬프가 남고 `TF_OLD_DATA` 가 쏟아진다(실측 6,424 건). 그런데
+**컨트롤러는 계속 `active` 라고 보고한다** — 상태를 건강 신호로 쓰면 안 된다.
+
+```bash
+ros2 topic hz /clock          # 멎었으면 시뮬레이터 쪽
+ros2 topic echo /ee_pose --once | head -4   # stamp 가 안 늘면 스택이 죽은 것이다
+```
+
+조치는 `./scripts/kill_stack.sh --ros` 후 스택만 재기동. **복구되는 것을 실측으로
+확인했다** — 게이트 통과, `TF_OLD_DATA` 0 건, 세 채널 stamp 일관.
+
+
 ### `ros2 launch` 를 죽여도 **자식 노드는 산다**
 
 터미널에서 Ctrl-C 로 끝내면 정리되지만, 프로세스를 `kill` 하거나 세션이 끊기면
@@ -207,6 +332,26 @@ Warning: TF_OLD_DATA ignoring data from the past for frame panda_link1 at time 7
 ```bash
 ros2 node list | sort | uniq -c    # 2 이상인 것이 있으면 고아다
 ```
+
+### `/scene/reset` 을 CLI 로 불렀는데 안 돌아온다
+
+**노드는 이미 적용했을 수 있다.** 실측에서 `ros2 service call /scene/reset` 이 40초 동안
+안 돌아왔는데 노드 로그에는 호출 2초 뒤 `scene reset applied: 1 object(s)` 가 찍혀 있었다.
+같은 요청을 rclpy 클라이언트로 보내면 0.03초에 온다 — **CLI 쪽이 간헐적으로 응답을
+놓친다**(데몬과는 다른 경로다). 기다리지 말고 **물체가 옮겨졌는지 TF 로 먼저 본다**:
+
+```bash
+ros2 run tf2_ros tf2_echo panda_link0 block_a
+```
+
+트윈은 rclpy 경로라 영향이 없다.
+
+### `readiness_gate` 가 기다리는 모습을 못 봤다
+
+**정상이다.** Isaac 이 이미 Play 중이면 게이트는 흐르고 있던 `/isaac_joint_states` 의 첫
+메시지를 받고 **즉시** 통과한다 — "Waiting for the simulator" 와 "Simulator is ready" 가
+같은 밀리초에 찍힌다. 게이트가 CM 앞에 있는 이유는 Isaac 이 **아직 Play 가 아닐 때**를
+막기 위해서다.
 
 ### 스테이지를 저장해 두지 않는다
 
@@ -310,8 +455,8 @@ ROS 쪽 static TF 가 `world → panda_link0 = 항등변환`으로 못박혀 있
 
 ## 7. 관련 문서
 
-- [isaac_backend_skeleton.md](isaac_backend_skeleton.md) — Phase 0~10 설계·수용 기준,
-  배포 구성 네 가지, Isaac 6.0 재검증 결과
+- [isaac_backend_skeleton.md](isaac_backend_skeleton.md) — Phase 0~11 설계·수용 기준,
+  배포 형태, Isaac 6.0 재검증 결과
 - [../scene/isaac_scene_reset.md](../scene/isaac_scene_reset.md) — `/scene/reset` 경로와
   선행 조건
 - [../gripper/GripperActionNode_Guide.md](../gripper/GripperActionNode_Guide.md) —

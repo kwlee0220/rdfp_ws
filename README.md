@@ -151,8 +151,8 @@ rdfp_ws/
 
 - [docs/recorder/](docs/recorder/) — `ffmpeg_mp4_recorder_guide.md`,
   `image_recorder_node_guide.md`, `rdfp_image_recorder_node_guide.md`.
-- [docs/session/](docs/session/) — `session_control_guide.md`,
-  `session_control_client_guide.md`.
+- [docs/session/](docs/session/) — `session_control_guide.md` (노드 · CLI ·
+  `SessionControlClient` 통합 가이드).
 - [docs/moveit/](docs/moveit/), [docs/camera/](docs/camera/),
   [docs/replay/](docs/replay/), [docs/teleop/](docs/teleop/) — 각 서브시스템 가이드.
 - [docs/rosbag2/](docs/rosbag2/) — 데이터셋 후처리기 CLI 설명서, 설계서, 검증

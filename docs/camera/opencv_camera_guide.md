@@ -29,10 +29,10 @@ pip install numpy
 ### Import
 
 ```python
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 # 선택: 해상도/FPS 타입을 명시적으로 사용할 때
-from rdfp.types import Resolution, Fps
+from robot_control.types import Resolution, Fps
 ```
 
 ### 생성자 시그니처
@@ -48,15 +48,15 @@ OpenCvCamera(
 
 - `camera_id`만 위치 인자이며, `resolution`/`fps`는 **keyword-only** 인자입니다.
 - `resolution`은 다음 세 가지 형식을 모두 허용합니다:
-  - `Resolution` NamedTuple (`from rdfp.types import Resolution`)
+  - `Resolution` NamedTuple (`from robot_control.types import Resolution`)
   - `(width, height)` 튜플 — 예: `(1280, 720)`
   - `"WIDTHxHEIGHT"` 형식의 문자열 — 예: `"1280x720"`
 - `fps`는 0보다 큰 임의의 실수값이면 유효하며, 내부적으로 `Fps`(float 서브클래스)로 래핑됩니다.
 - `resolution`/`fps`를 생략하면 카메라의 기본 설정을 그대로 사용합니다.
 
 ```python
-from rdfp.camera.opencv_camera import OpenCvCamera
-from rdfp.types import Resolution, Fps
+from robot_control.camera.opencv_camera import OpenCvCamera
+from robot_control.types import Resolution, Fps
 
 OpenCvCamera(0, resolution=(640, 480), fps=30.0)
 OpenCvCamera(0, resolution="1920x1080", fps=29.97)
@@ -159,7 +159,7 @@ print(f"실제 설정: {actual_width}x{actual_height} @ {actual_fps}fps")
 ### 1. 기본 패턴
 
 ```python
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 # 카메라 생성
 camera = OpenCvCamera(0, resolution=(640, 480), fps=30.0)
@@ -441,7 +441,7 @@ logging.basicConfig(
 )
 
 # 특정 모듈만 로깅
-logger = logging.getLogger('rdfp.camera.opencv_camera')
+logger = logging.getLogger('robot_control.camera.opencv_camera')
 logger.setLevel(logging.INFO)
 
 # 파일로 로깅
@@ -538,7 +538,7 @@ while True:
 
 ```python
 import cv2
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 def webcam_demo():
     with OpenCvCamera(0, resolution=(640, 480), fps=30.0) as camera:
@@ -569,7 +569,7 @@ if __name__ == "__main__":
 
 ```python
 import cv2
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 def record_rtsp_stream(rtsp_url, output_file, duration_seconds=60):
     camera = OpenCvCamera(rtsp_url, resolution=(1920, 1080), fps=30.0)
@@ -623,7 +623,7 @@ if __name__ == "__main__":
 ```python
 import cv2
 import numpy as np
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 
 def multi_camera_view(camera_ids, resolution=(640, 480)):
     cameras = []
@@ -764,7 +764,7 @@ sudo fuser /dev/video0
 ```python
 # 1. 로깅 레벨을 DEBUG로 설정
 import logging
-logging.getLogger('rdfp.camera.opencv_camera').setLevel(logging.DEBUG)
+logging.getLogger('robot_control.camera.opencv_camera').setLevel(logging.DEBUG)
 
 # 2. 카메라 백엔드 정보 확인
 import cv2

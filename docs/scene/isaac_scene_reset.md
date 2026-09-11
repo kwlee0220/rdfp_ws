@@ -203,7 +203,7 @@ after  block_b: (0.58, -0.22, 0.425)
 ### 실기 검증 (2026-09-02)
 
 ```
-POST /operations/reset_scene {"scene": "three_blocks", "seed": 42}
+POST /operations/reset_scene {"scene": "two_objects", "seed": 42}
   → COMPLETED
     outputs.objects  a=(0.514,-0.198) b=(0.478,-0.022) c=(0.524, 0.174)
     스테이지 실제     a=(0.514,-0.198) b=(0.478,-0.022) c=(0.522, 0.172)

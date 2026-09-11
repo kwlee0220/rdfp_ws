@@ -56,7 +56,7 @@ MoveIt2의 **Servo 노드**(`/servo_node`)를 Python 쪽에서 쉽게 시작/정
 ```python
 import rclpy
 from rclpy.node import Node
-from rdfp.moveit.servo_client import auto_start_servo_simple
+from robot_control.moveit.servo_client import auto_start_servo_simple
 
 rclpy.init()
 node = Node("my_teleop")
@@ -75,7 +75,7 @@ rclpy.shutdown()
 ### 2. 클래스 직접 사용
 
 ```python
-from rdfp.moveit.servo_client import ServoClient, ServoStatus
+from robot_control.moveit.servo_client import ServoClient, ServoStatus
 
 class TeleopNode(Node):
     def __init__(self) -> None:
@@ -236,7 +236,7 @@ def auto_start(self) -> bool:
 인스턴스를 계속 들고 다닐 필요가 없는 스크립트용.
 
 ```python
-from rdfp.moveit.servo_client import auto_start_servo_simple
+from robot_control.moveit.servo_client import auto_start_servo_simple
 auto_start_servo_simple(self)  # self는 rclpy.Node
 ```
 

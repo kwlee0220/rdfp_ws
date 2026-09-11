@@ -1,6 +1,6 @@
 # gripper 문서 안내
 
-그리퍼 관련 문서 4개의 진입점이다. **하려는 일부터 고른다.**
+그리퍼 관련 문서 5개의 진입점이다. **하려는 일부터 고른다.**
 
 | 하려는 일 | 문서 |
 |---|---|
@@ -9,6 +9,7 @@
 | mock · Gazebo · Isaac 에서 노드를 띄우고 파라미터를 맞춘다 | [GripperActionNode_Guide.md](GripperActionNode_Guide.md) |
 | 펑션베이(Robotiq 2F)에서 같은 일을 한다 | [Robotiq2FGripperNode_Guide.md](Robotiq2FGripperNode_Guide.md) |
 | 그리퍼가 이상하다 — ros2_control 액션 서버 계층을 파고든다 | [gripper_action_server_notes.md](gripper_action_server_notes.md) |
+| **파지 높이를 정한다 / 손끝이 어디인지 안다** (펑션베이) | [grasp_center_frame.md](grasp_center_frame.md) |
 
 ## 전체 그림
 
@@ -26,8 +27,8 @@
      ← GripperActionNode_Guide                 ← Robotiq2FGripperNode_Guide
               │                                          │
               ▼                                          ▼
-   /panda_hand_controller/gripper_cmd          /input/gripper_joint  (6축 목표각)
-   (control_msgs/GripperCommand 액션)          /output/gripper_joint (6축 q/v/f)
+   /panda_hand_controller/gripper_cmd          /input/gripper_joint  (규약은 씬마다 — 아래 주)
+   (control_msgs/GripperCommand 액션)          /output/gripper_joint (축 수는 씬마다)
               │  ← gripper_action_server_notes             │
               ▼                                            ▼
      ros2_control 컨트롤러                        시뮬레이터 (컨트롤러 없음)
@@ -42,6 +43,10 @@
   중복 설명하지 않고 **그 구현이 계약을 어떻게 만족시키는지**만 다룬다.
 - **예상과 다르게 동작하면** `gripper_action_server_notes` 를 먼저 본다. 실측 기반
   함정 모음이다 — 단, **액션 스택 한정**이고 펑션베이에는 해당하지 않는다.
+- **펑션베이에서 물체를 잡으러 간다면** `grasp_center_frame` 을 **먼저** 본다.
+  `/ee_pose` 가 가리키는 `grasp_center` 는 두 패드 사이의 *파지 중심*이고
+  **그리퍼의 최하단이 아니다** — 실제 손끝은 약 40 mm 아래다. 모르고 파지 높이를
+  정했다가 손끝이 탁자를 파고든 적이 있다(2026-09-09).
 
 ## 세 가지만 기억한다
 
@@ -62,3 +67,9 @@
 | REST 로 그리퍼를 조작한다 | [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) |
 
 전체 문서 색인은 [../INDEX.md](../INDEX.md) 에 있다.
+
+> ⚠️ **펑션베이의 그리퍼 명령 규약은 씬마다 다르다** — `t1`(Crisp)은 6축·라디안·
+> 위치 나열, `r2`(RecurDyn)은 2축·**도**·관절당 `(p, v, f)` 다. 틀리면 에러가 아니라
+> "거의 안 움직인다"(1.745%)로 나타난다. 규약은 `config/functionbay_gripper_*.json`
+> 이 갖고 `config/backends/functionbay.yaml` 의 `gripper.profile_file` 이 가리킨다.
+> 근거: [../simulation/functionbay_backend_design.md](../simulation/functionbay_backend_design.md) §6.1a

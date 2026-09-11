@@ -83,7 +83,7 @@ ros2 launch robot_control panda_jgpc_mock.launch.py
 import rclpy
 from rclpy.node import Node
 
-from rdfp.moveit import create_move_group_client
+from robot_control.moveit import create_move_group_client
 
 rclpy.init()
 node = Node('named_target_demo')
@@ -258,7 +258,7 @@ future.add_done_callback(_on_done)
 MoveGroup 클라이언트 없이 임의의 궤적을 스트리밍하려면 `TrajectoryStreamer` 를 직접 쓴다. Cartesian 계획 결과(`plan_trajectory()`)도 그대로 넣을 수 있다.
 
 ```python
-from rdfp.moveit.trajectory_streamer import TrajectoryStreamer
+from robot_control.moveit.trajectory_streamer import TrajectoryStreamer
 
 with TrajectoryStreamer(node) as streamer:
     print(streamer.resolve_joint_names())   # 컨트롤러에서 순서 조회

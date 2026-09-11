@@ -386,6 +386,13 @@ HTTP 상태 코드는 **프로토콜 처리 결과**, 본문의 `status` 는 **�
 | `session_state` | **수집** | `/session` | ✅ | 세션/에피소드 상태 (`IDLE`/`IN_SESSION`/`IN_EPISODE`)와 task label |
 | `scene_objects` | 제어 | `/scene/objects` | ✅ | scene 안 물체들의 종류·크기·pose. **물체 이름으로 접근하는 map** 이다 |
 | `named_targets` | 제어 | SRDF 조회 (`static`) | ✅ | 그룹별 named target 목록. **최초 조회 시 lazy 하게 가져와 캐시**한다 |
+| `fixtures` | 제어 | 백엔드 프로파일 (`static`) | ✅ | **안 움직이는 물체**(구멍·트레이)의 위치와 형상. 펑션베이만 제공한다 — 다른 백엔드는 프로파일에 `scene.fixtures_file` 이 없어 정의되지 않는다 |
+
+**`fixtures` 는 `scene_objects` 와 성격이 다르다.** `scene_objects` 는 **조작 대상**만
+싣고 pose 가 매 틱 바뀌지만, `fixtures` 는 **안 움직이는 것**이라 런타임 내내 상수다.
+구멍·트레이는 TF 에도 `/scene/objects` 에도 없어서(벤더가 `static="true"` 인 body 를 TF 로
+내보내지 않는다) 이 변수가 **그것들을 아는 유일한 경로**다. 값은 `MoveGroup` 과 무관하므로
+컨트롤러가 뜨기 전에도 읽힌다.
 
 `session_state` 만 수집 스택에 묶인다 — `/session` 의 발행자가 `rdfp` 의
 `session_control_node` 이기 때문이다. 제어 스택만 띄운 상태에서 조회하면 오류가 아니라
@@ -487,6 +494,38 @@ MoveIt planning scene 을 옮긴다. mock 계열 launch 네 개(`panda_mock`,
 `move_group` 이 아직 뜨지 않았다면 `SOURCE_UNAVAILABLE` + `reason:
 "SOURCE_NODE_DOWN"` 이 나오며, 백엔드가 뜬 뒤 다시 조회하면 채워진다 (트윈을
 재시작할 필요는 없다).
+
+**`fixtures`** — 안 움직이는 물체 (펑션베이 전용)
+
+```jsonc
+{ "name": "fixtures", "quality": "OK", "schema_version": 1,
+  "stamp": null,                               // ROS 헤더가 없는 값이다
+  "value": {
+    "frame": "panda_link0",                    // 아래 좌표의 기준
+    "fixtures": {
+      "peg_hole": {
+        "name": "peg_hole", "type": "hole",
+        "position":    { "x": 0.5, "y": 0.0, "z": 0.003 },   // 부품 원점
+        "entry_point": { "x": 0.5, "y": 0.0, "z": 0.028 },   // 입구 중심 — 목표로 삼는 점
+        "floor_point": { "x": 0.5, "y": 0.0, "z": 0.003 },   // 바닥 중심
+        "depth": 0.025, "inner_diameter": 0.017,
+        "outer_extent_xy": [0.04, 0.04]                      // 발자국 (가로, 세로)
+      },
+      "peg_tray": { /* 같은 모양 */ } } } }
+```
+
+**넣을 지점은 `entry_point` 다** — `position` 은 부품 원점이라 다르다.
+
+⚠️ **모르는 값은 키가 아예 없다.** `null` 도 `0` 도 넣지 않는다 — 안 잰 바닥 높이를
+`0` 으로 채우면 "바닥이 탁자면"이라는 **거짓말**이 되어 손끝이 그대로 내려간다
+(구멍 쪽에서 실제로 15 mm 파고든 적이 있다). 없는 키를 만나면 그 값을 **모른다**는 뜻이다.
+
+⚠️ **`outer_extent_xy` 는 손끝이 닿는 실효 바닥을 정한다.** 고정물 위에서는 탁자면(0)이
+아니라 입구면(`entry_point.z`)이 바닥이다 — 물체 자신의 바닥으로 판단하면 안 된다.
+구멍에 꽂힌 peg 은 바닥이 구멍 **속**에 있다.
+
+값은 백엔드 프로파일의 `scene.fixtures_file` 에서 오며 **런타임 내내 변하지 않는다.**
+⚠️ 시뮬레이터 씬을 고치면 **그 파일도 손으로 고쳐야 한다** — 자동으로 따라오지 않는다.
 
 **미배선 변수** — 정의는 있으나 값이 없다. `404` 가 아니다.
 
@@ -690,11 +729,34 @@ twin.run('move_to_joints', {'joints': arm_only, 'velocity_scaling': 0.2})
 | `max_step` | | `0.01` (1 cm) | Cartesian 보간 간격 **[m]**. 작을수록 경로를 촘촘히 검사해 정확하지만 계획이 느려진다 |
 | `jump_threshold` | | `5.0` | 관절 공간 **급변 차단** 임계값. 인접 보간점 사이 관절 변화가 이 배수를 넘으면 경로를 거기서 끊는다. `0.0` 은 **검사 안 함**이라 특이점 부근에서 팔이 튈 수 있다 |
 | `max_duration_sec` | | `60` | 이 세션의 **시간 상한 [s]**. 초과하면 워치독이 동작을 멈추고 `FAILED` + `TIMEOUT` 으로 끝낸다 (9.3). MoveIt 의 계획 시간이 아니다 |
-| `frame_id` | | — | **현재 무시된다.** 스키마에는 있으나 백엔드가 읽지 않는다 |
+| `frame` | | 설정의 `moveit.ee_frame` | **이 pose 가 로봇의 어느 지점을 가리키는가.** 아래 참조. 선언되지 않은 백엔드에는 이 인자 자체가 없다 |
 
-> **기준 좌표계는 항상 `panda_link0` 이다.** `MoveGroupClient` 생성자의 `frame_id`
-> (기본 `panda_link0`)가 쓰이며, 입력의 `frame_id` 는 전달되지 않는다. 다른 좌표계
-> 기준으로 주고 싶으면 클라이언트가 미리 변환해야 한다.
+> **좌표를 재는 기준은 항상 `panda_link0` 이다** (`MoveGroupClient` 생성자의 `frame_id`).
+> 아래 `frame` 은 그것과 다른 이야기다 — **로봇 쪽의 어느 점을 그 좌표로 옮길 것인가**다.
+
+##### `frame` — 무엇을 그 좌표로 옮기는가 (2026-09-11)
+
+데카르트 목표는 원래 **planning group 의 tip link**(`panda_link8`) 기준으로 해석된다.
+그런데 사람이 다루는 점은 보통 그것이 아니다 — 펑션베이의 `/ee_pose` 는 `grasp_center`
+를 가리키고 tip 과 **149 mm** 떨어져 있다. 그래서 `ee_pose` 로 읽은 값을 그대로 목표로
+넣으면 **에러 없이 그만큼 엉뚱한 곳으로 간다.**
+
+| 값 | 뜻 |
+|---|---|
+| 생략 | 설정의 `moveit.ee_frame`. 펑션베이는 `grasp_center` — **`ee_pose` 를 그대로 넣으면 제자리에 머문다** (실측 0.00 mm) |
+| `panda_link8` | tip link 기준. 옛 동작이며, tip 좌표를 직접 아는 호출자용 (같은 입력이 149.27 mm 이동한다) |
+| 그 밖 | `400 INVALID_INPUT` — 변환할 수 없는 이름을 조용히 통과시키지 않는다 |
+
+**이름은 백엔드 프로파일의 `frames` 블록이 갖는다**(`config/backends/<이름>.yaml`).
+launch 의 `ee_pose_node` 와 트윈이 같은 값을 읽으므로 둘이 어긋날 수 없다.
+
+⚠️ **mock·Isaac 에는 이 인자가 없다.** 그 스택의 `panda_hand` 는 `panda_link8` 과
+평행이동이 0 이고 z 축 45° 회전만 다른데, 그 45° 를 클라이언트 쪽(`to_arm_command`)이
+이미 곱하고 있어 트윈이 또 돌리면 **90° 이중 회전**이 된다. 그래서 프로파일에
+`frames.ee` 를 **일부러 비워 두었다.**
+
+> **`frame_id` 는 2026-09-11 에 제거했다.** 스키마에만 있고 읽는 코드가 없어 주면
+> 조용히 무시되던 입력이라, 새 `frame` 옆에 두면 헷갈리기만 한다.
 
 `max_step` 과 `jump_threshold` 는 **계획 품질과 속도의 맞교환**이다. 기본값으로 두고, 경로가 자꾸 끊기면(`FAILED` 에 낮은 % 가 찍히면) `max_step` 을 줄여 본다.
 
@@ -1234,6 +1296,20 @@ if not check['reached']:
 `tol_m` 은 로봇·용도에 맞게 정한다. `measured_age_ms` 가 크면 비교 자체가
 무의미하므로, 엄밀함이 필요하면 `outputs.measured_age_ms` 도 함께 본다.
 
+> ⚠️ **개루프 백엔드(JGPC)에서는 위 코드로 부족하다 — 팔이 아직 움직이는 중이다.**
+> `outputs.final_pose` 는 **연산이 끝난 시점의 스냅샷**인데 명령 스트리밍은 반환이
+> 도달을 뜻하지 않는다. 펑션베이 실측(2026-09-09): 종료 1.5 초 뒤 z 오차가 **64.8 mm**
+> 였는데 정착 후에는 **−0.6 mm** 였다.
+>
+> **고정 대기로는 얼마를 줘야 하는지 알 수 없다.** 2026-09-11 에 3 초를 줬더니 하강 뒤
+> 오차를 **7.55 mm** 로 읽었는데 실제로는 **0.04 mm** 였고, 그 잘못 읽은 값으로 다음
+> 목표를 만들어 **삽입이 실패했다.** `ee_pose` 가 **멈출 때까지** 기다린다 — 구현 예는
+> `mdtpy/robot-twin` 의 `robot_twin_client.ops.wait_until_still` 이다 (`quiet_sec` 동안
+> `tol_m` 안에 머물면 멈춘 것으로 보고, 상한 안에 못 멈추면 `None` 을 준다 — 움직이는
+> 중의 값을 도달로 넘기지 않는다).
+>
+> **어느 백엔드가 개루프인가는 `outputs.closed_loop` 이 말해 준다** (4.3).
+
 ### 5.7 그리퍼 — 파지 여부 판정
 
 `move_gripper_to_target` 은 `GripperCommand` 액션의 **result 까지 기다린 뒤** 반환한다.
@@ -1534,6 +1610,32 @@ moveit:
 > |---|---|
 > | `rdfp_panda_mock.launch.py` (JointTrajectoryController) | `jtc` |
 > | `rdfp_panda_jgpc_mock.launch.py` (JointGroupPositionController) | `jgpc` |
+
+**Isaac·펑션베이는 `backend:` 한 줄이면 된다.**
+
+```yaml
+moveit:
+  backend: isaac          # mode 와 명령 채널을 프로파일이 채운다
+  planning_group: panda_arm
+```
+
+`robot_control.moveit.BACKEND_PROFILES` 가 정본이므로, 백엔드 구성이 바뀌어도 YAML 을
+고칠 필요가 없다. **손으로 적으면 그 사실이 저장소 여러 곳에 살게 되고, 한쪽만 뒤처졌을
+때 에러가 아니라 "명령이 안 먹는다"로 나타난다** — Isaac 이 bridge → ros2_control 로
+바뀔 때 실제로 그랬다.
+
+| 백엔드 | `backend:` | 채워지는 것 |
+|---|---|---|
+| Isaac Sim | `isaac` | `jtc` |
+| 펑션베이 | `functionbay` | `jgpc` + `/input/panda_joint` + `joint_state` + 관절 7개 |
+| mock (`panda_mock`) | `mock` | `jtc` |
+| mock JGPC (`panda_jgpc_mock`) | `mock_jgpc` | `jgpc` |
+
+**`auto` 라는 백엔드는 없다.** 넷 다 확정 모드를 가지므로 어느 것을 골라도 런타임
+판별로 되돌아가지 않는다.
+
+개별 키를 함께 적으면 **그쪽이 이긴다** — 프로파일에 없는 변형을 붙일 때 쓴다. 모르는
+이름은 조용히 넘어가지 않고 거부된다.
 
 설정 오류는 **기동 시점에** 잡힌다. ROS 초기화 전에 검증하므로 실패가 빠르고 명확하다.
 

@@ -102,6 +102,21 @@ ros2 run robot_control image_viewer_node --ros-args -r image:=/camera_node/image
 
 이 노드는 이미지 토픽 하나만 구독하며, 서비스·퍼블리셔는 제공하지 않는다.
 
+> ⚠️ **`sensor_msgs/CompressedImage` 는 받지 못한다 — 그리고 그것이 조용하다.**
+> ROS 2 는 타입이 다르면 **연결만 하지 않고 오류를 내지 않으므로** 증상이 "빈 창"뿐이다.
+> 압축으로 발행하는 소스(예: 펑션베이 시뮬레이터의 `/camera_image/compressed`)는 앞에
+> 변환 노드를 둔다:
+>
+> ```bash
+> ros2 run image_transport republish compressed raw \
+>     --ros-args -r in/compressed:=/camera_image/compressed -r out:=/camera_image
+> ```
+>
+> **remap 대상은 `in/compressed` 다 — `in` 만 remap 하면 한 장도 받지 못한다** (구독
+> 플러그인이 base 토픽에 transport 접미사를 붙인 완성된 이름으로 구독하기 때문).
+> `panda_functionbay` / `rdfp_panda_functionbay` 는 이 노드를 `enable_image_viewer` 로
+> 뷰어와 함께 띄우므로 따로 실행할 필요가 없다.
+
 ### 자동 변환되는 인코딩
 
 `cv_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')` 으로 변환된다:
@@ -194,7 +209,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='rdfp',
+            package='robot_control',
             executable='camera_node',
             parameters=[{
                 'camera_id': '0',
@@ -203,7 +218,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package='rdfp',
+            package='robot_control',
             executable='image_viewer_node',
             parameters=[{
                 'resolution': '800x600',
@@ -278,7 +293,7 @@ def _decorate_frame(self, frame: np.ndarray) -> np.ndarray:
 ### 서브클래스 스켈레톤
 
 ```python
-from rdfp.camera.image_viewer_node import ImageViewerNode
+from robot_control.camera.image_viewer_node import ImageViewerNode
 
 class MyViewerNode(ImageViewerNode):
     def __init__(self, **node_kwargs):

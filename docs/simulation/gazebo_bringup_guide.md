@@ -179,7 +179,7 @@ ros2 run rdfp teleop_keyboard --ros-args -p use_sim_time:=true
 
 추가 기동 노드: `session_control`(teleop 필수),
 `target_joint_states_publisher`, 그리고 `simulate_camera:=true` +
-`enable_image_viewer_node:=true` / `enable_image_recorder_node:=true` 시
+`enable_image_viewer:=true` / `enable_image_recorder_node:=true` 시
 카메라 의존 노드. 모든 노드에 `use_sim_time:=true` 가 전파된다.
 
 > `teleop_keyboard` 는 `session_control_node` 의 `start_session` 서비스가 없으면

@@ -181,6 +181,11 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 
 ### 2.5 패키징 — `rdfp` 패키지 내부에 둔다
 
+> **⚠️ 이 결정은 이후 뒤집혔다.** 아래 「분리 트리거」가 실제로 발동해 트윈은 **독립
+> ROS 패키지 `robot_twin`** 으로 이미 분리됐다 (`src/robot_twin/`). 결정 당시의 근거를
+> 남겨 두되, **위치·이름은 아래 표와 규칙이 현행 기준으로 갱신돼 있다.** 계층 분리
+> 자체는 `robot_twin/tests/test_layer_boundary.py` 가 강제한다.
+
 트윈은 **`rdfp` 패키지의 `twin/` 서브패키지**로 구현한다. 별도 ROS 패키지나 순수 pip
 패키지로 분리하지 않는다.
 
@@ -188,7 +193,7 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 |---|---|
 | 소스 | `src/robot_twin/robot_twin/` |
 | 진입점 | `ros2 run robot_twin robot_twin --config <yaml>` (`setup.py` console_scripts) |
-| 트윈 정의 YAML | `src/rdfp/config/` (setup.py 의 `config/*` glob 이 share 로 설치) |
+| 트윈 정의 YAML | `src/robot_twin/config/` (setup.py 의 `config/*` glob 이 share 로 설치) |
 | 테스트 | `src/robot_twin/robot_twin/tests/` |
 
 **근거**
@@ -208,8 +213,8 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 
 | 규칙 | 이유 |
 |---|---|
-| 트윈은 **`rdfp.moveit` 만 import 한다** | `camera` / `recorder` / `dataset` / `rosbag` 에 의존하는 순간 분리가 어려워진다 |
-| `rdfp` 의 기존 코드는 **`rdfp.twin` 을 import 하지 않는다** | 단방향 의존이라야 떼어낼 수 있다 |
+| 트윈은 **`robot_control.moveit` 만 import 한다** | `camera` / `recorder` / `dataset` / `rosbag` 에 의존하는 순간 분리가 어려워진다 |
+| `rdfp` 의 기존 코드는 **`robot_twin` 을 import 하지 않는다** | 단방향 의존이라야 떼어낼 수 있다 |
 | FastAPI / uvicorn 은 `package.xml` 이 아니라 **README 의 pip 의존성 절**에 기재한다 | 기존 관례 준수. `rosdep` 이 잡지 못하는 의존성임을 명시 |
 | 테스트는 ROS 불필요 부분과 필요 부분을 분리한다 | 스냅샷 캐시 · 직렬화 · 세션 상태 머신은 ROS 없이 검증 가능하다. ROS 의존 테스트는 `pytest.importorskip` 으로 자체 skip |
 
@@ -236,11 +241,39 @@ JSON 변환은 HTTP 스레드에서 수행하되 8.1 의 메모이즈를 적용�
 
 ```python
 # 트윈은 항상 mode 를 명시해 생성한다. auto 로 폴백하지 않는다.
-client = create_move_group_client(node, mode=config.moveit.move_group_mode)
+#
+# 액션 서버 확인은 끈다 — 트윈은 컨트롤러보다 먼저 뜰 수 있어 그 시점에 서버가 없는
+# 것이 정상이고, 켜 두면 매 기동마다 오경보가 된다. 준비 여부는 /health 가 드러낸다.
+client = create_move_group_client(node, mode=config.moveit.move_group_mode,
+                                  check_action_server=False)
 ```
 
 배포 대상 스택을 모르는 경우는 실질적으로 없으며, 자동 판별로 얻는 편의보다 오판의
 비용이 크다.
+
+#### 백엔드 이름으로 채운다 — `moveit.backend`
+
+`move_group_mode` 와 `arm_command_*` 를 YAML 에 손으로 적으면 **"어느 스택이 JTC 인가"가
+저장소 여러 곳에 살게 된다.** 백엔드가 바뀌었을 때 한쪽만 뒤처지고, 그 어긋남은 에러가
+아니라 "명령이 안 먹는다"로 나타난다 — Isaac 이 bridge → ros2_control 로 바뀔 때 실제로
+그랬다.
+
+정본은 `robot_control.moveit.BACKEND_PROFILES` 하나이며, YAML 은 이름만 적는다.
+
+```yaml
+moveit:
+  backend: isaac          # mode·명령채널을 프로파일이 채운다
+  planning_group: panda_arm
+```
+
+- **명시한 키가 프로파일을 이긴다** — 프로파일에 없는 변형을 붙일 때 섞어 쓸 수 있다.
+- **JTC 로 풀리면 명령 채널을 채우지 않는다.** 채우면 사용자가 적지도 않은 키 때문에
+  `jtc + arm_command_*` 검사에 걸려 트윈이 안 뜬다.
+- **모든 프로파일이 확정 모드다.** `auto` 라는 백엔드는 없다 — 표가 있는 이유가 런타임
+  판별의 조용한 오판을 없애는 것이기 때문이다. mock 계열은 스택이 둘이라
+  `mock`(JTC) 과 `mock_jgpc`(JGPC) 로 나뉘어 있다.
+- 모르는 이름은 조용히 `auto` 로 떨어지지 않고 **거부**된다 — 오타가 "이 스택에서만
+  안 되네" 로 나타나지 않게.
 
 #### HTTP 서버를 ROS 준비보다 먼저 띄운다
 
@@ -282,8 +315,9 @@ ros:
   use_sim_time: false
 
 moveit:
-  # 필수. 'jtc' 또는 'jgpc' 만 허용하며 'auto' 는 금지한다 (2.6 참조).
-  move_group_mode: jtc
+  # 백엔드 이름 하나로 mode·명령채널을 채운다 (2.6 참조).
+  # JGPC mock 스택이면 `mock_jgpc`, Isaac 이면 `isaac`, 펑션베이면 `functionbay`.
+  backend: mock
   planning_group: panda_arm
 
 variables:

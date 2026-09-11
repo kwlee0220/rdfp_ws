@@ -55,9 +55,9 @@ moveit_servo (follower MoveIt config) ──▶ follower JointTrajectoryControll
 | 파이프라인 단계 | 담당 | 상태 |
 |---|---|---|
 | leader FK (joint → EE pose) | leader 가 `/tf` 로 이미 제공 | 불필요 (제공됨) |
-| TF lookup → PoseStamped | `ee_pose_node` (`rdfp.moveit.ee_pose_publisher`) | **재사용** (파라미터만 변경) |
+| TF lookup → PoseStamped | `ee_pose_node` (`robot_control.moveit.ee_pose_publisher`) | **재사용** (파라미터만 변경) |
 | retargeting (클러치/스케일/필터) | `teleop_retarget_node` | **구현됨** (`ros2 run rdfp teleop_retarget`) |
-| pose 스트림 → twist | `EeTwistPublisher` (`rdfp.moveit.ee_twist_publisher`) | **재사용** (`source:=ee_pose`) |
+| pose 스트림 → twist | `EeTwistPublisher` (`robot_control.moveit.ee_twist_publisher`) | **재사용** (`source:=ee_pose`) |
 | twist → 관절 속도 | `moveit_servo` (`/servo_node/delta_twist_cmds`) | 기존 스택 |
 
 전체 체인은 `teleop_mirror.launch.py` 로 일괄 기동한다 (follower Panda +

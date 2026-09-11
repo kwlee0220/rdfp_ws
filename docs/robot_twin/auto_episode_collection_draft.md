@@ -755,7 +755,7 @@ ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 �
 |:-:|---|---|---|
 | ~~1~~ | ~~`rdfp_msgs/SceneObject(s)` + `/scene/objects` 토픽 계약 확정~~ | **완료** | 2026-08-17. `dimensions` 순서는 `shape_msgs/SolidPrimitive` 를 따른다 (cylinder 는 **높이·반지름**) |
 | ~~2~~ | ~~mock 용 `scene_state_node`~~ | **완료** | 2026-08-17. `mock_scene_state_node`. **서비스 폴링이 아니라 diff 누적** (§2.6). TF 합성은 `robot_control/scene/pose_math.py` (ROS 없이 테스트) |
-| ~~3~~ | ~~트윈 변수 `scene_objects` + projection~~ | **완료** | 2026-08-17. 어휘는 **B안**(입력 메시지 기준): `joint_state_map` / `scene_object_map` |
+| ~~3~~ | ~~트윈 변수 `scene_objects` + projection~~ | **완료** | 2026-08-17. 어휘는 **projection 어휘 B안**(입력 메시지 기준): `joint_state_map` / `scene_object_map` |
 | ~~4~~ | ~~`start_episode`/`stop_episode` 연산 + `sessions` 스키마 확장~~ | **완료** | 2026-08-17. 연산 4개(§4.4), 거부는 `PRECONDITION_FAILED`(§4.2), 스키마·생산 경로(§4.5·§4.6) |
 | ~~5~~ | ~~`reset_scene` 연산 + mock 구현 + `resource` 리스트 확장~~ | **완료** | 2026-08-17. 무작위 추출은 **트윈**이 하고 백엔드는 배치를 받아 적용만 한다 (§3.5) |
 | ~~5b~~ | ~~scene 노드를 mock 계열 launch 에 편입~~ | **완료** | 2026-08-17. `robot_control/launch_helpers/scene.py` + `enable_scene`(기본 `true`). 스택↔어댑터 짝을 사용자가 고르지 않게 한다 |
@@ -764,7 +764,7 @@ ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 �
 
 1~3 은 반나절 규모다. 4 를 먼저 확정하지 않으면 5 이후가 헛돈다.
 
-### 6.1 projection 어휘 — B안 채택 (결정·완료, 2026-08-17)
+### 6.1 projection 어휘 — projection 어휘 B안 채택 (결정·완료, 2026-08-17)
 
 **입력 메시지 타입 기준으로 이름 붙인다: `joint_state_map` / `scene_object_map`.**
 새 projection 을 추가하는 순간이 기존 이름과 나란히 놓고 축을 정할 수 있는 유일한
@@ -778,11 +778,11 @@ ground truth 는 라벨·성공 판정·자동 리셋·도메인 랜덤화에 �
 | **B** | `joint_state_map` + `scene_object_map` | 입력 메시지 타입 | **범용이 아님을 이름이 정직하게 드러낸다.** 다만 메시지마다 projection 이 늘고, 실제로 재사용 가능한 변환까지 과하게 좁혀진다 |
 | **C** | `parallel_arrays_to_map` + `struct_array_to_map` | 변환 방식 | 축이 하나. 새 변환의 자리가 분명하다. 그러나 **§2.4 에서 고친 오해가 이름 수준에서 되살아난다** — "아무 병렬 배열에나 되는 줄" 알았던 것이 정확히 `name_value_map` 이 변환 방식처럼 들렸기 때문이다 |
 
-B안의 부수 효과로 **함수명과 설정값이 다시 일치한다** (`project_joint_state_map` ↔
+projection 어휘 B안의 부수 효과로 **함수명과 설정값이 다시 일치한다** (`project_joint_state_map` ↔
 `joint_state_map`). A·C안의 비용으로 꼽았던 `project_` + projection 이름 대응 규칙의
 붕괴가 사라진다.
 
-B안의 대가("메시지마다 projection 이 는다")는 **구현을 공유해 완화했다** —
+projection 어휘 B안의 대가("메시지마다 projection 이 는다")는 **구현을 공유해 완화했다** —
 `_project_struct_array(array_field, key_field)` 하나를 두고 공개 이름만 메시지별로
 얇게 감쌌다. 설정 어휘는 적용 범위를 정직하게 드러내되, 코드는 복제하지 않는다.
 

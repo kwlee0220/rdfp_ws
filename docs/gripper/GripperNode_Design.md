@@ -137,7 +137,7 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 | 구현 | 무엇으로 재나 | 왜 |
 |---|---|---|
 | [`GripperActionNode`](GripperActionNode_Guide.md) (mock·Isaac) | `\|width − 목표 폭\| ≤ width_tolerance` | `/joint_states` 의 손가락 관절 하나가 관측의 전부다 |
-| 펑션베이 (미구현) | 6축 **관절 잔차** `< 0.005 rad` | 지령과 보고가 같은 관절 공간이라 **실측 잔차가 0.0000** 이다. `width` 로 환산하면 2F-85 링키지 근사 오차가 더해질 뿐이다 |
+| 펑션베이 | **관절 잔차** `< 0.005 rad` (축 수는 씬마다 — t1 6 / r2 2) | 지령과 보고가 같은 관절 공간이라 **실측 잔차가 0.0000** 이다. `width` 로 환산하면 2F-85 링키지 근사 오차가 더해질 뿐이다 |
 
 **폭으로 재는 것을 계약으로 못박지 않는다.** 그렇게 하면 `width` 를 못 구하는 스택이
 `at_goal` 까지 잃는데, 그 둘은 서로 다른 질문이다 — "얼마나 벌어졌나"와 "시킨 일을
@@ -175,7 +175,7 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 
 > **관절 토크를 그대로 싣거나 여러 관절의 평균을 쓰는 안은 채택하지 않았다.** 평균은 실제로 동작하지 않는다 — 그리퍼가 좌우 대칭이라 토크 부호가 반대여서 **상쇄된다.** 펑션베이 실측: 파지 시 관절 토크 `[0.0, +17.14, +5.10, 0.004, -17.19, -5.26]` N·m 의 평균은 **−0.035** 로, 빈손일 때의 −0.000 과 구분되지 않는다. 평균절대값(7.45 vs 0.002)을 써야 갈리는데 그것은 "평균"이 아니라 별도로 정의해야 하는 집계다.
 
-**`stalled` 판정의 사후 검증이 필요하면** 백엔드 원시 채널을 기록한다 — 펑션베이는 `/output/gripper_joint`(6관절 q/v/f)를 `config/recording_topics.list` 에 넣으면 토크가 데이터셋에 남는다. 지금은 기록 대상이 아니다.
+**`stalled` 판정의 사후 검증이 필요하면** 백엔드 원시 채널을 기록한다 — 펑션베이는 `/output/gripper_joint`(q/v/f, 축 수는 씬마다)를 `config/recording_topics.list` 에 넣으면 토크가 데이터셋에 남는다. 지금은 기록 대상이 아니다.
 
 **나중에 다시 넣는 것은 공짜가 아니다.** ROS 메시지는 스키마 진화가 없어 필드를 더하면 타입이 바뀌고 옛 bag·DB 와 어긋난다. 필요해지면 그때 breaking change 를 한 번 더 치르는 것이며, 그 판단을 지금 미리 하지 않는다.
 
@@ -219,7 +219,7 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 
 **백엔드로 가르지 않는다.** scene 계열(`MockSceneStateNode` / `IsaacSceneStateNode`)은
 물체 목록을 얻는 방법이 백엔드마다 근본적으로 달라 그 관례가 맞지만, 그리퍼는 그렇지
-않다 — Isaac 은 `isaac_gripper_bridge` 로 액션 서버를 열어 **mock 과 같은 노드**를 쓴다.
+않다 — Isaac 도 ros2_control 의 `panda_hand_controller` 가 액션 서버라 **mock 과 같은 노드**를 쓴다.
 처음에 `MockGripperNode` 로 이름 붙였다가 Isaac 이 쓰는 순간 거짓이 되어
 **2026-09-02 에 `GripperActionNode` 로 고쳤다.**
 
@@ -232,7 +232,7 @@ bool    at_goal     # 시킨 일을 이뤘는가 (위치 도달이 아니다. �
 | 구현 | 실행 경로 | 쓰는 백엔드 | 상태 |
 |---|---|---|:-:|
 | [`GripperActionNode`](GripperActionNode_Guide.md) | `control_msgs/GripperCommand` **액션** (`/panda_hand_controller/gripper_cmd`) | mock · Gazebo · Isaac(브리지 경유) | ✅ |
-| [`Robotiq2FGripperNode`](Robotiq2FGripperNode_Guide.md) | **관절 목표각 토픽** (6축 `Float64MultiArray` ← `JointState`) | 펑션베이 | ✅ |
+| [`Robotiq2FGripperNode`](Robotiq2FGripperNode_Guide.md) | **관절 목표각 토픽** (`Float64MultiArray` ← `JointState`; 축 수·단위·packing 은 씬 규약, §6.1a) | 펑션베이 | ✅ |
 
 **`stalled` 판정은 구현을 가르는 축이 아니다.** 임계 effort 하나가 다를 뿐이라
 서브클래스로 나누면 액션 경로가 같은 코드가 두 벌이 된다 — **파라미터로 다룬다.**

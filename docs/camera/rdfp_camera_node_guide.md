@@ -31,19 +31,28 @@
 > 아니라 여기에 둔다. 카메라 하드웨어 추상화(`OpenCvCamera`)만 `robot_control`
 > 것을 그대로 쓴다.
 
-**기존 `CameraNode`과의 차이:**
+**[`CameraNode`](camera_node_guide.md) 와의 차이:**
 
-| 항목 | `CameraNode` | `RdfpCameraNode` |
+| 항목 | `CameraNode` (제어 계층) | `RdfpCameraNode` (수집 계층) |
 |---|---|---|
-| 카메라 열기 | 노드 시작 시 즉시 | 세션 시작(`IN_SESSION`) 시 |
-| 이미지 발행 | 항상 | `IN_EPISODE` 구간에서만 |
-| 세션 연동 | 없음 | `session` 토픽 구독 |
-| 병존 여부 | 독립 | 독립 (양쪽 동시 실행 가능) |
+| 세션 연동 | 없음 — 항상 발행 | `session` 구독. `IN_SESSION` 에 열고 `IN_EPISODE` 에 발행 |
+| 카메라 열기 | 노드 시작 시 즉시 | 세션 시작 시 |
+| 재연결 | **없음** — `exit 1` 로 supervisor 에 위임 | 자체 (`reconnect_interval_sec`, 기본 3.0) |
+| `camera_status` | 매 tick 발행 | **바뀔 때만**, 기동 시 `DISCONNECTED` latch |
+| 이미지 QoS | `SENSOR_QOS` depth **1** | `qos_profile_sensor_data` depth **5** |
+| `CompressedImage` | 지원 (`compress_image`) | 없음 |
+| `camera_info` | 매 프레임 | `IN_EPISODE` 에서만 |
+| 종료 코드 | 초기화 실패 1 · 끊김 1 | 초기화 실패 1 |
+| 테스트 | `camera/tests/` 38건 (되감기·마스킹) | 28건 (재연결·latch·late-join) |
+
+두 노드는 **독립이며 동시에 띄울 수 있다.** `image_capture_node` 까지 셋 중 고르는
+기준은 [README](README.md) 를 본다.
 
 **핵심 특징:**
 - `IN_SESSION` 구간에서는 캡처만 수행하고 프레임을 버림 (카메라 warm-up)
 - `IN_EPISODE` 전이 시 즉시 이미지 발행 시작
-- 카메라 open 실패 시 IDLE 전이까지 모든 명령을 무시하여 안전하게 동작
+- 카메라 open 에 실패해도 `reconnect_interval_sec` 주기로 다시 시도해 회복한다
+  (그 값이 0 이하일 때만 IDLE 전이까지 재시도하지 않는다)
 - 캡처 중 연결이 끊기면 캡처 타이머를 멈추고 `reconnect_interval_sec` 주기로
   재연결을 시도한다. 성공하면 세션 상태를 유지한 채 발행이 재개된다
 - `camera_status` 는 **상태가 바뀔 때만** 발행한다 (끊긴 카메라에서 초당 fps 회
@@ -71,7 +80,6 @@ ros2 run rdfp session_control_node
 
 # 터미널 2: 카메라 노드
 ros2 run rdfp rdfp_camera_node --ros-args \
-  -r session:=/session_control/session \
   -p camera_id:=0
 
 # 터미널 3: 세션 제어
@@ -154,7 +162,7 @@ sequenceDiagram
 
 | 토픽 | 타입 | QoS | 연결 방법 |
 |------|------|-----|-----------|
-| `session` | `rdfp_msgs/SessionCommand` | RELIABLE / TRANSIENT_LOCAL / depth=1 | `-r session:=/session_control/session` |
+| `session` | `rdfp_msgs/SessionCommand` | RELIABLE / TRANSIENT_LOCAL / depth=1 | 기본 `/session` — **remap 불필요**. namespace 운용 시에만 `-r session:=/<ns>/session` |
 
 ### 발행 토픽
 
@@ -168,7 +176,9 @@ sequenceDiagram
 | `~/camera_info` | `/rdfp_camera_node/camera_info` | `sensor_msgs/CameraInfo` | `qos_profile_sensor_data` |
 | `~/camera_status` | `/rdfp_camera_node/camera_status` | `std_msgs/String` | `SYSTEM_QOS` (RELIABLE / TRANSIENT_LOCAL) |
 
-`~/image_raw` 토픽은 `IN_EPISODE` 구간에서만 발행된다.
+`~/image_raw` 와 `~/camera_info` 는 **둘 다** `IN_EPISODE` 구간에서만 발행된다 —
+발행 여부를 가르는 것이 프레임 단위의 `_publishing` 하나이기 때문이다.
+`~/camera_status` 는 세션과 무관하게 상태가 바뀔 때 나간다.
 `RdfpImageRecorder`와 연동하려면 양쪽 노드의 이미지 토픽을 동일 이름으로
 remap 한다 (예: `-r ~/image_raw:=/rdfp/image_raw`).
 
@@ -196,7 +206,6 @@ remap 한다 (예: `-r ~/image_raw:=/rdfp/image_raw`).
 
 ```bash
 ros2 run rdfp rdfp_camera_node --ros-args \
-  -r session:=/session_control/session \
   -p camera_id:=0 \
   -p fps:=30.0 \
   -p resolution:=640x480
@@ -207,7 +216,6 @@ ros2 run rdfp rdfp_camera_node --ros-args \
 ```bash
 # 카메라 노드
 ros2 run rdfp rdfp_camera_node --ros-args \
-  -r session:=/session_control/session \
   -r ~/image_raw:=/rdfp/image_raw \
   -p camera_id:=0 \
   -p fps:=30.0 \
@@ -216,7 +224,6 @@ ros2 run rdfp rdfp_camera_node --ros-args \
 # 레코더 노드
 ros2 run rdfp rdfp_image_recorder --ros-args \
   -r image:=/rdfp/image_raw \
-  -r session:=/session_control/session \
   -p output_dir:=/tmp/recordings \
   -p fps:=30 \
   -p resolution:=640x480
@@ -246,7 +253,6 @@ def generate_launch_description():
                 'frame_id': 'camera_link',
             }],
             remappings=[
-                ('session', '/session_control/session'),
                 ('~/image_raw', '/rdfp/image_raw'),
             ],
         ),
@@ -260,7 +266,6 @@ def generate_launch_description():
             }],
             remappings=[
                 ('image', '/rdfp/image_raw'),
-                ('session', '/session_control/session'),
             ],
         ),
     ])
@@ -275,7 +280,7 @@ def generate_launch_description():
 **확인:**
 ```bash
 # 세션 토픽이 발행되는지 확인
-ros2 topic echo /session_control/session \
+ros2 topic echo /session \
   --qos-durability transient_local --qos-reliability reliable
 
 # 카메라 디바이스 존재 여부
@@ -316,7 +321,7 @@ ros2 topic hz /rdfp/image_raw
 ```
 
 카메라가 요청한 값을 정확히 지원하지 않으면 가장 가까운 값으로 자동 조정된다.
-실제 적용된 값은 `session IN_SESSION: camera opened` 로그에서 확인할 수 있다.
+실제 적용된 값은 `camera opened (resolution=…, fps=…)` 로그에서 확인할 수 있다.
 
 ---
 

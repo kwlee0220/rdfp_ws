@@ -1,9 +1,61 @@
 # 멀티 시뮬레이터 백엔드 설계안 (mock / Gazebo / Isaac Sim)
 
-> 상태: **설계안 (코드 미반영)**
+> 상태: **설계안 — §4 의 launch 재배치는 미반영. 다만 §3·§5 의 문제의식은 다른
+> 방식으로 실현되었다 (아래 「실제로 만든 것」).**
 > 대상 환경: ROS 2 Humble, MoveIt2, ros2_control
 > 목적: 현재 RViz2 기반 mock 동작을 유지하면서, Gazebo(Fortress) 및 NVIDIA
 > Isaac Sim 을 **교체 가능한 백엔드**로 꽂을 수 있는 구조를 정의한다.
+
+---
+
+## 0. 실제로 만든 것 (2026-09-08)
+
+**이 문서의 §4 구조(`backend:=mock|gazebo|isaac` 인자 + `backends/backend_*.launch.py`)는
+채택하지 않았다.** launch 는 백엔드마다 별도 파일(`panda_mock` / `panda_jgpc_mock` /
+`panda_isaac` / `panda_functionbay`)로 남았다. 대신 **백엔드마다 갈리는 값과 코드를
+한곳에 모으는** 층을 따로 두었다.
+
+```
+config/backends/<이름>.yaml        값     ← "이 백엔드는 어떤 값을 쓰는가" 의 정본
+robot_control/backends/            코드   ← 값으로 표현 안 되는 것
+    base.py        Backend
+    isaac.py       IsaacBackend
+    functionbay.py FunctionbayBackend
+```
+
+```python
+_BACKEND = get_backend('isaac')
+DeclareLaunchArgument('servo_linear_scale',
+                      default_value=str(_BACKEND.value('servo', 'linear_scale')))
+```
+
+### 왜 §4 가 아니라 이 방식인가
+
+- **문제는 launch 파일의 배치가 아니라 값의 중복이었다.** 같은 사실("Isaac 은 JTC 다",
+  "펑션베이 명령 토픽은 `/input/panda_joint`")이 launch·노드·트윈 설정에 각각 적혀
+  있었고, 백엔드가 바뀌었을 때 **한쪽만 뒤처졌다** — Isaac 이 bridge → ros2_control 로
+  바뀔 때 실제로 그랬다. 그 어긋남은 에러가 아니라 "명령이 안 먹는다" 로 나타난다.
+- launch 를 하나로 합치면 인자가 백엔드 수만큼 곱해지고, 백엔드마다 **다른 노드 집합**을
+  띄우는 차이(펑션베이의 `servo_command_bridge`·`joint_state_fusion`, Isaac 의
+  `commanded_joint_state_node`)를 조건문으로 감당해야 한다. 지금 구조는 그 차이를
+  파일 경계로 남겨 둔다.
+- §5 의 "백엔드 계약" 은 여전히 유효하다 — 프로파일은 그 계약의 **값 부분**을 적은
+  것이고, 계약 자체(무엇을 발행해야 하는가)는 이 문서가 정본이다.
+
+### 지금 적용 범위
+
+| launch | 프로파일 사용 | 실주행 검증 |
+|---|:-:|---|
+| `panda_isaac` | ○ | ○ |
+| `panda_mock` · `panda_jgpc_mock` | ○ | ○ |
+| `panda_functionbay` | ○ | **✕ — 시뮬레이터가 없다** |
+| `panda_gazebo` | ✕ | ✕ — `ros_gz_sim` 미설치 |
+
+스키마와 함정: [`src/robot_control/config/backends/README.md`](../../src/robot_control/config/backends/README.md).
+launch 쪽 적용: [`src/robot_control/launch/README.md`](../../src/robot_control/launch/README.md) §3.0.
+
+**아래 §1~§11 은 원래 설계안 그대로 둔다** — §4 의 launch 재배치는 아직 판단이 남아
+있고, §5·§7(URDF 전략)·§9 는 지금도 참고 대상이다.
 
 ---
 
@@ -183,7 +235,7 @@ Layer A 와의 인터페이스다.
 
 ### 5.3 선택(MAY)
 - `/camera/image_raw`, `/camera/camera_info` — 시뮬 센서로 제공하면 OpenCV
-  `camera_node` 를 끈다(`enable_camera_node:=false`). 제공하지 않으면 기존
+  `camera_node` 를 끈다(`enable_camera:=false`). 제공하지 않으면 기존
   웹캠 `camera_node` 가 그대로 채운다.
 - `world` 정의 / 환경 오브젝트.
 
@@ -216,7 +268,7 @@ recorder / dataset / image_viewer 는 `camera_image_topic` 등으로 remap 되�
 - URDF 하드웨어: `gz_ros2_control/GazeboSimSystem` + `<gazebo>` 플러그인 블록.
   추가로 모든 링크에 `<inertial>`/`<collision>` 필요(§7).
 - 카메라: Gazebo 카메라 센서 플러그인 → `ros_gz_image`/`ros_gz_bridge` 로
-  `/camera/image_raw` 브리지. `enable_camera_node:=false` 로 웹캠 노드 끔.
+  `/camera/image_raw` 브리지. `enable_camera:=false` 로 웹캠 노드 끔.
 - 클럭: Gazebo `/clock` → `use_sim_time:=true` 를 **앱 포함 전체 노드에
   전파**해야 한다 (§8.3).
 

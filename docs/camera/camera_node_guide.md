@@ -29,14 +29,9 @@ OpenCV `VideoCapture` 로 카메라·비디오 스트림·파일을 열어 `sens
 프레임을 읽고 ROS2 토픽으로 발행한다. USB / 내장 카메라, RTSP·HTTP 스트림,
 비디오 파일까지 동일 인터페이스로 다룬다.
 
-**기존 `RdfpCameraNode` 와의 차이:**
-
-| 항목 | `CameraNode` | `RdfpCameraNode` |
-|---|---|---|
-| 세션 연동 | 없음 (항상 발행) | 세션 토픽 기반 on/off |
-| 자동 재연결 | 없음 (supervisor 에 위임) | 내부 재연결 로직 포함 |
-| 발행 정책 | 연속 발행 | 세션 상태에 따라 발행 |
-| 대상 용도 | 단독 테스트·일반 뷰어 입력 | 녹화 세션 연동 |
+**세션도 재연결도 얹지 않은 것이 이 노드의 성격이다.** 노드가 살아 있는 동안 계속
+발행하고, 끊기면 `exit 1` 로 끝내 supervisor 에 재기동을 맡긴다. 다른 성격이
+필요하면 카메라 노드가 더 있다 — 선택 표는 [README](README.md) 에 있다.
 
 **핵심 특징:**
 - 정수 인덱스·비디오 파일·RTSP/HTTP URL 을 단일 파라미터(`camera_id`) 로 수용
@@ -59,8 +54,8 @@ sudo apt install ros-humble-cv-bridge python3-opencv
 sudo apt install libturbojpeg
 pip install PyTurboJPEG
 
-# rdfp 빌드
-colcon build --packages-select rdfp
+# 빌드
+colcon build --packages-select robot_control
 source install/setup.bash
 ```
 
@@ -107,7 +102,6 @@ ros2 run robot_control camera_node --ros-args \
 | `frame_id` | `string` | `"camera_link"` | `Image` / `CameraInfo` 의 `header.frame_id` 값 |
 | `encoding` | `string` | `"bgr8"` | 비압축 모드의 `sensor_msgs/Image.encoding` (`bgr8`/`rgb8`/`mono8`) |
 | `compress_image` | `bool` | `false` | `true` 이면 JPEG 압축 `CompressedImage` 로 발행 (`PyTurboJPEG` 필요) |
-| `camera_info_topic` | `string` | `""` | `CameraInfo` 토픽명. 빈 값이면 상대 토픽 `camera_info` 사용 |
 | `use_sim_time` | `bool` | `false` | ROS2 표준 sim time 플래그 |
 
 > 💡 요청한 `fps` / `resolution` 과 실제 설정값이 다르면 WARNING 로그가
@@ -123,7 +117,7 @@ ros2 run robot_control camera_node --ros-args \
 | 형태 | 예 | 비고 |
 |---|---|---|
 | 정수 인덱스 | `-p camera_id:=0` | `/dev/video0`. `'0'` 같은 숫자 문자열도 자동 int 변환 |
-| 비디오 파일 | `-p camera_id:=/home/user/samples/sample.mp4` | 파일 끝 도달 시 `DISCONNECTED` → 종료 |
+| 비디오 파일 | `-p camera_id:=/home/user/samples/sample.mp4` | 파일 끝에서 **처음으로 되감아 계속 재생** |
 | RTSP/HTTP URL | `-p camera_id:=rtsp://user:pass@192.168.1.10:554/stream` | 자격증명은 로그에 `user:***@host` 로 마스킹 |
 
 ---
@@ -138,10 +132,10 @@ ros2 run robot_control camera_node --ros-args \
 
 | 토픽(선언) | 기본 경로 | 타입 | QoS | 용도 |
 |---|---|---|---|---|
-| `~/image_raw` | `/camera_node/image_raw` | `sensor_msgs/Image` | sensor (BEST_EFFORT, VOLATILE, depth=10) | 비압축 프레임 이미지 |
+| `~/image_raw` | `/camera_node/image_raw` | `sensor_msgs/Image` | sensor (BEST_EFFORT, VOLATILE, depth=1) | 비압축 프레임 이미지 |
 | `~/image_compressed` | `/camera_node/image_compressed` | `sensor_msgs/CompressedImage` | sensor | `compress_image:=true` 시 JPEG 프레임 |
 | `~/camera_info` | `/camera_node/camera_info` | `sensor_msgs/CameraInfo` | sensor | 해상도·기본 K/P 매트릭스 |
-| `~/camera_status` | `/camera_node/camera_status` | `std_msgs/String` | reliable (RELIABLE, TRANSIENT_LOCAL, depth=10) | `CONNECTED` / `DISCONNECTED` / `ERROR` |
+| `~/camera_status` | `/camera_node/camera_status` | `std_msgs/String` | reliable (RELIABLE, TRANSIENT_LOCAL, depth=1) | `CONNECTED` / `DISCONNECTED` / `ERROR` |
 
 ### CameraInfo 내용
 
@@ -258,7 +252,7 @@ sequenceDiagram
 | 요청 fps/해상도 ≠ 실제값 | WARNING + **실제값** 사용 |
 | 단일 빈 프레임(`is_opened=True`) | WARNING + 다음 tick 진행 |
 | 프레임 읽기 실패(`is_opened=False`) | ERROR + `status=DISCONNECTED` → `ERROR` → `sys.exit(1)` |
-| 파일 소스 EOF | 위와 동일 경로로 종료 |
+| 파일 소스 EOF | INFO + **되감아 계속** (끊김이 아니다) |
 | SIGINT/SIGTERM | `_cleanup()` → 카메라 release + 타이머 취소 |
 
 ---
@@ -296,8 +290,11 @@ ros2 run robot_control camera_node --ros-args \
   -r ~/image_raw:=/video/image
 ```
 
-파일 끝에 도달하면 `DISCONNECTED` → 종료된다. 반복 재생이 필요하면 ffmpeg
-loop 이나 별도 파이프라인을 고려한다.
+**파일 끝은 연결 끊김이 아니다 — 처음으로 되감아 계속 재생한다.** OpenCV 는 EOF 에서도
+`isOpened()` 를 참으로 두므로, 되감지 않으면 노드가 살아 있는 채 아무것도 못 내고 초당
+fps 회의 경고만 남긴다. 증상이 "카메라가 조용하다"뿐이라 원인이 안 보여서 되감기를
+넣었다 (`OpenCvCamera._rewind_if_file_ended`). 한 프레임도 못 읽은 소스는 되감지 않으며
+(깨진 파일에서 무한 반복이 된다), 장치·RTSP 는 프레임 수가 0 이라 대상이 아니다.
 
 ### 명시적 `camera_info` 토픽 지정
 
@@ -306,24 +303,6 @@ ros2 run robot_control camera_node --ros-args \
   -r ~/camera_info:=/calibration/camera_info
 ```
 
-### 레코더와 조합 (녹화)
-
-```bash
-# 터미널 1: 카메라 발행 (기본: /camera_node/image_raw)
-ros2 run robot_control camera_node --ros-args \
-  -p camera_id:=0 -p fps:=30 -p resolution:=640x480
-
-# 터미널 2: 세션 기반 녹화
-ros2 run rdfp session_control_node &
-ros2 run rdfp rdfp_image_recorder --ros-args \
-  -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session \
-  -p output_dir:=/tmp/recordings -p fps:=30 -p resolution:=640x480
-```
-
-> ⚠ 레코더의 `fps` / `resolution` / `pixel_format(=encoding)` 은 `camera_node`
-> 의 **실제 값** 과 정확히 일치해야 한다. 불일치 시 프레임이 drop 된다.
-
 ### Launch 파일
 
 재사용 가능한 헬퍼가 준비되어 있다.
@@ -331,7 +310,7 @@ ros2 run rdfp rdfp_image_recorder --ros-args \
 ```python
 # my_launch.py
 from launch import LaunchDescription
-from rdfp.launch.camera import declare_camera_arguments, create_camera_node
+from robot_control.launch_helpers.camera import declare_camera_arguments, create_camera_node
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -351,7 +330,7 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         Node(
-            package='rdfp',
+            package='robot_control',
             executable='camera_node',
             parameters=[{
                 'camera_id': 0,
@@ -363,7 +342,7 @@ def generate_launch_description() -> LaunchDescription:
             remappings=[
                 ('~/image_raw', '/camera/image_raw'),
                 ('~/camera_info', '/camera/camera_info'),
-                ('~/camera_status', '/camera/image_raw/status'),
+                ('~/camera_status', '/camera/camera_status'),
             ],
             # 연결 끊김 → sys.exit(1) 이후 자동 재시작이 필요하면:
             # respawn=True, respawn_delay=2.0,
@@ -445,8 +424,7 @@ Launch 의 `respawn=True` 또는 systemd `Restart=on-failure` 유닛으로 복�
 
 ## 12. 관련 문서
 
+- [카메라 서브시스템 README](./README.md) — 어느 카메라 노드를 쓸지 고르는 표
 - [ImageViewerNode Guide](./image_viewer_node_guide.md) — 발행된 이미지 토픽 미리보기
-- [RdfpCameraNode Guide](./rdfp_camera_node_guide.md) — 세션 연동 카메라 노드
-- [RdfpImageRecorder Guide](../recorder/rdfp_image_recorder_node_guide.md) — 세션 기반 이미지 녹화 노드
 - [OpenCvCamera Guide](./opencv_camera_guide.md) — 내부 카메라 래퍼
-- [launch/camera_launch_helper.py](../../src/robot_control/robot_control/launch_helpers/camera.py) — 재사용 가능한 launch 헬퍼
+- [launch_helpers/camera.py](../../src/robot_control/robot_control/launch_helpers/camera.py) — 재사용 가능한 launch 헬퍼

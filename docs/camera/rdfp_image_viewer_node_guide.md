@@ -80,8 +80,7 @@ ros2 run robot_control camera_node --ros-args \
 
 # 터미널 3: 뷰어 노드
 ros2 run rdfp rdfp_image_viewer_node --ros-args \
-  -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session
+  -r image:=/camera_node/image_raw
 
 # 터미널 4: 세션 상태 전이 예시
 ros2 service call /session_control/set_task_label \
@@ -176,7 +175,7 @@ ROS2 파라미터는 `resolution` 하나뿐이다. 오버레이 스타일·토�
 | 토픽 | 타입 | QoS | 연결 방법 |
 |---|---|---|---|
 | `image` | `sensor_msgs/Image` | `sensor_data` (BEST_EFFORT, KEEP_LAST 5) | `-r image:=/<publisher_topic>` |
-| `session` | `rdfp_msgs/SessionCommand` | `TRANSIENT_LOCAL / RELIABLE / KEEP_LAST(1)` | `-r session:=/<session_topic>` |
+| `session` | `rdfp_msgs/SessionCommand` | `TRANSIENT_LOCAL / RELIABLE / KEEP_LAST(1)` | 기본 `/session` — **remap 불필요**. namespace 운용 시에만 `-r session:=/<ns>/session` |
 
 두 토픽 모두 remap 으로 실제 토픽에 연결한다. 세션 토픽의 QoS 는
 `SessionControlNode` 발행 QoS 와 **정확히 일치** 시켜야 late-join 시 직전
@@ -250,8 +249,7 @@ sequenceDiagram
 ```bash
 ros2 run rdfp session_control_node &
 ros2 run rdfp rdfp_image_viewer_node --ros-args \
-  -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session
+  -r image:=/camera_node/image_raw
 ```
 
 ### 세션 노드 없이 단독 실행
@@ -268,7 +266,6 @@ ros2 run rdfp rdfp_image_viewer_node --ros-args \
 ```bash
 ros2 run rdfp rdfp_image_viewer_node --ros-args \
   -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session \
   -p resolution:=800x600
 ```
 
@@ -286,7 +283,7 @@ def generate_launch_description():
             executable='session_control_node',
         ),
         Node(
-            package='rdfp',
+            package='robot_control',
             executable='camera_node',
             parameters=[{
                 'camera_id': '0',
@@ -302,7 +299,6 @@ def generate_launch_description():
             }],
             remappings=[
                 ('image', '/camera_node/image_raw'),
-                ('session', '/session_control/session'),
             ],
         ),
     ])
@@ -316,12 +312,10 @@ def generate_launch_description():
 ```bash
 ros2 run rdfp rdfp_image_recorder --ros-args \
   -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session \
   -p output_dir:=/tmp/recordings -p fps:=30 -p resolution:=640x480 &
 
 ros2 run rdfp rdfp_image_viewer_node --ros-args \
-  -r image:=/camera_node/image_raw \
-  -r session:=/session_control/session
+  -r image:=/camera_node/image_raw
 ```
 
 `start_episode` 호출 시 뷰어에 `(Recording)` 이 표시되어 레코더 상태를 확인
@@ -421,11 +415,11 @@ ros2 topic info -v /camera_node/image_raw   # Publisher count: 0 이면 미연�
 
 ```bash
 # 세션 토픽이 발행되는지 확인 (TRANSIENT_LOCAL QoS 로 조회)
-ros2 topic echo /session_control/session \
+ros2 topic echo /session \
   --qos-durability transient_local --qos-reliability reliable
 
 # 뷰어의 세션 구독이 연결되었는지
-ros2 topic info /session_control/session -v
+ros2 topic info /session -v
 ```
 
 - `Subscription count` 에 `rdfp_image_viewer_node` 가 포함되어야 한다

@@ -185,6 +185,7 @@ int32  applied_count      # 성공 시 요청한 개수와 같아야 한다
 |---|---|:-:|---|
 | **mock** | [`mock_scene_state_node`](../../src/robot_control/robot_control/scene/mock_scene_state_node.py) | ✅ | MoveIt `/monitored_planning_scene` **diff 누적** (§6.2) |
 | **Isaac** | [`isaac_scene_state_node`](../../src/robot_control/robot_control/isaac/scene_state_node.py) | ✅ | Isaac 이 내보내는 **물체 TF** (§6.3) |
+| **펑션베이** | [`functionbay_scene_state_node`](../../src/robot_control/robot_control/functionbay/scene_state_node.py) | ✅ | 시뮬레이터가 내보내는 **물체 TF** (§6.4). **쓰기 경로 없음** |
 | **Gazebo** | `gazebo_scene_state_node` | ❌ 미구현 | `ros_gz_bridge` 예정 |
 
 **§6.1 은 모든 발행 노드에 공통**이고, §6.2 는 mock, §6.3 은 Isaac 이다. 이 노드들이 **무엇을 싣고 무엇을 빼는지**는 §7 에 있다.
@@ -257,6 +258,43 @@ obj.pose.orientation = transform.transform.rotation
 **이름·종류·크기는 TF 에 없다.** 그래서 시뮬레이터 쪽 생성 스크립트와 **같은 JSON** (`config/isaac_scene.json`)을 읽는다 — 두 곳에 적으면 조용히 어긋난다.
 
 TF 조회에 실패한 물체는 **그 물체만 빠지고** 나머지는 발행된다 (§6.1 의 공통 정책).
+
+### 6.4 펑션베이 — `functionbay_scene_state_node`
+
+`panda_functionbay.launch.py` 가 `create_functionbay_scene_node()` 로 띄운다.
+
+**원본이 TF 다** — Isaac 과 같다. 시뮬레이터가 `world → <body 이름>` 을 약 29 Hz 로
+내보내고(2026-09-08 새 빌드, 벤더 요청 B-12), 이 노드가 `lookup_transform` 으로 받아
+계약으로 바꾼다. **쿼터니언을 뒤집지 않는다** — 실측으로 시뮬레이터가 **ROS 규약 xyzw**
+로 준다는 것을 확인했다(XML 의 `rpy="0 0 0"` 이 항등으로 나온다).
+
+**대상 선별은 시뮬레이터가 이미 한다.** `t1__floating_*_vm.xml` 의 `<General static>` 이
+`false` 인 body 만 TF 로 나온다 — 우리 `dynamic: true` 필터와 같은 뜻이고, 현재 씬에서는
+`peg_round_16` 하나다. 노드의 필터는 **설정 형식을 mock·Isaac 과 맞추기 위한 이중
+안전장치**로 남겨 두었다.
+
+**설정 파일의 성격이 Isaac 과 다르다.** `config/functionbay_scene.json` 은 **읽기 전용
+메타데이터**다 — TF 에 없는 이름·종류·크기만 채운다. Isaac 의 `isaac_scene.json` 은
+`setup_scene.py` 가 같은 파일로 prim 을 **만들기 때문에** 정의의 원본이지만, 펑션베이는
+시뮬레이터가 씬을 소유한다. **이 파일을 고쳐도 씬은 바뀌지 않는다** — 배치를 바꾸려면
+`t1__floating_*_vm.xml` 의 `<origin xyz rpy>` 를 고친다(시뮬레이션 Play 시점에 다시
+읽히므로 앱 내 재시작으로 적용된다).
+
+> ### ⚠️ 이 백엔드에는 `/scene/reset` 이 없다
+>
+> 시뮬레이터에 런타임으로 body pose 를 설정하는 수단이 없어(현재는 XML 편집 + 재시작뿐)
+> 노드가 서비스를 열지 않는다. **따라서 트윈의 `reset_scene` 은 서버 없음으로 실패한다** —
+> mock·Isaac 이 제공하는 것과 다르다. **매 에피소드 같은 배치로 수집하는 것이 전제다.**
+>
+> 무작위 배치가 필요해지면 벤더에 런타임 설정 수단을 별건으로 요청해야 한다.
+
+peg 치수는 `assets/industrealkit/peg_round_16mm.obj` 의 경계 상자에서 산출했다 —
+지름 16.0 mm · 높이 50.0 mm → `type: 'cylinder'`, `dimensions: [0.05, 0.008]`
+(§3.3 의 `SolidPrimitive` 순서: **높이, 반지름**).
+
+> **`w` 가 음수로 온다.** 실측에서 항등이 `(0,0,0,-1)` 이었다. `q` 와 `-q` 는 같은 회전이라
+> tf2 는 정상 처리하지만, **`w >= 0` 을 가정하거나 성분을 그대로 비교해 항등을 판정하는
+> 코드는 오판한다.** §3.4 의 검증법(알려진 자세로 확인)을 그대로 쓴다.
 
 ## 7. 무엇이 실리는가 — 조작 대상뿐이다
 

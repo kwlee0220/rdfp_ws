@@ -54,7 +54,7 @@ from rdfp.recorder import (
     RecorderError,
     RecorderStateError,
 )
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 ```
 
 ## 3. 생성자 시그니처
@@ -137,7 +137,7 @@ stateDiagram-v2
 ```python
 import numpy as np
 from rdfp.recorder import FFMpegMp4Recorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 rec = FFMpegMp4Recorder(
     fps=30,
@@ -485,9 +485,9 @@ def record_with_retry(rec, base_path, frames_source, max_retries=3):
 import cv2
 import numpy as np
 
-from rdfp.camera.opencv_camera import OpenCvCamera
+from robot_control.camera.opencv_camera import OpenCvCamera
 from rdfp.recorder import FFMpegMp4Recorder
-from rdfp.types import Resolution
+from robot_control.types import Resolution
 
 RES = Resolution(1280, 720)
 FPS = 30

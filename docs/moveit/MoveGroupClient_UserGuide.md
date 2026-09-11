@@ -47,7 +47,7 @@ MoveIt2 기반 motion planning(카테시안 경로 + joint-space named target)�
 
 `create_move_group_client(node)` 가 컨트롤러를 판별해 알맞은 구현을 돌려주므로, 호출부는 어느 스택인지 몰라도 된다.
 
-> **이 문서의 예제는 `MoveGroupJtcClient` (JTC 스택) 기준이다.** 계획 API 와 공통 실행 API(`move_to_named_target` / `move_to_joints` / `follow_trajectory`)는 두 구현에서 똑같이 동작하지만, `execute_trajectory()` 를 쓰는 예제는 JGPC 스택에서 `AttributeError` 가 난다 (그 클래스에 없는 메서드다). JGPC 전용 API 와 스트리밍 실행의 상세는 [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md)를 본다.
+> **이 문서의 예제는 `MoveGroupJtcClient` (JTC 스택) 기준이다.** 계획 API 와 공통 실행 API (`move_to_named_target` / `move_to_joints` / `follow_trajectory`)는 두 구현에서 똑같이 동작하지만, `execute_trajectory()` 를 쓰는 예제는 JGPC 스택에서 `AttributeError` 가 난다 (그 클래스에 없는 메서드다). JGPC 전용 API 와 스트리밍 실행의 상세는 [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md)를 본다.
 
 ### 1.1 구현 선택
 
@@ -64,7 +64,7 @@ client = create_move_group_client(node, mode='jgpc')    # -> MoveGroupJgpcClient
 판별 결과만 따로 확인하려면:
 
 ```python
-from rdfp.moveit import detect_controller_mode
+from robot_control.moveit import detect_controller_mode
 
 print(detect_controller_mode(node))   # 'jgpc' 또는 'jtc'
 ```
@@ -136,7 +136,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose
 
 # MoveGroupClient
-from rdfp.moveit import create_move_group_client, pose
+from robot_control.moveit import create_move_group_client, pose
 ```
 
 ---
@@ -148,7 +148,7 @@ from rdfp.moveit import create_move_group_client, pose
 ```python
 import rclpy
 from rclpy.node import Node
-from rdfp.moveit import create_move_group_client, pose
+from robot_control.moveit import create_move_group_client, pose
 
 
 def main():
@@ -321,10 +321,7 @@ create_move_group_client(
 |---|---|
 | `move_to_joints(joint_values, ...)` | `{관절이름: 라디안}` 목표로 joint-space 이동 (plan + execute). SRDF 조회가 없다는 점만 빼면 `move_to_named_target` 과 같은 경로 |
 
-`joint_values` 에는 **planning group 에 속한 관절만** 넣는다 — `panda_arm` 클라이언트에
-finger joint 를 섞으면 계획이 실패한다. 인자는
-[`move_to_joints` 파라미터](#61-move_to_joints-파라미터), 상세는
-[Joint 목표값 이동](#6-joint-목표값-이동) 참조.
+`joint_values` 에는 **planning group 에 속한 관절만** 넣는다 — `panda_arm` 클라이언트에 finger joint 를 섞으면 계획이 실패한다. 인자는 [`move_to_joints` 파라미터](#61-move_to_joints-파라미터), 상세는 [Joint 목표값 이동](#6-joint-목표값-이동) 참조.
 
 ### 4.6 계획 전용 API (컨트롤러 무관)
 
@@ -334,8 +331,7 @@ finger joint 를 섞으면 계획이 실패한다. 인자는
 | `plan_joints(joint_values, ...) -> RobotTrajectory` | joint 목표값 궤적을 **계획만** 수행 (SRDF 조회 없음) |
 | `plan_trajectory(waypoints, ...) -> RobotTrajectory` | Cartesian 궤적을 계획만 수행 |
 
-`plan_only=True` 라 `move_group` 이 실행을 시도하지 않으므로, `FollowJointTrajectory`
-액션이 없는 컨트롤러 환경에서도 동작한다. 상세는 [계획 전용 API](#7-계획-전용-api) 참조.
+`plan_only=True` 라 `move_group` 이 실행을 시도하지 않으므로, `FollowJointTrajectory` 액션이 없는 컨트롤러 환경에서도 동작한다. 상세는 [계획 전용 API](#7-계획-전용-api) 참조.
 
 ### 4.7 High-level API (비동기)
 
@@ -345,8 +341,7 @@ finger joint 를 섞으면 계획이 실패한다. 인자는
 | `move_to_named_target_async(name, ...) -> Future` | SRDF 조회(필요 시) → MoveGroup goal 전송 → 결과 대기를 콜백 체인으로 수행 |
 | `move_to_joints_async(joint_values, ...) -> Future` | `move_to_joints` 의 비동기 버전 |
 
-세 메서드 모두 Node를 직접 spin하지 않으므로 `MultiThreadedExecutor` 환경에서 사용할 수 있다.
-JTC 구현은 성공 시 `None` 으로, JGPC 구현은 **발행한 point 개수**로 resolve 된다.
+세 메서드 모두 Node를 직접 spin하지 않으므로 `MultiThreadedExecutor` 환경에서 사용할 수 있다. JTC 구현은 성공 시 `None` 으로, JGPC 구현은 **발행한 point 개수**로 resolve 된다.
 
 **인자는 동기 판과 같되 두 가지가 다르다.**
 
@@ -382,12 +377,7 @@ planning_time, tolerance, externally_spun)`, `move_to_joints_async(joint_values,
 | `plan_joints_async` | `(joint_values, *, velocity_scaling=None, planning_time=5.0, tolerance=1e-4)` | 위와 같되 SRDF 조회 단계가 없음 |
 | `execute_trajectory_async` | `(trajectory, *, timeout=10.0)` | `timeout` 은 **goal 수락까지**. JTC 전용 |
 
-> **`plan_trajectory_async` 는 다른 `plan_*` 과 성격이 다르다.** 반환 `Future` 는
-> `RobotTrajectory` 가 아니라 **`GetCartesianPath` 서비스 응답 원본**으로 resolve 되며,
-> `fraction` 검사도 속도 스케일링도 적용되지 않는다. 계획 결과를 쓰려면 호출자가
-> `response.error_code` / `response.fraction` 을 직접 확인하고 `response.solution` 을
-> 꺼낸 뒤 필요하면 `scale_trajectory_velocity()` 로 스케일해야 한다. 동기 판
-> `plan_trajectory()` 는 이 세 단계를 대신 해 준다.
+> **`plan_trajectory_async` 는 다른 `plan_*` 과 성격이 다르다.** 반환 `Future` 는 `RobotTrajectory` 가 아니라 **`GetCartesianPath` 서비스 응답 원본**으로 resolve 되며, `fraction` 검사도 속도 스케일링도 적용되지 않는다. 계획 결과를 쓰려면 호출자가 `response.error_code` / `response.fraction` 을 직접 확인하고 `response.solution` 을 꺼낸 뒤 필요하면 `scale_trajectory_velocity()` 로 스케일해야 한다. 동기 판 `plan_trajectory()` 는 이 세 단계를 대신 해 준다.
 
 ### 4.9 실행 제어
 
@@ -402,16 +392,11 @@ planning_time, tolerance, externally_spun)`, `move_to_joints_async(joint_values,
 
 ### 4.10 JGPC 전용 API
 
-`MoveGroupJgpcClient` 에만 있는 메서드다. JTC 클라이언트에서 호출하면 `AttributeError` 가 난다.
-`stream_trajectory()` 가 JTC 의 `execute_trajectory()` 에 대응하고, `*_streamed` 계열은 공통 이름 메서드와 같은 동작에 **발행한 point 개수를 반환**하는 판이다.
+`MoveGroupJgpcClient` 에만 있는 메서드다. JTC 클라이언트에서 호출하면 `AttributeError` 가 난다. `stream_trajectory()` 가 JTC 의 `execute_trajectory()` 에 대응하고, `*_streamed` 계열은 공통 이름 메서드와 같은 동작에 **발행한 point 개수를 반환**하는 판이다.
 
-`stream_trajectory` / `stop_streaming` / `follow_trajectory_streamed` /
-`move_to_named_target_streamed` / `move_to_joints_streamed` (+ 뒤 둘의 `_async`) —
-시그니처·파라미터·주의사항은
-[MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) 의 「API 레퍼런스」를 본다.
+`stream_trajectory` / `stop_streaming` / `follow_trajectory_streamed` / `move_to_named_target_streamed` / `move_to_joints_streamed` (+ 뒤 둘의 `_async`) — 시그니처·파라미터·주의사항은 [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) 의 「API 레퍼런스」를 본다.
 
-JGPC 구현은 공통 이름 메서드(`move_to_named_target` / `move_to_joints` / `follow_trajectory` 와
-각 `_async`)에서도 base 시그니처에 없는 `time_scaling` / `publish_rate` 를 추가로 받는다.
+JGPC 구현은 공통 이름 메서드(`move_to_named_target` / `move_to_joints` / `follow_trajectory` 와 각 `_async`)에서도 base 시그니처에 없는 `time_scaling` / `publish_rate` 를 추가로 받는다.
 
 #### 4.10.1 JGPC 가 추가로 받는 파라미터
 
@@ -420,12 +405,9 @@ JGPC 구현은 공통 이름 메서드(`move_to_named_target` / `move_to_joints`
 | `time_scaling` | `1.0` | **재생 시간** 배율. `2.0` 이면 두 배 느리게 재생한다. 계획 결과를 바꾸는 `velocity_scaling` 과 달리, 이미 계획된 궤적의 발행 시각만 늘린다 |
 | `publish_rate` | `None` | 명령 발행 주기(Hz). `None` 이면 궤적 point 의 원래 시각을 그대로 따른다 — MoveIt Cartesian 궤적은 항상 ~10 Hz 로 resample 되므로 **명령이 10 Hz 로 계단처럼 나간다**. `200.0` 처럼 주면 균일 격자에 선형 보간해 발행한다 |
 
-`publish_rate` 를 왜 거의 항상 지정해야 하는지는 아래 [JGPC command 스트리밍](#12-jgpc-command-스트리밍)
-절과 [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) 를 본다.
+`publish_rate` 를 왜 거의 항상 지정해야 하는지는 아래 [JGPC command 스트리밍](#12-jgpc-command-스트리밍) 절과 [MoveGroupJgpcClient_UserGuide.md](MoveGroupJgpcClient_UserGuide.md) 를 본다.
 
-`stream_trajectory(trajectory, *, time_scaling=1.0, publish_rate=None, externally_spun=False)` 는
-위 두 인자에 `externally_spun`(joint 순서 자동 조회 시에만 의미 있음)을 더 받는다.
-`stop_streaming()` 은 인자가 없다.
+`stream_trajectory(trajectory, *, time_scaling=1.0, publish_rate=None, externally_spun=False)` 는 위 두 인자에 `externally_spun`(joint 순서 자동 조회 시에만 의미 있음)을 더 받는다. `stop_streaming()` 은 인자가 없다.
 
 ---
 
@@ -470,8 +452,7 @@ with create_move_group_client(node) as client:
     # ['hand', 'panda_arm', 'panda_arm_hand']
 ```
 
-`get_all_named_targets()` 의 키는 `group_state` 를 하나 이상 가진 그룹만 포함한다.
-위 예의 `panda_arm_hand` 처럼 group_state 가 없는 그룹은 `get_planning_groups()` 로만 보인다.
+`get_all_named_targets()` 의 키는 `group_state` 를 하나 이상 가진 그룹만 포함한다. 위 예의 `panda_arm_hand` 처럼 group_state 가 없는 그룹은 `get_planning_groups()` 로만 보인다.
 
 최초 호출 시에만 `/move_group/get_parameters` 서비스로 SRDF를 조회하여 파싱한 뒤 캐시한다. 이후 호출은 즉시 반환된다.
 
@@ -596,29 +577,21 @@ with create_move_group_client(node, velocity_scaling=0.3) as client:
 
 JGPC 구현은 여기에 [`time_scaling` / `publish_rate`](#4101-jgpc-가-추가로-받는-파라미터) 를 더 받는다.
 
-**지정하지 않은 관절은 현재값으로 고정된다.** 그래서 축 하나만 움직이려면 그 축만
-주면 된다.
+**지정하지 않은 관절은 현재값으로 고정된다.** 그래서 축 하나만 움직이려면 그 축만 주면 된다.
 
 ```python
 client.move_to_joints({'panda_joint1': 0.5})   # 1번 축만 움직인다
 ```
 
-내부적으로는 SRDF 의 `<group_state>` 에서 그룹 관절 목록을 얻고(`group_joint_names()`),
-`/joint_states` 에서 현재값을 읽어 **전 관절에 제약을 건다.** 그룹 밖 관절
-(`panda_finger_*`)은 채우지 않는다 — 섞이면 계획이 실패한다.
+내부적으로는 SRDF 의 `<group_state>` 에서 그룹 관절 목록을 얻고(`group_joint_names()`), `/joint_states` 에서 현재값을 읽어 **전 관절에 제약을 건다.** 그룹 밖 관절 (`panda_finger_*`)은 채우지 않는다 — 섞이면 계획이 실패한다.
 
-> **왜 채우는가.** 지정한 관절에만 제약을 걸면 목표가 자세 하나가 아니라 "그 조건을
-> 만족하는 자세의 **집합**"이 되고, 플래너가 그중 아무거나 고른다. `panda_joint1` 만
-> 준 호출이 나머지 6축을 최대 3.5 rad 움직여 엔드이펙터가 로봇 뒤쪽 위로 넘어간 것이
-> 실측된다 — **호출 전에 결과를 알 수 없다.**
+> **왜 채우는가.** 지정한 관절에만 제약을 걸면 목표가 자세 하나가 아니라 "그 조건을 만족하는 자세의 **집합**"이 되고, 플래너가 그중 아무거나 고른다. `panda_joint1` 만 준 호출이 나머지 6축을 최대 3.5 rad 움직여 엔드이펙터가 로봇 뒤쪽 위로 넘어간 것이 실측된다 — **호출 전에 결과를 알 수 없다.**
 >
-> 그룹에 `<group_state>` 가 하나도 없는 SRDF 면 관절 목록을 알 수 없어
-> `RuntimeError` 로 실패한다. 그때는 전 관절을 명시한다.
+> 그룹에 `<group_state>` 가 하나도 없는 SRDF 면 관절 목록을 알 수 없어 `RuntimeError` 로 실패한다. 그때는 전 관절을 명시한다.
 
 ### 6.2 주의사항
 
-- **그룹 밖 관절 금지**: `moveit_group_name='panda_arm'` 클라이언트에 finger joint 를 섞으면
-  계획이 실패한다. 그리퍼는 별도 클라이언트(`moveit_group_name='hand'`)를 쓴다.
+- **그룹 밖 관절 금지**: `moveit_group_name='panda_arm'` 클라이언트에 finger joint 를 섞으면 계획이 실패한다. 그리퍼는 별도 클라이언트(`moveit_group_name='hand'`)를 쓴다.
 - **부분 지정 가능**: 그룹의 모든 관절을 넣을 필요는 없다. 지정하지 않은 관절은 플래너가 정한다.
 - **값 검증**: 비어 있거나 유한하지 않은 값(`NaN`/`inf`)이면 `ValueError` 가 즉시 발생한다.
 - **도달 보장은 구현별**: JTC 는 컨트롤러가 목표까지 추종하므로 정상 반환이 도달을 뜻하지만, JGPC 는 open loop 라 명령을 다 발행했다는 뜻일 뿐이다.
@@ -638,10 +611,7 @@ future.add_done_callback(
 
 ## 7. 계획 전용 API
 
-`plan_named_target` / `plan_joints` / `plan_trajectory` 는 궤적을 **계획만** 하여
-`RobotTrajectory` 를 돌려준다. 앞의 두 개는 MoveGroup 액션에 `plan_only=True` 로 요청하므로
-`move_group` 이 실행을 시도하지 않는다. 따라서 `FollowJointTrajectory` 액션이 없는 컨트롤러
-(`position_controllers/JointGroupPositionController` 등) 환경에서도 정상 동작한다.
+`plan_named_target` / `plan_joints` / `plan_trajectory` 는 궤적을 **계획만** 하여 `RobotTrajectory` 를 돌려준다. 앞의 두 개는 MoveGroup 액션에 `plan_only=True` 로 요청하므로 `move_group` 이 실행을 시도하지 않는다. 따라서 `FollowJointTrajectory` 액션이 없는 컨트롤러 (`position_controllers/JointGroupPositionController` 등) 환경에서도 정상 동작한다.
 
 용도는 세 가지다.
 
@@ -703,7 +673,7 @@ plan_future.add_done_callback(_on_plan)
 ### 8.1 `pose()` 헬퍼 사용 (권장)
 
 ```python
-from rdfp.moveit import pose
+from robot_control.moveit import pose
 
 # pose(x, y, z, roll, pitch, yaw) — 단위: 미터, 라디안
 wp = pose(0.4, 0.3, 0.4, 3.14, 0.0, 0.0)
@@ -907,11 +877,8 @@ if emergency:
 
 ### 11.1 주의사항
 
-- **비동기다.** `True` 는 **취소 요청을 보냈다**는 뜻이지 로봇이 이미 멈췄다는 뜻이 아니다.
-  감속 정지에는 시간이 걸리며, 정지 후 로봇은 경로 중간의 **불확정 자세**에 있다.
-  이어서 동작을 시킬 때는 현재 자세를 확인하거나 named target 으로 복귀시킨다.
-- **`Future.cancel()` 과 다르다.** 비동기 API가 돌려준 `Future` 를 cancel 해도 콜백 체인은
-  계속 진행되고 로봇도 멈추지 않는다.
+- **비동기다.** `True` 는 **취소 요청을 보냈다**는 뜻이지 로봇이 이미 멈췄다는 뜻이 아니다. 감속 정지에는 시간이 걸리며, 정지 후 로봇은 경로 중간의 **불확정 자세**에 있다. 이어서 동작을 시킬 때는 현재 자세를 확인하거나 named target 으로 복귀시킨다.
+- **`Future.cancel()` 과 다르다.** 비동기 API가 돌려준 `Future` 를 cancel 해도 콜백 체인은 계속 진행되고 로봇도 멈추지 않는다.
 
 ### 11.2 구현별 중단 수단
 
@@ -922,9 +889,7 @@ if emergency:
 
 JTC 구현이 컨트롤러를 직접 끊는 이유: `move_group` 이 goal 을 실행 중일 때 `CancelGoal` 요청에 응답하지 않는 것으로 관측되었다(mock/Gazebo 무관). 궤적을 실제로 실행하는 주체는 컨트롤러이므로 거기서 끊는 것이 확실하다.
 
-> **부작용**: JTC 구현의 취소 요청은 `goal_id` 와 `stamp` 를 채우지 않는다. ROS 2 action 규격상
-> 이는 **해당 서버의 모든 goal 취소**를 뜻하므로, 이 클라이언트가 시작하지 않은 궤적도 함께
-> 취소된다. 한 팔을 여러 주체가 동시에 지휘하지 않는다는 전제 위에서 안전한 동작이다.
+> **부작용**: JTC 구현의 취소 요청은 `goal_id` 와 `stamp` 를 채우지 않는다. ROS 2 action 규격상 이는 **해당 서버의 모든 goal 취소**를 뜻하므로, 이 클라이언트가 시작하지 않은 궤적도 함께 취소된다. 한 팔을 여러 주체가 동시에 지휘하지 않는다는 전제 위에서 안전한 동작이다.
 
 ---
 
@@ -932,10 +897,7 @@ JTC 구현이 컨트롤러를 직접 끊는 이유: `move_group` 이 goal 을 �
 
 `MoveGroupJgpcClient` 는 계획은 MoveIt 에 맡기고 **실행만 직접** 한다. 계획된 궤적의 각 point 를 `time_from_start` 시각에 맞춰 `std_msgs/Float64MultiArray` 명령 토픽 (기본 `/panda_arm_controller/commands`)으로 발행한다. 즉 `JointTrajectoryController` 가 컨트롤러 내부에서 하던 시간 보간을 클라이언트가 대신 수행하는 구조다.
 
-> **open loop 다.** 명령을 발행할 뿐 컨트롤러의 도달 여부를 확인하지 않으므로, 정상 반환이 목표
-> 도달을 뜻하지 않는다. 명령 배열에는 관절 이름이 없어 **순서가 어긋나면 조용히 엉뚱한 관절이
-> 움직인다** (순서는 컨트롤러의 `joints` 파라미터에서 자동 조회한다). 궤적의
-> velocity/acceleration 필드는 사용하지 않고 position 만 발행한다.
+> **open loop 다.** 명령을 발행할 뿐 컨트롤러의 도달 여부를 확인하지 않으므로, 정상 반환이 목표 도달을 뜻하지 않는다. 명령 배열에는 관절 이름이 없어 **순서가 어긋나면 조용히 엉뚱한 관절이 움직인다** (순서는 컨트롤러의 `joints` 파라미터에서 자동 조회한다). 궤적의 velocity/acceleration 필드는 사용하지 않고 position 만 발행한다.
 
 호출부 관점에서 달라지는 점은 셋이다.
 
@@ -1066,7 +1028,7 @@ Low-level 비동기 API(`plan_trajectory_async`, `plan_named_target_async`, `pla
 ### 15.1 사각형 경로 + 속도 제어
 
 ```python
-from rdfp.moveit import create_move_group_client, pose
+from robot_control.moveit import create_move_group_client, pose
 
 with create_move_group_client(node, velocity_scaling=0.2) as client:
     client.wait_until_ready()

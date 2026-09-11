@@ -118,7 +118,7 @@ ls /tmp/recordings/*.mp4
 | 파라미터 | 기본값 | 설명 |
 |----------|--------|------|
 | `fps` | `10` | 녹화 프레임 레이트 (CFR). **입력 이미지 스트림의 실제 frame rate 와 일치시켜야 한다** — 불일치 시 재생 속도 왜곡 또는 프레임 drop |
-| `session_prefix` | `"session"` | 파일명 접두사 |
+| `file_prefix` | `"session"` | 파일명 접두사. **`/session` 과 무관하다** — 한 디렉터리에 카메라 여러 대를 녹화할 때 파일을 가른다. 경로 구분자·`.`·`..`·빈 문자열은 **기동 시 거부**한다 (`output_dir` 를 벗어나 쓰는 것을 막는다) |
 | `pixel_format` | `"bgr8"` | `bgr8`/`rgb8`/`mono8` |
 | `encoder_mode` | `"auto"` | `auto`/`cpu`/`gpu` |
 | `queue_size` | `120` | FFMpegMp4Recorder 내부 프레임 큐 크기 |
@@ -162,16 +162,21 @@ sequenceDiagram
         Rec->>Rec: 에피소드마다 새 MP4 파일 생성
     end
 
-    SC->>Rec: state = "IN_SESSION"<br/>(stop_session)
-    Rec->>Rec: 녹화 중이면 stop 처리
-    SC->>Rec: state = "IDLE"
-    Note right of Rec: IDLE 은 무시
+    SC->>Rec: state = "IDLE"<br/>(stop_session)
+    Rec->>Rec: 녹화 중이면 stop 처리 (큐 flush 포함)
 ```
 
 - `IN_EPISODE` → 녹화 시작
-- `IN_SESSION` → 녹화 종료 (녹화 중일 때만)
-- `IDLE` → 무시
+- `IN_SESSION` **또는 `IDLE`** → 녹화 종료 (녹화 중일 때만)
 - 에피소드를 반복하면 매번 새 MP4 파일이 생성됨
+
+> ⚠️ **`IDLE` 도 정지다 — 이것을 놓치면 에피소드가 통째로 사라진다.**
+> 에피소드 도중 `stop_session` 을 부르면 노드는 `IN_SESSION`, `IDLE` 을 연달아
+> 발행하는데, 이 노드처럼 **depth 1** 로 구독하면 앞의 것이 뒤의 것에 덮여 `IDLE` 만
+> 도착한다 (실측 2026-09-06 — depth 10 이면 둘 다 온다).
+> `IN_SESSION` 만 정지로 보면 그 경로에서 녹화가 끝나지 않아 큐에 쌓인 프레임이
+> flush 되지 않고, MP4 가 미완결로 남고, `metadata.json` 도 안 써진다.
+> 실측(2026-09-06): 6초 에피소드가 sidecar 한 줄만 남기고 유실됐다.
 
 ---
 
@@ -213,14 +218,23 @@ sequenceDiagram
 
 ```
 <output_dir>/
-├── <session_prefix>_<start_ts>.mp4      ← 영상
-├── <session_prefix>_<start_ts>.jsonl    ← frame-level sidecar
-└── <session_prefix>_metadata.json       ← recording metadata (start_ts 미포함)
+├── <file_prefix>_<start_ts>.mp4      ← 영상
+├── <file_prefix>_<start_ts>.jsonl    ← frame-level sidecar
+└── <file_prefix>_metadata.json       ← recording metadata (start_ts 미포함)
 ```
 
-> `_metadata.json` 파일은 `<start_ts>` 가 없으므로 **같은 디렉터리에서
-> 여러 번 녹화하면 매 `stop` 시 덮어쓰여진다**. 세션별 보존이 필요하면
-> `output_dir` 또는 `session_prefix` 를 다르게 지정한다.
+**`<start_ts>` 는 에피소드 시작 시각이다 — 파일은 에피소드마다 하나씩 생긴다.**
+한 세션 안에서 `start_episode` ↔ `stop_episode` 가 반복되므로 세션 하나가 여러
+파일을 남긴다.
+
+> **`file_prefix` 는 `/session` 과 무관하다.** 이름이 `session_prefix` 였다가 바뀐
+> 이유가 이것이다 — 세션은 시스템에 하나인데(규약 §2.5) 이 값은 파일을 여럿으로
+> 가르는 용도라 뜻이 정반대로 읽혔다. **실제 쓸모는 한 디렉터리에 카메라 여러 대를
+> 녹화하는 것**이다 (`wrist` / `overhead` 처럼).
+
+> `_metadata.json` 만 `<start_ts>` 가 없어 **매 `stop` 시 덮어쓰여진다** — 남는 것은
+> 마지막 에피소드의 것뿐이다. 지금 이 파일을 읽는 코드는 없어서 무해하지만, 쓰기
+> 시작한다면 그 점을 알고 써야 한다.
 
 ### MP4 파일
 

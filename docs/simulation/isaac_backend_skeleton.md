@@ -4,9 +4,7 @@
 > **선행 사례** [functionbay_backend_design.md](functionbay_backend_design.md) ·
 > [functionbay_open_work.md](functionbay_open_work.md)
 >
-> Isaac Sim 을 `robot_control` 의 시뮬레이터 백엔드로 붙이는 작업의 **골격과 진행
-> 순서**를 정한다. 배포 구성 네 가지(§1)에서 같은 그래프·같은 검사로 돌아간다. 한 번에 전부 붙이지 않고 **팔 → 그리퍼 → scene → 카메라** 순으로
-> 한 축씩 열며, 각 단계는 *launch 인자 하나 + 검증 스크립트 하나 + 수용 기준*으로 닫는다.
+> Isaac Sim 을 `robot_control` 의 시뮬레이터 백엔드로 붙이는 작업의 **골격과 진행 순서**를 정한다. 어느 배포(§1)에서도 같은 그래프·같은 검사로 돌아간다. 한 번에 전부 붙이지 않고 **팔 → 그리퍼 → scene → 카메라** 순으로 한 축씩 열며, 각 단계는 *launch 인자 하나 + 검증 스크립트 하나 + 수용 기준*으로 닫는다.
 
 ---
 
@@ -14,35 +12,24 @@
 
 | # | 결정 | 근거 |
 |:-:|---|---|
-| D1 | **연동 방식은 토픽 브리지 (설계 문서 §6.3 의 B안)** | A안(`ros2_control` 하드웨어 플러그인)은 Isaac 이 `controller_manager` 를 호스팅해야 하는데 Windows 에서 불가능하다. 두 호스트에서 같은 코드를 쓰려면 B안뿐이다 |
-| D2 | **경계 메시지는 표준 타입만** (`rdfp_msgs` 금지) | Isaac 의 WSL2 경로는 custom ROS interface 미지원. Ubuntu 머신에서는 가능하지만 쓰면 두 환경이 갈라진다 |
-| D3 | **팔 명령은 `sensor_msgs/JointState`** | Isaac OmniGraph 가 기본 제공(`ROS2SubscribeJointState`). 펑션베이와 계약이 같아 `MoveGroupJgpcClient(arm_command_format='joint_state')` 를 그대로 쓴다 |
+| D1″ | **연동 방식은 하나다 — bridge 를 삭제했다 (2026-09-05)** | D1′ 로 둘이 됐던 것을 다시 하나로 줄였다. bridge 가 **고유하게 덮는 것이 없었다** — `MoveGroupJgpcClient`·`TrajectoryStreamer` 는 `panda_jgpc_mock` 이, `arm_command_format='joint_state'` 와 `servo_command_bridge` 는 펑션베이가 덮는다. 반면 방식이 둘이면 **launch 와 어긋났을 때 에러 없이 관절 상태가 오지 않는** 함정이 생기고(§7), 검사 다섯을 모드 인지로 유지해야 하며, 모든 변경을 두 번 검증해야 했다. 게다가 bridge 의 팔 실행은 개루프라 **"성공을 반환했는데 도달하지 않음"이 원리적으로 가능**해 수집 데이터의 신뢰도에 직접 걸린다. 지운 것: launch 2개 · 트윈 설정 · `isaac_gripper_bridge` (합계 1,235줄) + `is_backend.py` 의 모드 분기 |
+| D1′ | **(구) 연동 방식이 둘이 됐다 — 기본은 `plugin` (2026-09-05)** | D1 의 전제가 틀렸다. 연동 A안·B안 말고 **세 번째 길**이 있었다 — `topic_based_ros2_control/TopicBasedSystem` 은 `controller_manager` 를 **ROS 쪽**에서 돌리고 하드웨어만 토픽으로 Isaac 과 말한다. Isaac 이 CM 을 호스팅할 필요가 없으니 **Windows 여부와 무관**하다. 게다가 배선이 이미 있었다 — 상위 MoveIt 원본 xacro 의 `isaac` 분기가 그것이다. 실측 결과는 §2 Phase 11 | 
+| D1 | **(구) 연동 방식은 토픽 브리지** — [설계 문서](multi_simulator_backend_design.md) §6.3 의 **연동 B안**(Isaac 은 `/joint_states` 발행 + `JointState` 명령 구독만 하고, trajectory adapter 와 readiness gate 는 ROS 쪽에 둔다) | **연동 A안**(`ros2_control` 하드웨어 플러그인 — Gazebo 처럼 `controller_manager` 를 Isaac 이 호스팅)은 Windows 에서 불가능하다. 두 호스트에서 같은 코드를 쓰려면 연동 B안뿐이다. 구현체는 `MoveGroupJgpcClient`+`TrajectoryStreamer`(adapter) · `fb_readiness_gate`(gate) · `isaac_servo_bridge` · `isaac_gripper_bridge` · `setup_graph.py` 다 |
+| D2 | **경계 메시지는 표준 타입만** (`rdfp_msgs` 금지) | **적용 조건은 "시뮬레이터가 별도 프로세스이고 그쪽이 우리 빌드가 아닐 때"** 다. **이유는 결합이다**: `rdfp_msgs` 를 경계에 쓰면 시뮬레이터가 우리 IDL 을 자기 환경에 빌드해 넣어야 하는데 그건 통제할 수 없다. 변환은 **우리 쪽에서** 한다 — `isaac_scene_state_node` 가 TF → `rdfp_msgs/SceneObjects` 로 바꾼다. 표준 패키지를 우리가 설치해 쓰는 것은 무방하다 (`simulation_interfaces` 로 `/scene/reset` 을 구현했다). |
+| D3 | **팔 명령은 `sensor_msgs/JointState`** | Isaac OmniGraph 가 기본 제공한다(`ROS2SubscribeJointState`). 그 토픽을 채우는 것은 `TopicBasedSystem` 이고, MoveGroup 은 **JTC** 판이다 |
 | D4 | **`use_sim_time:=true` 전역** | Isaac 은 `/clock` 을 발행한다. 펑션베이(§6.3 에서 sim time 포기)와 갈리는 가장 큰 지점이며, **시계 오프셋 문제가 구조적으로 사라진다** |
-| D5 | **구성별 분기는 DDS 설정과 경로뿐** | 노드 그래프·토픽 이름·QoS 는 배포 구성 네 가지에서 동일해야 한다. §1 참조 |
-| D6 | **단계 게이팅은 launch 인자로** | `enable_gripper` / `enable_scene` 기본 `false`. 켜지 않은 단계의 노드는 아예 뜨지 않는다. 카메라는 노드가 아니라 Isaac 그래프가 발행하므로 인자가 없다 |
+| D5 | **배포별 분기는 DDS 설정과 경로뿐** | 노드 그래프·토픽 이름·QoS 는 어느 배포에서도 동일해야 한다. §1 참조 |
+| D6 | **노드를 켜고 끄는 것은 launch 인자로** | `enable_gripper`·`enable_scene`·`enable_servo`·`enable_image_viewer` 는 기본 `true`, `enable_rviz` 만 `false` 다(Isaac 이 이미 뷰포트를 그린다 — 수집 launch 는 `true`). 끄면 노드가 아예 뜨지 않는다 — 화면 없는 곳에서 뷰어를 끄는 것이 대표적인 용도다. 카메라는 노드가 아니라 Isaac 그래프가 발행하므로 인자가 없다 |
 
 ---
 
-## 1. 배포 구성 네 가지
+## 1. 배포
 
-Isaac 과 스택을 어디에 두느냐로 넷이 갈린다. **노드 그래프·토픽 계약·검사 스크립트는
-네 구성 모두에서 같다.** 달라지는 것은 아래 표의 네 축뿐이다.
+**기본은 Ubuntu 한 머신이다.** Isaac 을 다른 호스트에 두거나 Windows 에서 돌리는 것도 되지만, 그때 추가로 챙길 것이 있다 — 아래 두 절이 그것이다.
 
-| | 구성 | Isaac | 스택 | 상태 |
-|:-:|---|---|---|---|
-| **A** | Windows + WSL2 (한 머신) | Windows | WSL2 | **검증 완료** (2026-08-29) |
-| **B** | Ubuntu 22.04 한 머신 | Ubuntu | 같은 Ubuntu | 미검증 |
-| **C** | Ubuntu 두 대 | Ubuntu #1 | Ubuntu #2 | 미검증 |
-| **D** | Windows + Ubuntu 두 대 | Windows | Ubuntu | 미검증 |
+**노드 그래프·토픽 계약·검사 스크립트는 어느 배포에서도 같다.** 차이는 전부 launch 바깥(환경변수·방화벽·`.wslconfig`)에서 흡수한다.
 
-| 축 | A | B | C | D |
-|---|---|---|---|---|
-| **DDS 전송** | 프로파일 **필수** (SHM 끄기 + initialPeers) | **없음** (SHM 사용) | 기본 UDP. 멀티캐스트 안 되면 initialPeers | 기본 UDP. 방화벽·멀티캐스트 확인 |
-| **Isaac 실행** | `run_isaac_humble.bat` | `isaac-sim.sh` | `isaac-sim.sh` | `run_isaac_humble.bat` |
-| **저장소 사본** | 공유 (UNC) | 공유 (로컬) | **Isaac 머신에 별도 필요** | **Isaac 머신에 별도 필요** |
-| **시계** | 같은 머신 | 같은 머신 | **NTP 필요** | **NTP 필요** |
-
-### 공통 (네 구성 전부)
+### 공통
 
 ```bash
 ROS_DOMAIN_ID=31            # 양쪽이 같아야 한다. 다르면 에러 없이 서로 안 보인다
@@ -50,71 +37,34 @@ RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ROS_LOCALHOST_ONLY=0
 ```
 
-Isaac 쪽 `ROS2Context` 노드는 `useDomainIDEnvVar=False` + `domain_id=31` 로 값을 못박는다
-(`setup_graph.py`). GUI 로 띄운 프로세스에 환경변수가 없어 도메인 0 으로 떨어지는 것을
-막기 위해서다.
+Isaac 쪽 `ROS2Context` 노드는 `useDomainIDEnvVar=False` + `domain_id=31` 로 값을 못박는다 (`setup_graph.py`). GUI 로 띄운 프로세스에 환경변수가 없어 도메인 0 으로 떨어지는 것을 막기 위해서다.
 
 **검증 순서도 같다** — `is_topics.py` 로 배관을 먼저 보고, 그다음 스택, 그다음 단계 검사.
 
 ---
 
-### A. Windows + WSL2 (한 머신) — 현재 구성
+### 기본 — Ubuntu 한 머신 (**검증 완료** 2026-09-05)
 
-**이 구성만 DDS 프로파일이 필수다.** mirrored networking 에서 WSL2 가 Windows 의
-네트워크 정체를 그대로 쓰는 탓에 Fast DDS 가 양쪽을 같은 호스트로 오판해 SHM 을
-고르고, Windows SHM 과 Linux `/dev/shm` 은 다른 물건이라 아무것도 도착하지 않는다.
-자세한 경위는 §"Windows ↔ WSL2 DDS" 를 본다.
-
-```
-Windows                                     WSL2
-  run_isaac_humble.bat                        export FASTRTPS_DEFAULT_PROFILES_FILE=...
-    ROS_DISTRO=humble                         ros2 launch robot_control panda_isaac...
-    PATH += humble\lib
-    FASTRTPS_DEFAULT_PROFILES_FILE=C:\isaacsim\fastdds_wsl_bridge.xml
-```
+**가장 단순하고, 실측이 전부 여기서 나왔다.** 검사 7종·트윈 REST·수집 전 과정 (세션 → `/scene/reset` → 에피소드 → rosbag → mp4 → DB)이 이 구성에서 통과했다.
 
 ```bash
-# WSL2 쪽 — .bashrc 에 넣어 두면 편하다
-export FASTRTPS_DEFAULT_PROFILES_FILE=~/development/ros/rdfp_ws/src/robot_control/config/fastdds_wsl_bridge.xml
+./scripts/run_isaac_sim.sh --gui      # 런처가 환경을 맞춘다
 ```
 
-- `.wslconfig` 에 `memory=10GB` · `autoMemoryReclaim=gradual` · `networkingMode=mirrored`
-  (§5). 안 하면 WSL2 가 호스트 RAM 의 절반을 물고 Isaac 이 최소 사양의 절반으로 돈다.
-- sim_side 스크립트는 UNC(`//wsl.localhost/...`)로 저장소를 본다 — 사본이 하나뿐이라
-  저장소를 고치면 Isaac 쪽에도 즉시 반영된다.
-
-### B. Ubuntu 22.04 한 머신
-
-**가장 단순하다.** A 에서 걸리적거리던 것이 전부 사라진다.
-
-```bash
-unset FASTRTPS_DEFAULT_PROFILES_FILE    # ★ 반드시. SHM 이 진짜로 같은 호스트다
-./isaac-sim.sh                          # 런처 불필요
-```
-
+- **DDS 프로파일이 필요 없다.** 진짜로 같은 호스트라 SHM 이 제대로 동작한다. WSL 용 프로파일을 들고 오면 **SHM 을 막아 느려질 뿐 이득이 없다** — `unset FASTRTPS_DEFAULT_PROFILES_FILE`.
 - **배포판 자동 선택** — Linux 에서는 `system_default` 가 Ubuntu 버전을 보고 humble 을
   고른다. Windows 에서 jazzy 로 떨어지던 문제가 없다.
-- WSL 용 프로파일을 들고 오면 **SHM 을 막아 느려질 뿐 이득이 없다.**
 - 워크스페이스를 source 한 셸에서 Isaac 을 띄우면 시스템 ROS 2 를 쓴다(내부 라이브러리가
-  아니라). 정상 동작하며 custom message 도 가능해지지만, **D2 에 따라 경계는 표준
-  타입만** 유지한다 — 쓸 수 있다고 쓰면 두 구성의 코드가 갈라진다.
+  아니라). custom message 도 가능해지지만 **D2 에 따라 경계는 표준 타입만** 유지한다 —
+  쓸 수 있다고 쓰면 배포마다 코드가 갈라진다.
 
-### C. Ubuntu 두 대
+---
 
-진짜로 다른 호스트이므로 Fast DDS 가 알아서 UDP 를 고른다. **프로파일은 기본적으로
-필요 없다.**
+### Isaac 을 다른 머신에 둘 때 — 챙길 것 셋
 
-```bash
-# 양쪽 모두
-export ROS_DOMAIN_ID=31
-export ROS_LOCALHOST_ONLY=0
-```
+진짜로 다른 호스트이므로 Fast DDS 가 알아서 UDP 를 고른다. **프로파일은 기본적으로 필요 없다.** 대신 셋이 새로 생긴다.
 
-새로 챙길 것이 셋이다.
-
-1. **저장소 사본** — `setup_scene.py` 가 `config/isaac_scene.json` 을 읽는데, 그 파일은
-   스택 머신에 있다. Isaac 머신에도 사본이 있어야 하고(NFS 마운트·rsync·git clone 중
-   택일), 스크립트에 위치를 알려 준다.
+1. **저장소 사본** — `setup_scene.py` 가 `config/isaac_scene.json` 을 읽는데 그 파일은 스택 머신에 있다. Isaac 머신에도 사본이 있어야 하고(NFS·rsync·git clone 중 택일), 스크립트에 위치를 알려 준다.
 
    ```bash
    # Isaac 머신에서
@@ -122,70 +72,97 @@ export ROS_LOCALHOST_ONLY=0
    export RDFP_LOG_DIR=/tmp
    ```
 
-   **사본이 갈라지면 물체 크기가 두 곳에서 달라진다** — 단일 진실원본으로 JSON 을 둔
-   의미가 사라지므로 NFS 나 rsync 로 한 방향 동기화를 권한다.
+   **사본이 갈라지면 물체 크기가 두 곳에서 달라진다** — JSON 을 단일 진실원본으로 둔 의미가 사라지므로 한 방향 동기화를 권한다.
 2. **방화벽** — `ufw` 를 쓴다면 도메인 31 의 DDS 포트를 연다.
 
    ```bash
    sudo ufw allow proto udp from <상대 IP> to any port 15150:15200
    ```
-3. **시계** — 두 머신에 `chrony`/NTP. `use_sim_time:=true` 라 `/clock` 을 함께 쓰므로
-   대부분 면역이지만, 로그 시각과 rosbag 파일 타임스탬프가 어긋나면 추적이 어렵다.
-   펑션베이에서 2.22 초 오프셋으로 데이터셋이 오염될 뻔한 사례가 있다.
 
-**멀티캐스트가 스위치에서 막히면** A 와 같은 방식으로 상대 IP 를 initialPeers 에 넣는다
-(주소만 `127.0.0.1` → 상대 IP 로 바꾼다). 증상은 A 에서 본 것과 같다 — 한쪽만 상대를
-보고, 발행은 되는데 수신이 0 이다.
+   Windows 머신이면 `NVIDIA Omniverse Kit` 인바운드를 사설 네트워크에 허용한다.
+3. **시계** — 두 머신에 `chrony`/NTP. `use_sim_time:=true` 라 `/clock` 을 함께 쓰므로 대부분 면역이지만, 로그 시각과 rosbag 파일 타임스탬프가 어긋나면 추적이 어렵다. 펑션베이에서 2.22 초 오프셋으로 데이터셋이 오염될 뻔한 사례가 있다.
 
-**Phase 4 (카메라)는 이 구성에서 대역폭을 먼저 본다.** 1280×720 rgb8 이 60 Hz 면
-약 1.6 Gbps 다. `CompressedImage` 로 바꾸거나 해상도·주파수를 낮춘다.
+**멀티캐스트가 스위치에서 막히면** 상대 IP 를 initialPeers 에 넣는다(부록의 프로파일에서 주소만 `127.0.0.1` → 상대 IP 로 바꾼다). 증상은 한쪽만 상대를 보고, 발행은 되는데 수신이 0 인 것이다.
 
-### D. Windows + Ubuntu 두 대
-
-A 의 Windows 쪽 준비와 C 의 두 머신 준비를 합친 것이다. 다만 **DDS 프로파일은 A 와
-달리 기본적으로 필요 없다** — 진짜 다른 호스트라 SHM 오판이 생기지 않는다.
+**카메라는 단편화를 먼저 본다 — 대역폭이 아니다.** 1280×720 rgb8 @ 10 Hz 는 221 Mbps 로
+1 GbE 의 22% 라 링크는 감당한다. 문제는 **프레임 하나가 2.76 MB** 라는 것이다.
 
 ```
-Windows 머신                          Ubuntu 머신
-  run_isaac_humble.bat                  export ROS_DOMAIN_ID=31
-    ROS_DISTRO=humble                   ros2 launch robot_control panda_isaac...
-    PATH += humble\lib
-    ROS_DOMAIN_ID=31
-    (FASTRTPS_DEFAULT_PROFILES_FILE 는 빼도 된다)
-  set RDFP_WORKSPACE=C:\rdfp_ws
+2.76 MB 프레임 → UDP 조각 약 1,878개 → 10 Hz 면 초당 약 18,800 조각
 ```
 
-- `run_isaac_humble.bat` 의 배포판·PATH 설정은 **여전히 필요하다.** 벤더 런처가
-  jazzy 를 기본으로 넣는 것은 머신 대수와 무관하다.
-- 저장소 사본·방화벽·NTP 는 C 와 동일하다. Windows 방화벽에서 `NVIDIA Omniverse Kit`
-  의 인바운드를 사설 네트워크에 허용해야 한다.
-- `RDFP_WORKSPACE` 를 Windows 경로로 지정한다 — 기본값이 WSL UNC 라 그대로 두면
-  없는 경로를 본다.
+**조각 하나만 잃어도 프레임 전체가 날아간다.** 이 저장소는 9 KB 짜리 SRDF 응답이 같은
+이유로 15초 타임아웃 나던 것을 이미 겪었다(§7 「MTU 를 넘는 메시지가 조용히 사라진다」).
+`CompressedImage`(JPEG)로 바꾸면 프레임이 100~200 KB 로 줄어 조각이 두 자릿수가 된다 —
+대역폭 절감보다 **이쪽이 실질 이득**이다. 해상도·주파수를 낮추는 것도 같은 효과다.
+
+> **한 머신에서는 해당 없다.** SHM 을 쓰므로 단편화가 없다. 대신 **배속**(720p RTX 렌더는
+> GPU 를 더 먹는다)과 **저장 용량**(720p @ 10 Hz = **1.66 GB/분**)을 본다. 용량은 압축이
+> 아니라 `delete_splits_after_import`(mp4 를 만든 뒤 rosbag 삭제)로 푸는 편이다.
 
 ---
 
-### 불변식 — 구성이 달라도 이것은 같다
+### 부록 — Windows 에서 Isaac 을 돌릴 때
 
-**launch 파일과 노드 그래프는 어느 구성인지 모른다.** 차이는 전부 launch 바깥
-(환경변수·`.wslconfig`·방화벽)에서 흡수한다. 그래서 `host_profile` 같은 launch 인자를
-두지 않는다.
+계속 지원한다. 머신 대수와 무관하게 **런처가 필요하다** — 벤더 런처가 jazzy 를 기본으로 넣기 때문이다.
 
-**검증 방법**: 두 구성에서 `ros2 node list` 와 각 토픽의 엔드포인트를 떠서 **diff 가
-비어야 한다.** `rdfp_collect` 조합 동등성을 확인할 때 쓴 것과 같은 기법이다.
+```
+Windows                                     스택 쪽
+  run_isaac_humble.bat                        ros2 launch robot_control panda_isaac.launch.py
+    ROS_DISTRO=humble
+    PATH += humble\lib
+```
 
-> **유일한 예외는 Phase 4 (카메라)다.** raw `Image`(1280×720 rgb8 ≈ 2.7 MB/frame)를
-> 경계 너머로 보내는 것은 A·C·D 에서 무리라 `CompressedImage` 가 필요하다. 예외를
-> 이 한 곳으로 묶고, 조건 분기가 다른 데로 번지지 않게 한다.
+- `RDFP_WORKSPACE` 를 Windows 경로로 지정한다(`set RDFP_WORKSPACE=C:\rdfp_ws`) — 기본값이 WSL UNC 라 그대로 두면 없는 경로를 본다.
+- **Isaac 6.0 · 지금 구성으로는 아직 검증하지 않았다.** 2026-08-29 의 "검증 완료"는 ros2_control 없이 토픽만으로 잇던 옛 구성 기준이다. 경계가 여전히 토픽이라 원리적으로는 동작해야 하지만, `use_sim_time` 하 `controller_manager` 가 경계 너머 `/clock` 을 견디는지는 실측하지 않았다.
+
+#### WSL2 (한 머신) — DDS 프로파일이 **필수다**
+
+**이 조합만 그렇다.** mirrored networking 에서 WSL2 가 Windows 의 네트워크 정체를 그대로 쓰는 탓에 Fast DDS 가 양쪽을 같은 호스트로 오판해 SHM 을 고르고, Windows SHM 과 Linux `/dev/shm` 은 다른 물건이라 아무것도 도착하지 않는다. 경위는 §7 "Windows ↔ WSL2 DDS".
+
+```bash
+# Windows 쪽 (run_isaac_humble.bat 이 설정한다)
+#   FASTRTPS_DEFAULT_PROFILES_FILE=C:\isaacsim\fastdds_wsl_bridge.xml
+# WSL2 쪽 — .bashrc 에 넣어 두면 편하다
+export FASTRTPS_DEFAULT_PROFILES_FILE=~/development/ros/rdfp_ws/src/robot_control/config/fastdds_wsl_bridge.xml
+```
+
+- `.wslconfig` 에 `memory=10GB` · `autoMemoryReclaim=gradual` · `networkingMode=mirrored`
+  (§5). 안 하면 WSL2 가 호스트 RAM 의 절반을 물고 Isaac 이 최소 사양의 절반으로 돈다.
+- sim_side 스크립트는 UNC(`//wsl.localhost/...`)로 저장소를 본다 — 사본이 하나뿐이라 저장소를 고치면 Isaac 쪽에도 즉시 반영된다.
+
+**Windows + 별도 Ubuntu 머신**이면 프로파일이 필요 없다 — 진짜 다른 호스트라 SHM 오판이 생기지 않는다. 대신 위 "다른 머신에 둘 때" 셋을 챙긴다.
+
+---
+
+
+### 불변식 — 배포가 달라도 이것은 같다
+
+**launch 파일과 노드 그래프는 어느 배포인지 모른다.** 차이는 전부 launch 바깥 (환경변수·`.wslconfig`·방화벽)에서 흡수한다. 그래서 `host_profile` 같은 launch 인자를 두지 않는다.
+
+**검증 방법**: 비교할 두 배포 — 이를테면 **기본(Ubuntu 한 머신) ↔ 부록(Windows Isaac)** — 에서 각각 `ros2 node list` 와 각 토픽의 엔드포인트를 떠서 **diff 가 비어야 한다.** `rdfp_collect` 조합 동등성을 확인할 때 쓴 것과 같은 기법이다.
+
+**이것은 처방이지 기록이 아니다** — 이 기법을 실제로 쓴 것은 `rdfp_collect` 쪽이고, 배포 사이의 diff 는 아직 한 적이 없다. Windows 에서 plugin 백엔드를 돌릴 때 첫 대상이 된다.
+
+> **유일한 예외는 카메라다.** raw `Image` 는 프레임이 2.76 MB(1280×720 rgb8)라 머신 경계를 넘으면 UDP 단편화에서 깨지기 쉬워 `CompressedImage` 가 필요하다(§1 「Isaac 을 다른 머신에 둘 때」). 한 머신에서는 그대로 둔다. 예외를 이 한 곳으로 묶고, 조건 분기가 다른 데로 번지지 않게 한다.
 
 ## 2. 단계 계획
 
-**진행 상황** — Phase 0~9 완료, **Phase 10 은 구현만** (Phase 0~5 2026-08-29, Phase 6~10 2026-08-30). 미검증: 토폴로지 B~D(§2 Phase 8), servo 실기 주행(§2 Phase 10).
+> **Phase 0~10 은 2026-08~09 초의 기록이다.** 각 단계의 **수용 기준과 실측**이
+> 지금 돌아가는 검사 7종의 근거이므로 그대로 둔다. 기동 순서는 §3, 현재 구성은
+> Phase 11 을 본다.
+
+**진행 상황 (2026-09-05)** — **Phase 0~11 완료.** 연동 방식은 하나로 정리됐다(§0 D1″ —
+ros2_control 없이 토픽만으로 잇던 bridge 백엔드를 삭제했다). 검사 7종이 초록이고
+**수집 전 과정**(세션 → `/scene/reset` → 에피소드 → rosbag → mp4 → DB)이 통과했다.
+
+**미검증** — ① **Windows 에서의 기동**(§1 부록). 2026-08-29 의 "검증 완료"는 ros2_control
+없이 토픽만으로 잇던 옛 구성 기준이다. ② **배포 사이의 노드 그래프 diff**(§1 불변식) — 처방만 있고 해 본 적이 없다.
+열린 결정은 §8 의 **넷**이다 — Q5·Q17·Q18·Q19.
 
 > ## Isaac Sim 6.0 · Ubuntu 재검증 — 2026-09-02
 >
-> **기동 절차는 [isaac_bringup_runbook.md](isaac_bringup_runbook.md) 에 따로 있다.**
-> 기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다 —
-> 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②).
+> **기동 절차는 [isaac_bringup_runbook.md](isaac_bringup_runbook.md) 에 따로 있다.** 기동은 [`scripts/run_isaac_sim.sh`](../../scripts/run_isaac_sim.sh) 로 한다 — 환경 변수를 틀리면 ROS 확장이 조용히 죽는다(②).
 >
 > | | |
 > |---|---|
@@ -193,12 +170,9 @@ Windows 머신                          Ubuntu 머신
 > | `--headless` | 창 없이 같은 일 (검사·CI). 아래 검증이 이것으로 재현됐다 |
 > | (인자 없음) | 전체 편집기. 자산 브라우저·프로퍼티 편집이 필요할 때만 |
 >
-> **스테이지를 저장해 두는 방식은 쓰지 않는다.** 저장하면 물체 이름·크기가 USD 와
-> `isaac_scene.json` 두 곳에 살게 되고 조용히 갈라진다 — JSON 은
-> `isaac_scene_state_node` 도 읽는 정본이다.
+> **스테이지를 저장해 두는 방식은 쓰지 않는다.** 저장하면 물체 이름·크기가 USD 와 `isaac_scene.json` 두 곳에 살게 되고 조용히 갈라진다 — JSON 은 `isaac_scene_state_node` 도 읽는 정본이다.
 >
-> Phase 0~9 는 **Windows Isaac 5.1 + WSL2**(구성 A)에서 통과한 것이라, Ubuntu 단일
-> 머신(구성 B) + Isaac 6.0 에서 다시 돌렸다.
+> Phase 0~9 는 **Windows Isaac 5.1 + WSL2**(§1 부록)에서 통과한 것이라, Ubuntu 단일 머신(§1 기본) + Isaac 6.0 에서 다시 돌렸다.
 >
 > | Phase | 결과 | 비고 |
 > |:-:|---|---|
@@ -211,65 +185,30 @@ Windows 머신                          Ubuntu 머신
 >
 > **pick-and-place 는 Isaac 6.0 에서 동작한다.** 카메라만 별도 작업이다.
 >
-> **① Phase 4 카메라 — 크래시는 재현되지 않았고, 카메라는 정상이다.**
-> 처음에는 "Play 시 segfault" 로 판단해 `PHASE` 를 3 으로 낮췄다. 그 크래시는
-> `isaacsim.exp.full.kit` GUI 세션에서 **한 번** 났을 뿐이고, 스크립트 기동에서는
-> **헤드리스와 창 모드 둘 다 PHASE=4 로 통과**한다. 검사도 5/5 다 (4.57 Hz,
-> 640×480 rgb8, camera_info fx=733). `PHASE` 기본값을 4 로 되돌렸다.
+> **① Phase 4 카메라 — 크래시는 재현되지 않았고, 카메라는 정상이다.** 처음에는 "Play 시 segfault" 로 판단해 `PHASE` 를 3 으로 낮췄다. 그 크래시는 `isaacsim.exp.full.kit` GUI 세션에서 **한 번** 났을 뿐이고, 스크립트 기동에서는 **헤드리스와 창 모드 둘 다 PHASE=4 로 통과**한다. 검사도 5/5 다 (4.57 Hz, 640×480 rgb8, camera_info fx=733). `PHASE` 기본값을 4 로 되돌렸다.
 >
-> 다만 크래시가 났던 것 자체는 사실이다 — 로그의 마지막 활동이 렌더 프로덕트 attach
-> 였고 파이썬 스레드는 전부 idle 이었다. 전체 GUI 앱에서 다시 겪으면 `--phase 3` 으로
-> 조작 계열만 돌릴 수 있다.
+> 다만 크래시가 났던 것 자체는 사실이다 — 로그의 마지막 활동이 렌더 프로덕트 attach였고 파이썬 스레드는 전부 idle 이었다. 전체 GUI 앱에서 다시 겪으면 `--phase 3` 으로 조작 계열만 돌릴 수 있다.
 >
-> **`frameSkipCount` deprecation 은 그대로 둔다.** 경고가 안내하는 대체 수단
-> (`omni:sensor:tickRate` + `frameSkipCount=0`)을 실측했는데 **듣지 않았다** —
-> `tickRate=5.0` 인데 5 Hz 가 아니라 9.9 Hz 가 나왔다(매 프레임 발행으로 파이프라인
-> 포화). Isaac 트리에서도 그 속성은 라이다·음향 센서에만 쓰이고 `UsdGeom.Camera` 에는
-> 배선돼 있지 않다.
+> **`frameSkipCount` deprecation 은 그대로 둔다.** 경고가 안내하는 대체 수단 (`omni:sensor:tickRate` + `frameSkipCount=0`)을 실측했는데 **듣지 않았다** — `tickRate=5.0` 인데 5 Hz 가 아니라 9.9 Hz 가 나왔다(매 프레임 발행으로 파이프라인 포화). Isaac 트리에서도 그 속성은 라이다·음향 센서에만 쓰이고 `UsdGeom.Camera` 에는 배선돼 있지 않다.
 >
-> **② 로봇 배치가 자동화돼 있지 않았다 — 해소.** §7 은 "asset browser 에서
-> 올린다"는 수동 단계로만 적어 두었고 경로도 없어 스크립트만으로는 스테이지를
-> 재현할 수 없었다. `scripts/isaac/sim_side/load_robot.py` 를 만들어 GUI·헤드리스가
-> **같은 목록**을 돌린다. 6.0 경로는
-> `{assets_root}/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd` 다
-> (5.x 의 `/Isaac/Robots/Franka/franka.usd` 에서 재편됐다).
+> **② 로봇 배치가 자동화돼 있지 않았다 — 해소.** §7 은 "asset browser 에서 올린다"는 수동 단계로만 적어 두었고 경로도 없어 스크립트만으로는 스테이지를 재현할 수 없었다. `scripts/isaac/sim_side/load_robot.py` 를 만들어 GUI·헤드리스가 **같은 목록**을 돌린다. 6.0 경로는 `{assets_root}/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd` 다 (5.x 의 `/Isaac/Robots/Franka/franka.usd` 에서 재편됐다).
 >
-> **③ 기본 자산은 튜닝이 안 돼 있다.** `tune_drive.py`(τ) 와 `tune_grasp.py`(마찰)를
-> 돌리지 않으면 Phase 1 τ 가 177 ms 이고 Phase 6 은 블록이 미끄러진다. 기동 순서에
-> 넣어야 한다.
+> **③ 기본 자산은 튜닝이 안 돼 있다.** `tune_drive.py`(τ) 와 `tune_grasp.py`(마찰)를 돌리지 않으면 Phase 1 τ 가 177 ms 이고 Phase 6 은 블록이 미끄러진다. 기동 순서에 넣어야 한다.
 >
 > **④ 6.0 이 예고한 API 이동 셋** (아직 동작하나 경고):
 > `ROS2PublishJointState.targetPrim` → `IsaacReadJointState` 연결,
 > `ROS2PublishTransformTree.targetPrims` → `OgnIsaacComputeTransform` 연결,
 > `frameSkipCount` → `omni:sensor…` 발행 주기.
 >
-> **⑤ `is_check_phase3.py` 가 낡아 있었다** — `isaac_scene.json` 의 물체 전부를
-> 기대해서 정상 동작이 `누락: table` 로 나왔다. `/scene/objects` 가 조작 대상만 싣게
-> 된 2026-09-01 결정이 반영 안 된 것이라 검사 쪽을 고쳤다.
+> **⑤ `is_check_phase3.py` 가 낡아 있었다** — `isaac_scene.json` 의 물체 전부를 기대해서 정상 동작이 `누락: table` 로 나왔다. `/scene/objects` 가 조작 대상만 싣게 된 2026-09-01 결정이 반영 안 된 것이라 검사 쪽을 고쳤다.
 >
-> **⑦ 시뮬레이터를 재시작하면 ROS 스택도 재시작한다 — 그리고 런치를 죽여도 노드는
-> 남는다.** Isaac 을 다시 띄우면 sim 시계가 0 으로 돌아가는데, 살아 있던 스택의 TF
-> 버퍼에는 **더 큰 타임스탬프의 옛 데이터**가 남아 새 데이터가 `TF_OLD_DATA` 로
-> 버려진다. 증상은 `/scene/objects` 가 **이전 실행에서 물체를 놓았던 자리**를 계속
-> 말하는 것이다 — 실측에서 스테이지는 z=0.425 인데 토픽은 z=0.524(직전 Phase 6 가
-> 들어올린 높이)를 냈고, Phase 6 접근 목표가 10 cm 어긋나 파지가 실패했다.
-> `ros2 run tf2_ros tf2_echo panda_link0 block_a` 로 **TF 를 직접 보면** 갈린다.
+> **⑦ 시뮬레이터를 재시작하면 ROS 스택도 재시작한다 — 그리고 런치를 죽여도 노드는 남는다.** Isaac 을 다시 띄우면 sim 시계가 0 으로 돌아가는데, 살아 있던 스택의 TF 버퍼에는 **더 큰 타임스탬프의 옛 데이터**가 남아 새 데이터가 `TF_OLD_DATA` 로 버려진다. 증상은 `/scene/objects` 가 **이전 실행에서 물체를 놓았던 자리**를 계속 말하는 것이다 — 실측에서 스테이지는 z=0.425 인데 토픽은 z=0.524(직전 Phase 6 가 들어올린 높이)를 냈고, Phase 6 접근 목표가 10 cm 어긋나 파지가 실패했다. `ros2 run tf2_ros tf2_echo panda_link0 block_a` 로 **TF 를 직접 보면** 갈린다.
 >
-> 더 고약한 것은 **`ros2 launch` 프로세스를 죽여도 자식 노드가 살아남는다**는 점이다.
-> 스택을 다시 띄우면 `isaac_scene_state` 나 `gripper_action_bridge` 가 **둘**이 되고,
-> 옛 것이 오염된 버퍼로 계속 발행한다. 액션 서버가 둘이면 검사 로그에
-> `There may be more than one action server` 가 나온다. 정리는
-> `ros2 node list | sort | uniq -c` 로 중복을 먼저 확인하고, 정리는
-> [`scripts/kill_stack.sh`](../../scripts/kill_stack.sh) 로 한다 — 이 네 종류를
-> 한 번에 걷어낸다 (`--dry-run` 으로 대상부터 본다).
-> 펑션베이의 `/ee_pose` 정지 함정과 **같은 종류**다 (CLAUDE.md).
+> 더 고약한 것은 **`ros2 launch` 프로세스를 죽여도 자식 노드가 살아남는다**는 점이다. 스택을 다시 띄우면 `isaac_scene_state` 나 `gripper_action_node` 가 **둘**이 되고, 옛 것이 오염된 버퍼로 계속 발행한다. 액션 서버가 둘이면 검사 로그에 `There may be more than one action server` 가 나온다. 정리는 `ros2 node list | sort | uniq -c` 로 중복을 먼저 확인하고, 정리는 [`scripts/kill_stack.sh`](../../scripts/kill_stack.sh) 로 한다 — 이 네 종류를 한 번에 걷어낸다 (`--dry-run` 으로 대상부터 본다). 펑션베이의 `/ee_pose` 정지 함정과 **같은 종류**다 (CLAUDE.md).
 >
-> **⑥ 헤드리스는 실시간보다 빨리 돈다** — 렌더링이 없어 배속 2.2 가 나왔고 Phase 0
-> `/clock` 검사가 그것을 잡았다. 물리 dt(1/60)에 맞춰 업데이트를 60 Hz 로 묶으면 0.97 이
-> 된다. 검사 자체는 정상 동작한 셈이다.
+> **⑥ 헤드리스는 실시간보다 빨리 돈다** — 렌더링이 없어 배속 2.2 가 나왔고 Phase 0 `/clock` 검사가 그것을 잡았다. 물리 dt(1/60)에 맞춰 업데이트를 60 Hz 로 묶으면 0.97 이 된다. 검사 자체는 정상 동작한 셈이다.
 
-각 단계는 **이전 단계의 수용 기준을 회귀로 계속 돌린다.** 그리퍼를 붙였다가 팔 관절
-순서가 밀리는 종류의 사고를 그 자리에서 잡기 위해서다.
+각 단계는 **이전 단계의 수용 기준을 회귀로 계속 돌린다.** 그리퍼를 붙였다가 팔 관절 순서가 밀리는 종류의 사고를 그 자리에서 잡기 위해서다.
 
 ### Phase 0 — 골격 (로봇은 움직이지 않는다)
 
@@ -277,24 +216,8 @@ Windows 머신                          Ubuntu 머신
 |---|---|
 | 켜는 것 | 기본값 그대로 (`enable_*` 전부 false) |
 | Isaac 쪽 | Panda USD + OmniGraph: `ROS2Context` · `ROS2PublishClock` · `ROS2PublishJointState`(팔 7관절) |
-| 우리 쪽 | `panda_isaac.launch.py` — static_tf · RSP · `readiness_gate` → (게이트 통과 후) `move_group` · `rviz` · `ee_pose` |
+| 우리 쪽 | `panda_isaac.launch.py` — `static_transform_publisher` · `robot_state_publisher` · `readiness_gate` → (게이트 통과 후) `move_group` · `rviz` · `ee_pose` |
 | 검증 | `scripts/isaac/is_check_phase0.py` |
-
-> ## ✅ Phase 0 완료 — 2026-08-29
->
-> `is_check_phase0.py` **5/5 통과**.
->
-> | 기준 | 실측 |
-> |---|---|
-> | `/clock` | 배속 **0.99254** (벽시계 13.85s / sim 13.75s, 샘플 826개) |
-> | `/joint_states` | **59.6 Hz**, 관절 **9개**, 이름이 URDF 와 일치 |
-> | `use_sim_time` | `/move_group` true · `/ee_pose_publisher` true |
-> | TF | `world → panda_hand` 조회 성공 |
-> | 계획 | named target `extended` **21 point** 생성 성공 |
->
-> **재고 Franka 에셋을 그대로 쓴다** — URDF importer 변환은 필요 없다.
-> 도달한 경로: `run_isaac_humble.bat` → Franka 배치 → `setup_graph.py`(PHASE=0) → Play
-> → `panda_isaac.launch.py` → `is_check_phase0.py`.
 
 **수용 기준**
 
@@ -304,47 +227,17 @@ Windows 머신                          Ubuntu 머신
 4. TF 트리가 `world → panda_link0 → … → panda_hand` 로 성립한다
 5. named target `extended` **계획이 성공**한다 (실행은 하지 않는다)
 
-3번을 수용 기준에 넣은 이유: `use_sim_time` 이 한 노드라도 어긋나면 `move_group` 이
-`Failed to fetch current robot state` 로 조용히 무력해진다. 증상이 원인을 가리키지
-않는 대표적인 함정이라 **첫 단계에서 못을 박는다.**
+3번을 수용 기준에 넣은 이유: `use_sim_time` 이 한 노드라도 어긋나면 `move_group` 이 `Failed to fetch current robot state` 로 조용히 무력해진다. 증상이 원인을 가리키지 않는 대표적인 함정이라 **첫 단계에서 못을 박는다.**
 
-5번까지 통과하면 **설계 문서가 "Isaac 백엔드의 핵심 계약 항목"으로 꼽은 URDF↔USD
-관절 이름·순서 정합이 확인된 것**이다.
-
-> **Phase 0 실측 (2026-08-29)** — `/clock` **59.4 Hz**, `/joint_states` 는 sim time
-> 스탬프(`sec: 93`)로 **`panda_joint1~7` + `panda_finger_joint1/2` 9관절**을 이름까지
-> 채워 보낸다. **URDF 와 이름이 정확히 일치**하므로 재고 Franka 에셋을 그대로 쓴다
-> (URDF importer 변환 불필요). `effort` 도 실려 온다 — joint2 −6.56, joint4 18.69 로
-> 중력 토크가 보인다.
->
-> **Phase 2 (그리퍼)의 절반이 이미 끝나 있다** — 상태는 오고 있고 명령만 남았다.
+5번까지 통과하면 **설계 문서가 "Isaac 백엔드의 핵심 계약 항목"으로 꼽은 URDF↔USD 관절 이름·순서 정합이 확인된 것**이다.
 
 ### Phase 1 — 팔 관절 명령
 
 | | |
 |---|---|
 | Isaac 쪽 | `setup_graph.py` 의 `PHASE = 1` — `ROS2SubscribeJointState`(`/isaac/arm_command`) → `IsaacArticulationController` |
-| 우리 쪽 | 새 노드 없음. `create_move_group_client(mode='jgpc', arm_command_format='joint_state')` 로 스트리밍 |
+| 우리 쪽 | 새 노드 없음 — `mode='jtc'` 클라이언트가 전부다. JTC 가 보간하고 `TopicBasedSystem` 이 같은 토픽으로 내보낸다. `is_backend.create_arm_client()` 가 만든다 |
 | 검증 | `scripts/isaac/is_check_phase1.py` |
-
-> ## ✅ Phase 1 완료 — 2026-08-29
->
-> `is_check_phase1.py` **5/5 통과** (drive 튜닝 후).
->
-> | 항목 | 기본값 (K=400) | 튜닝 후 (K=10000) |
-> |---|---|---|
-> | 시정수 τ | 195.6 ms | **34.9 ms** |
-> | dead time | 46.9 ms | 51.6 ms |
-> | 오버슈트 | — | **0.0%** |
-> | 정착 오차 @`ready` | 0.0015 rad | **0.0002 rad** |
-> | 정착 오차 @`stretch` | — | **0.0001 rad** |
->
-> **모델이 실측과 맞는다.** 기본값에서 `τ = B/K = 80/400 = 200 ms` 예측에 실측
-> 195.6 ms (오차 2%), 튜닝 후 `400/10000 = 40 ms` 예측에 실측 34.9 ms.
-> 그래서 필요한 gain 을 **역산해서** 정할 수 있었다 — 시행착오가 아니다.
->
-> **중력 처짐은 사실상 없다** (0.0001 rad = 0.006°). 펑션베이의 0.0983 rad 과
-> 1000배 차이다. 벤더 요청서 A-1 에 해당하는 문제가 이 백엔드에는 없다.
 
 **수용 기준**
 
@@ -355,51 +248,41 @@ Windows 머신                          Ubuntu 머신
 | **시정수 τ** | 측정해 기록. 필요하면 drive `stiffness`/`damping` 튜닝 |
 | dead time | 측정해 기록 |
 
-**펑션베이의 교훈을 앞당겨 적용하는 지점이다.** 거기서는 처짐과 응답 지연을 §3·§6 에
-가서야 쟀고, 원인인 제어기 강성을 우리가 못 고쳐 벤더 요청서까지 갔다. Isaac 은
-articulation drive 의 `stiffness`/`damping` 을 **우리가 직접 조정할 수 있으므로**,
-같은 값을 Phase 1 수용 기준에 넣어 그 자리에서 닫는다.
+**펑션베이의 교훈을 앞당겨 적용하는 지점이다.** 거기서는 처짐과 응답 지연을 §3·§6 에 가서야 쟀고, 원인인 제어기 강성을 우리가 못 고쳐 벤더 요청서까지 갔다. Isaac 은 articulation drive 의 `stiffness`/`damping` 을 **우리가 직접 조정할 수 있으므로**, 같은 값을 Phase 1 수용 기준에 넣어 그 자리에서 닫는다.
+
+> **실측 (2026-09-05)** — `phase1` **5/5**. τ **35.5 ms** · dead time **80.3 ms** · 정착 오차 **0.0000 rad**(`ready`) / 0.0001 rad(`stretch`) · 오버슈트 **0.0%**.
+>
+> **한동안 τ 가 미달이었는데 로봇이 아니라 측정 방법 탓이었다.** 계단 입력을 주려면
+> 도달 시간 0 을 줘야 하는데 JTC 가 그것을 거부해서 `is_backend.MIN_REACH_SEC` 를 대신
+> 쓴다. 그 상수가 **τ 기준과 똑같은 50 ms** 였으므로 잰 값 52.6 ms 는 사실상
+> 「상수 + 2.6 ms」였다 — 로봇이 아무리 빨라도 통과할 수 없는 항목이었다.
+> `controller_manager` 의 update 주기(100 Hz = 10 ms)가 어차피 하한이라 상수를
+> **10 ms 로 낮췄고**(§8 Q13), 그 뒤 재실행에서 **5/5** 가 나왔다.
+>
+> **중력 처짐은 사실상 없다.** 펑션베이의 0.0983 rad 과 300배 차이라, 벤더 요청서 A-1에 해당하는 문제가 이 백엔드에는 없다. drive gain 은 `tune_drive.py` 가 `τ = B/K` 로 **역산해서** 정한다 — 시행착오가 아니다 (그 스크립트 docstring 에 유도가 있다).
 
 ### Phase 2 — 그리퍼
 
 | | |
 |---|---|
 | 켜는 것 | `enable_gripper:=true` |
-| 우리 쪽 | `isaac_gripper_bridge` (신규) — `panda_hand_controller/gripper_cmd` **액션 서버**를 열어 `/isaac/gripper_command` 로 바꾼다. `enable_gripper:=true` 로 `GripperNode` 와 함께 뜬다 |
-
-> ## ✅ Phase 2 완료 — 2026-08-29
->
-> `is_check_phase2.py` **6/6 통과**.
->
-> | 기준 | 실측 |
-> |---|---|
-> | finger 상태 | `panda_finger_joint1/2` 수신 |
-> | 액션 서버 | `/panda_hand_controller/gripper_cmd` 응답 |
-> | 열기/닫기 왕복 | 최대 이동 **0.0400 m**, 최종 폭 0.0400 m (목표 0.04) |
-> | 두 finger 일치 | 최대 차이 **0.0000 m** |
->
-> **검사는 팔을 `ready` 로 보낸 뒤 시작한다.** scene 에 테이블이 생긴 뒤로 자세에 따라
-> **손가락 끝이 상판 안에 박혀** 그리퍼가 물리적으로 막힌다 — 실제로 이동 0.0018 m 가
-> 나와 "그리퍼 고장"으로 오독했다. `ready` 로 올리자 0.0400 m 가 정확히 나왔다.
-> Phase 1 에서 배운 자세 앵커 원칙이 여기에도 그대로 적용된다.
->
-> **액션 이름을 그대로 쓴 덕에 상위 경로는 변경이 없다** — `GripperNode` 는
-> mock 에서와 똑같이 동작하고, 그 아래가 ros2_control 인지 `isaac_gripper_bridge`
-> 인지 모른다.
+| 우리 쪽 | 새 노드 없음 — ros2_control 의 `panda_hand_controller` 가 액션 서버다. `enable_gripper:=true` 로 `GripperNode` 와 함께 뜬다 |
 
 **수용 기준** — open/close 왕복, `/joint_states` 에 finger 포함, `<mimic>` 처리 확인
 (`panda_finger_joint2` 는 URDF mimic 이라 MoveIt 이 채운다), planning scene 조회로
 두 finger 값 일치.
 
-> **왜 액션 서버가 필요한가** — 상위 경로(teleop · robot twin · 데이터셋 재생)는
+> **액션 이름이 백엔드 경계다.** 상위 경로(teleop · robot twin · 데이터셋 재생)는
 > 모두 `GripperNode` 를 거치고, 그 노드는 `/panda_hand_controller/gripper_cmd`
-> **액션**을 부른다. mock 에서는 ros2_control 의 `GripperActionController` 가 그 서버지만
-> Isaac 에는 ros2_control 이 없어 **서버가 아예 없다** — 호출이 응답 없이 멈춘다.
-> `isaac_gripper_bridge` 가 **같은 이름으로** 서버를 열어 그 자리를 채운다. 그래서
-> 상위 경로는 백엔드가 무엇인지 몰라도 된다.
+> **액션**을 부른다. mock 도 Isaac 도 그 서버는 ros2_control 의
+> `GripperActionController` 이므로 **상위는 백엔드가 무엇인지 몰라도 된다.**
 >
 > 시간 안에 목표에 닿지 못하면 **실패가 아니라 `stalled`** 로 보고한다 — 물체를 쥐어
 > 더 닫히지 않는 상태가 정상 동작이기 때문이다.
+
+> **실측 (2026-09-05)** — `phase2` **6/6**. 같은 날 수집 실행에서 폭이 열림
+> **0.0700 m** / 파지 **0.0448 m** 였고, 파지 시 손가락 effort **22.4 N·m** 로
+> `stalled`·`at_goal` 이 선다.
 
 ### Phase 3 — scene 객체
 
@@ -413,27 +296,11 @@ D2 에 따라 변환은 **우리 쪽에서** 한다. 좌표계·단위·쿼터�
 전부 이 노드에 있고, 순수 함수는 `robot_control/scene/pose_math.py` 를 재사용해 ROS
 없이 테스트한다.
 
-> ## ✅ Phase 3 완료 — 2026-08-29
->
-> `is_check_phase3.py` **5/5 통과**.
->
-> | 기준 | 실측 |
-> |---|---|
-> | `/scene/objects` | 물체 **4개**, `frame_id='panda_link0'` |
-> | 물체 목록 | 이름·종류·크기가 JSON 정의와 일치 |
-> | 좌표 기준 | `panda_link0` 기준으로 변환됨 |
-> | **쿼터니언** | `block_b` **xyzw=(0, 0, +0.383, +0.924)** = z축 **45.0°** — 정의와 일치 |
->
-> **쿼터니언 검증이 이 단계의 핵심이었다.** Isaac 은 wxyz, ROS 는 xyzw 라 순서를
-> 틀려도 norm 은 1 이고 모든 타입 검사를 통과한다. 대칭 회전으로는 드러나지 않으므로
-> `block_b` 에 **z축 45°** 를 주고 그 값이 그대로 나오는지로 확인했다
-> (`rdfp_msgs/SceneObject.msg` 가 지시하는 방법이다).
->
-> **TF 경유 설계가 값을 했다** — 좌표 변환과 쿼터니언 규약을 tf2 가 처리하므로
-> 손으로 뒤집는 코드가 아예 없다.
-
 **수용 기준** — Isaac 에서 물체를 옮기면 `/scene/objects` 에 반영, 좌표계·쿼터니언
 순서 검증, `mock_scene_state_node` 와 동일한 메시지 계약.
+
+> **실측 (2026-09-05)** — `phase3` **5/5**. 같은 날 수집 실행의 rosbag 에
+> `/scene/objects` 가 **1.82 Hz** 로 담겼다.
 
 ### Phase 4 — 카메라
 
@@ -441,30 +308,6 @@ D2 에 따라 변환은 **우리 쪽에서** 한다. 좌표계·단위·쿼터�
 |---|---|
 | 켜는 것 | 없음 — Isaac 그래프(`PHASE>=4`)가 발행한다. 보기·녹화는 수집 계층의 몫 |
 | Isaac 쪽 | RTX 카메라 → `Image` + `CameraInfo` |
-
-> ## ✅ Phase 4 완료 — 2026-08-29
->
-> `is_check_phase4.py` **5/5 통과**. 고정 시점(eye-to-hand) 카메라, 640×480 @ 5 Hz.
->
-> | 기준 | 실측 |
-> |---|---|
-> | 주파수 | **4.96 Hz** (목표 5 Hz) |
-> | 형식 | **640×480 `rgb8`** |
-> | 스탬프 | 61.48 → 73.08 (**sim time 으로 진행**) |
-> | camera_info | 640×480, fx=733.0 |
-> | VRAM 증가 | 1,707 → **1,884 MiB** (카메라 약 180 MiB) |
->
-> **RTX 4060 8GB 에서 문제없이 돌았다.** 문서에 "최소 사양 미달이라 위험"으로 적어
-> 뒀던 것은 NVIDIA 의 blanket 최소 사양(RTX 4080 16GB)을 그대로 옮긴 것이었는데,
-> 그 기준은 **센서를 많이 쓰는 복잡한 scene**을 전제한다. 카메라 하나를 5 Hz 로 돌리는
-> 부담은 VRAM 180 MiB · GPU 47% 였다.
->
-> **5 Hz 라는 요구가 두 제약을 동시에 비껴갔다** — VRAM 과 DDS 단편화(60 Hz 였다면
-> 1400 B 조각이 초당 4만 개였다). `frameSkipCount=11` 로 **렌더 자체를 건너뛰므로**
-> 60 Hz 로 렌더한 뒤 버리는 방식보다 GPU 를 훨씬 덜 쓴다.
->
-> **스탬프가 sim time 으로 채워진다** — 펑션베이는 이 값이 0 이라 이미지를 시간축에
-> 놓지 못했고(그 문서 §6.5) 데이터셋 적재가 통째로 깨졌다. 이 백엔드에는 그 문제가 없다.
 
 **수용 기준** — 발행 주파수, encoding, **`header.stamp` 이 sim time 으로 채워질 것**,
 recorder 가 mp4 를 만들 것, **VRAM 사용량 관측**.
@@ -474,83 +317,18 @@ recorder 가 mp4 를 만들 것, **VRAM 사용량 관측**.
 
 ---
 
-### Phase 5 — 파지 지원 (attach / detach) — **철회됨 (2026-09-01)**
-
-> ## ⛔ 이 단계는 되돌렸다
+> **실측 (2026-09-05)** — `phase4` **6/6** (내용 확인 포함). 같은 날 수집 실행의
+> rosbag 에 `/isaac/camera/image_raw` 가 **4.50 Hz** 로 담겼다.
 >
-> `attach`/`detach` 를 제거하고, 대신 **조작 대상을 planning scene 에 넣지 않는다.**
-> (2026-09-01 재축소) `planning_scene_sync` 자체를 삭제했다 — Q8 참조.
->
-> **무너진 전제 셋.**
->
-> 1. `attach` 는 명시적 `detach` 까지 유지되는데 **물체는 미끄러져 떨어질 수 있다.**
->    떨어지면 planner 의 믿음이 두 군데에서 동시에 틀린다 — 손에는 없는 물체가
->    붙어 있고, 탁자 위의 실제 물체는 보이지 않는다(붙은 물체를 world 동기화에서
->    제외하므로).
-> 2. 토픽으로 만든 근거였던 "rosbag 에 남는다"가 **거짓**이었다.
->    `/scene/commands` 는 `recording_topics.list` 에 없다.
-> 3. 파지 동작은 애초에 planning scene 을 보지 않는다 — 접근·하강·상승이 전부
->    cartesian 이고 `GetCartesianPath` 의 `avoid_collisions` 기본값은 `False` 다.
->
-> `is_check_phase5.py` 는 삭제했다. 아래 내용은 **왜 그렇게 했다가 되돌렸는지**의
-> 기록으로 남긴다.
+> **스탬프가 sim time 으로 채워진다** — 펑션베이는 이 값이 0 이라 이미지를 시간축에
+> 놓지 못했고(그 문서 §6.5) 데이터셋 적재가 통째로 깨졌다. 이 백엔드에는 그 문제가 없다.
 
+### Phase 5 — **철회됨 (2026-09-01)**
 
-**궁극 목적이 물건 집기이므로 파지 경로를 단계로 세운다.** 카메라(Phase 4)보다 뒤인
-이유는 수집을 시작하기 전에만 있으면 되기 때문이고, 앞이 아닌 이유는 카메라가
-하드웨어 제약을 먼저 확인해야 하는 항목이기 때문이다.
-
-| | |
-|---|---|
-| Isaac 쪽 | 없음 |
-| 우리 쪽 | `AttachedCollisionObject` attach/detach. **채택하지 않았다** (Q9 철회) |
-| 검증 | `scripts/isaac/is_check_phase5.py` |
-
-**왜 필요한가** — Phase 3 에서 물체를 MoveIt 의 장애물로 올렸다(Q8). 그 상태로 물체를
-집으면 **손가락과 물체의 접촉이 충돌로 잡혀** 이후 계획이 전부 실패한다. MoveIt 이
-이 상황을 위해 제공하는 것이 attach 다 — 물체를 손 링크에 붙이면 로봇의 일부가 되어
-손과의 충돌은 무시되고 **테이블과의 충돌은 계속 검사된다.**
-
-**텔레오퍼레이션 수집은 이것 없이도 동작한다** — teleop 은 관절 명령을 직접
-스트리밍하므로 계획을 거치지 않는다. 걸리는 것은 MoveIt 으로 계획하는 경로다
-(에피소드 리셋, 홈 복귀, 자동 파지 시퀀스).
-
-**이 단계는 물리 파지를 검증하지 않는다.** 여기서 보는 것은 planning scene 의
-기하학뿐이고, PhysX 안에서 손가락이 블록을 실제로 붙잡는지는 별개다 — 그것이
-Phase 6 다. 처음에는 "물리 파지는 Phase 2 에서 이미 동작한다"고 적었는데 **틀렸다.**
-Phase 2 는 자유공간에서 손가락이 움직이는 것만 봤다.
-
-> ## ✅ Phase 5 완료 — 2026-08-29
->
-> `is_check_phase5.py` **5/5 통과**.
->
-> ```
-> 0. 초기 상태  world ['block_a','block_b','block_c','table']
-> 1. attach     attached ['block_b'], world ['block_a','block_c','table']
-> 2. 유지(4초)  attached ['block_b'], world ['block_a','block_c','table']
-> 3. 안전 회귀  attach 중에도 'table' 은 world 장애물
-> 4. detach     attached [], world 4개 복귀
-> ```
->
-> **Q9 결정 — 토픽(`/scene/commands`)으로 명시 호출한다.** 서비스가 아닌 이유는
-> **rosbag2 에 남기기 위해서**다. 언제 무엇을 집고 놓았는지가 데이터셋의 사건 표시가
-> 된다(`GripperCommand` 를 토픽으로 만든 것과 같은 이유). 기존 `SceneCommand` 타입을
-> 그대로 쓰므로 `rdfp_msgs` 변경이 없다.
->
-> 모르는 명령은 **조용히 무시한다** — 같은 토픽을 `mock_scene_state_node` 의 `reset`
-> 도 듣기 때문에, 실패 결과를 내면 남의 명령을 실패로 보고하게 된다.
->
-> **2번이 실제로 잡아낸 것**: 붙은 물체를 주기 동기화(2 Hz)가 그대로 world 로
-> 되살리면 손과 영구 충돌이 된다. `_attached` 집합으로 제외한다.
-
-**수용 기준**
-
-| 항목 | 기준 |
-|---|---|
-| pre-grasp 계획 | 물체 바로 위 자세로 계획 성공 |
-| attach 후 이동 | 물체를 든 채 `ready` 로 계획 **성공** (attach 전에는 충돌로 실패) |
-| detach | 놓은 뒤 물체가 다시 장애물로 돌아온다 |
-| 안전 회귀 | 테이블 충돌은 **계속** 검사된다 — attach 가 모든 검사를 끄면 안 된다 |
+`attach`/`detach` 로 파지 중 충돌을 다루려 했으나 채택하지 않았다. 무너진 전제 셋은
+**§8 Q9**, 그 위의 planning scene 결정은 **Q8** 에 있다. `is_check_phase5.py` 도
+`setup_graph.py` 의 `PHASE = 5` 도 없다 — **번호만 비워 둔다** (뒤 단계를 당기면
+`is_check_phase6.py` 부터 이름이 어긋난다).
 
 ### Phase 6 — 물리 파지
 
@@ -579,46 +357,15 @@ Phase 2 는 자유공간에서 손가락이 움직이는 것만 봤다.
 0.1 kg 블록을 마찰 1.0 으로 드는 데 필요한 힘은 양쪽 합쳐 0.98 N 뿐이라 50 N 은
 충분한 여유다. 더 올리면 접촉 순간에 블록을 튕겨낸다.
 
-**유리하게 맞아떨어지는 것 하나** — `gripper_action_bridge` 는 목표 미도달을 실패가
+**유리하게 맞아떨어지는 것 하나** — `GripperNode` 는 목표 미도달을 실패가
 아니라 `stalled` 로 보고한다. 물체를 문 상태가 정확히 그것이므로 **파지 성공이 액션
 실패로 뒤집히지 않는다.** Phase 2 를 위해 그렇게 만든 판정이 여기서 그대로 맞는다.
 
-**`block_a` 를 집는다.** `block_b` 는 z축 45° 회전이라 평행 조가 면이 아니라 모서리를
-문다 — 대각 0.0707 m 가 최대 개구 0.08 안에 들어와서 '집히긴 하는' 상태가 되어 판정을
-흐린다. 그 45° 는 Phase 3 의 쿼터니언 규약 검증용이므로 건드리지 않는다.
-
-> ## ✅ Phase 6 완료 — 2026-08-30
->
-> `is_check_phase6.py` **6/6 통과**.
->
-> ```
-> 1. 기준 자세  ready 관절오차 0.0003 rad, 그리퍼 0.0400 m, 충돌없음 True
-> 2. 접근·하강  목표 (0.500,-0.150,0.528) 오차 0.0005 m, 손 기울기 0.0도
-> 3. 물림       폭 0.0225 m (블록 반폭 0.025), stalled=True
-> 4. 들어올림   블록 z 0.4255 -> 0.5254  (+0.0999 m, 명령 +0.100)
-> 5. 유지(3초)  z 0.5254 -> 0.5254  (낙하 0.0000 m)
-> ```
->
-> **물림 폭 0.0225 가 반폭 0.025 보다 2.5 mm 작다.** 손가락이 블록을 그만큼 파고든
-> 것이며, 접촉 강성이 유한하다는 뜻이다. 파지력은 stiffness x 오차이므로 이 상태가
-> 곧 힘이 실린 상태다 — 정확히 0.025 에서 멈췄다면 오히려 힘이 0 이다.
->
-> `stalled=True` 가 **정상**이다. `gripper_action_bridge` 가 목표 미도달을 실패가
-> 아니라 stalled 로 보고하도록 Phase 2 에서 만들어 둔 판정이 여기서 그대로 맞았다.
->
-> **막고 있던 것은 마찰이 아니라 좌표였다.** 처음 실행은 손가락이 0.0000 까지 닫히고
-> 블록이 소수점 넷째 자리까지 안 움직였다 — 마찰 부족 또는 콜라이더 부재로 읽히는
-> 증상이다. 실제로는 `panda_link0` 이 월드 `(-0.035, -0.349, 0)` 에 있어 손이 블록에서
-> **y 축으로 35 cm 떨어진 허공**을 쥐고 있었다(§7 로봇 배치). 그 뒤 시작 자세 함정이
-> 이어서 드러났다(§7 시작 자세) — 배치를 고치기 전에는 탁자를 비껴가 숨어 있었다.
->
-> `set_home_pose.py` 로그가 그 구조를 보여준다. **드라이브 목표는 원래 `ready` 였고**
-> 빠진 것은 `state:angular:physics:position`(PhysX 시작 상태)뿐이었다. 그래서 Play
-> 순간 말린 자세에서 강성 10000 으로 `ready` 를 향해 튕겼고, 그것이 '팔이 탁자 위로
-> 뚝 떨어진다'로 보였다.
->
-> `panda_finger_joint2` 에는 drive 가 없다(mimic). 한쪽 drive 만으로 파지가 성립하는
-> 것을 확인했으므로 그대로 둔다.
+**`block_a` 를 집는다.** 다른 물체 `cylinder_a` 는 실린더라 판정 산식(`BLOCK_HALF_WIDTH`
+= 0.025 인 정육면체)이 그대로 맞지 않는다. 그것이 갖고 있는 z축 45° 회전은 Phase 3 의
+쿼터니언 규약(ROS xyzw ↔ USD wxyz) 검증용이므로 건드리지 않는다 — **실린더는 z축
+대칭이라 그 회전이 물리적으로 무의미해서**, 예전 `block_b` 처럼 평행 조에 모서리를
+물려 파지 판정을 흐리는 부작용 없이 검증만 남는다.
 
 **수용 기준**
 
@@ -636,6 +383,28 @@ Phase 2 는 자유공간에서 손가락이 움직이는 것만 봤다.
 (URDF: finger 관절 원점 `panda_hand` 기준 z=0.0584 + 손가락 메시 ~0.045). 이 값이
 틀리면 블록을 밀어내거나 헛문다. 손이 아래를 보지 않으면 계산 자체가 무의미하므로
 검사가 **기울기를 재서 15° 넘으면 경고**한다.
+
+> **실측 (2026-09-05)** — `is_check_phase6.py` **6/6 통과** (수집 실행 안에서).
+>
+> ```
+> 1. 기준 자세  ready 관절오차 0.0003 rad, 그리퍼 폭 0.0700 m, 충돌없음 True
+> 2. 접근·하강  목표 (0.500,-0.150,0.528) 오차 0.0005 m, 손 기울기 0.0도
+> 3. 물림       폭 0.0448 m (기준 0.03~0.07, 블록 한 변 0.05), stalled=True at_goal=True
+> 4. 들어올림   블록 z 0.4256 -> 0.5254  (+0.0999 m, 명령 +0.100, 기준 >= 0.07)
+> 5. 유지(3초)  z 0.5254 -> 0.5254  (낙하 0.0000 m, 기준 <= 0.02)
+> ```
+>
+> **물림 폭 0.0448 이 블록 한 변 0.05 보다 5.2 mm 작다.** 손가락이 그만큼 파고든
+> 것이며, 접촉 강성이 유한하다는 뜻이다. 파지력은 stiffness × 오차이므로 **이 상태가
+> 곧 힘이 실린 상태다** — 정확히 0.05 에서 멈췄다면 오히려 힘이 0 이다.
+>
+> **같은 날 첫 실행은 3/4 였다.** 검사가 `/panda_hand_controller/gripper_cmd` 액션을
+> 직접 불렀는데 **파지에서는 그 액션이 완료되지 않는다**(§7). production 이 쓰는
+> `gripper_cmds`/`gripper_states` 계층으로 옮기자 통과했다 — 로봇이 아니라 검사가
+> 틀린 계층을 때리고 있었다 (§8 Q14).
+>
+> `panda_finger_joint2` 에는 drive 가 없다(mimic). **한쪽 drive 만으로 파지가 성립하는
+> 것을 확인했으므로 그대로 둔다.**
 
 ### Phase 7 — 수집 계층 연동
 
@@ -657,76 +426,49 @@ JSON 한 곳만 고치고 **`colcon build` + `setup_graph.py` 재실행**을 하
 **arm 명령 채널은 `joint_state` 다.** Isaac 이 `/isaac/arm_command` 로
 `sensor_msgs/JointState` 를 받으므로 `target_joint_cmds_publisher` 의 `source` 가
 `joint_state` 이고, 이 경로는 **컨트롤러의 `joints` 파라미터를 조회하지 않는다** —
-메시지에 이름이 이미 있기 때문이다. ros2_control 컨트롤러가 없는 Isaac 스택에서
-중요한 성질이며, 다른 백엔드였다면 조회가 실패해 `JointState.name` 이 비었을 것이다.
+`TopicBasedSystem` 이 내는 `JointState` 에 이름이 이미 실려 있기 때문이다 (§8 Q16).
 
-> ## ✅ Phase 7 완료 — 2026-08-30
->
-> `rdfp_panda_isaac.launch.py` 로 스택을 띄우고 에피소드 둘을 기록했다.
->
-> ```
-> 토픽 수신     /isaac/camera/image_raw 4.57 Hz (목표 5)
->               /scene/objects 1.98 Hz (목표 2)
->               /joint_states 59.3 Hz (목표 60)
-> 레코더 설정   fps=5  resolution=640x480   (isaac_scene.json 에서 자동)
-> use_sim_time  session_control / image_recorder / target_joint_cmds_publisher 모두 True
->
-> 기록된 토픽 10개 / split 1개
->   /target_joint_cmds   277개  = /isaac/arm_command 277개  (1:1 변환 확인)
->   /session               8개
->   /isaac/camera/image_raw 1044개
->
-> 에피소드 2개
->   1. start 1745.08 s  길이 36.07 s  label=None              (파지 6/6 수행)
->   2. start 1782.65 s  길이  9.47 s  label='isaac_pick_block_a'
-> ```
->
-> **타임스탬프가 sim time 이다** (1745 초 = Isaac 가동시간). `use_sim_time` 이 수집
-> 계층까지 전파됐다는 뜻이며, 벽시계였다면 에피소드 경계가 시뮬레이터 시간과 어긋나
-> 재생이 불가능해진다.
->
-> **`set_task_label` 은 `IN_EPISODE` 중에 거부된다** (`success=False, 'invalid
-> command'`). 에피소드를 시작하기 전에 설정해야 한다 — 위 기록에서 1번 에피소드에
-> 라벨이 없는 이유다.
->
-> **MP4 레코더는 이 경로에 관여하지 않는다.** `image_recorder` 는 서비스로 켜는
-> 별도 경로이고, 데이터셋의 MP4 는 `import` 가 rosbag 에서 만든다. 그래서
-> `auto_start:=false` 인 채로도 에피소드는 온전하다.
-
-> ## ✅ DB 적재 확인 — 2026-08-30
->
-> **적재 경로는 백엔드와 무관하므로 mock 스택으로 검증했다.** Isaac → rosbag 은 위
-> Phase 7 에서 이미 확인했고, 그 뒤 `import` 는 rosbag 만 읽는다. (WSL 재시작으로
-> `/tmp` 가 비워져 Isaac bag 이 소실됐고, 재기록보다 이쪽이 확실했다.)
->
-> DB 는 **Windows 쪽 PostgreSQL 16.10** 이며 WSL2 에서 `127.0.0.1:5432` 로 닿는다.
+> **실측 (2026-09-05)** — `rdfp_panda_isaac.launch.py` 로 **세션 → `/scene/reset` →
+> 에피소드 → 집기 → rosbag → mp4 → DB 적재**를 통과시켰다. 집기는 `is_check_phase6.py`
+> 를 그대로 썼다 — 이미 검증된 실제 조작이라 에피소드 안에서 팔·그리퍼·scene 이 모두
+> 움직인다.
 >
 > ```
-> init-db      12개 테이블 생성
-> import       에피소드 3개, 경고 0
->              joint_states 4929 / pose_stampeds 2455 / scene_objects 99
->              image_streams 3 / image_frames 456 / mp4 3개
->
->  id  label            dur  strm frames joints poses scene
->   1  mock_db_ingest  33.3     1    298   3237  1614    65
->   2  mock_db_ingest  10.8     1    101   1078   539    21
->   3  mock_db_ingest   7.0     1     57    614   302    13
->
-> 무결성    고아 행 0, image_streams.frame_count = 실제 image_frames 수
-> MP4       h264 960x540, 프레임 수가 DB 와 일치 (298/101/57)
-> 재적재    skipped=3, inserted 전부 0  (on_existing_episode: skip)
-> stats/list 두 CLI 모두 같은 값을 보고
+> rosbag   331 MB, metadata.yaml 정상, split 1개 / 토픽 8개
+>            /joint_states           4298   53.8 Hz
+>            /target_joint_cmds      2004   51.5 Hz
+>            /ee_pose                3718   44.9 Hz
+>            /gripper_states          732    9.0 Hz
+>            /isaac/camera/image_raw  372    4.5 Hz
+>            /scene/objects           148    1.8 Hz
+>            /session                   5
+>            /gripper_cmds              1
+> scene    /scene/reset applied_count=1, 블록이 지정 좌표로
+> import   에피소드 1건 · joint_states 2174 · pose_stampeds 968
+>            gripper_states 193 · image_frames 96 · mp4 1 · warnings 0
+> DB       success=t, metadata 보존, 길이 19.3 sim-초
 > ```
 >
-> **`target_joint_states` 가 0 행인데 이것은 정상이다.** bag 안 `/target_joint_cmds`
-> 자체가 0건이다 — mock 의 JTC 경로는 MoveIt **액션**으로 실행하므로
-> `/panda_arm_controller/joint_trajectory` 토픽에 아무것도 흐르지 않고,
-> `target_joint_cmds_publisher` 는 변환할 입력이 없다.
+> **`/target_joint_cmds` 가 51 Hz 조밀한 스트림으로 담겼다.** action 채널을 계획
+> (`joint_trajectory`)이 아니라 `TopicBasedSystem` 이 내는 보간값에서 뽑기로 한 결정
+> (§8 Q16)의 실측 확인이다. mock 의 JTC 경로에서는 이 토픽이 **0 건**이다 — MoveIt
+> 액션이 컨트롤러 안에서 끝나 토픽에 아무것도 흐르지 않기 때문이다. 즉 **action 채널이
+> 채워지는지는 백엔드가 결정한다.**
 >
-> **Isaac 은 다르다.** 명령 스트리밍이라 토픽에 실제로 흐르고, Phase 7 에서
-> `/target_joint_cmds` 277건 = `/isaac/arm_command` 277건으로 1:1 확인했다. 즉
-> **action 채널이 채워지는지는 백엔드가 결정한다** — MoveIt 액션으로 움직인 구간은
-> 데이터셋에 명령값이 남지 않는다.
+> **타임스탬프가 sim time 이다.** `use_sim_time` 이 수집 계층까지 전파됐다는 뜻이며,
+> 벽시계였다면 에피소드 경계가 시뮬레이터 시간과 어긋나 재생이 불가능해진다.
+> 관련 함정: **`header.stamp` 을 안 채운 메시지는 rosbag 에는 남고 데이터셋에는
+> 안 들어간다** — 적재가 그 값으로 에피소드 창을 거르므로 시각 0 은 창 밖이다.
+>
+> **녹화 토픽 목록은 백엔드마다 다르다.** `config/recording_topics.list` 는 mock 기준
+> (`/camera/image_raw`)이라 Isaac 에 그대로 쓰면 **이미지가 한 장도 안 담긴다** —
+> rosbag2 는 없는 토픽을 조용히 건너뛰고, mp4 레코더는 launch 가 remap 해 주므로 증상이
+> "mp4 는 있는데 rosbag 에 이미지가 없다"로만 보인다. `config/recording_topics_isaac.list`
+> 를 `RECORDING_TOPICS_FILE` 로 고른다. `dataset_config.yaml` 의 `topics_file` 도 같은
+> 파일을 가리켜야 한다.
+>
+> **`set_task_label` 은 `IN_EPISODE` 중에 거부된다** — 에피소드를 시작하기 **전에**
+> 설정해야 한다. 놓치면 라벨이 빈 문자열인 채로 기록되고, **재적재로는 못 고친다.**
 
 ### Phase 8 — 테스트와 토폴로지 계약
 
@@ -739,29 +481,32 @@ Phase 0~7 의 검증은 전부 **수동 체크 스크립트**였다. 사람이 I
 | 대상 | 새로 만든 노드 3종 + Isaac 쪽 스크립트 9개의 경로 계약 |
 | 검증 | `colcon test --packages-select robot_control` (Isaac 불필요) |
 
-> ## ✅ Phase 8 완료 — 2026-08-30
+> **실측 (2026-09-05)** — `robot_control` **289건 수집 / 288 통과 · 1 skip · 실패 0**.
+> (참고: `robot_twin` 235 · `rdfp` 402 — 워크스페이스 합 **926**.)
 >
-> `robot_control` **146 → 226 테스트** (+80).
->
-> | 새 스위트 | 수 | 무엇을 지키나 |
+> | Isaac 관련 스위트 | 수 | 무엇을 지키나 |
 > |---|--:|---|
-> | `isaac/tests/test_scene_state_node.py` | 10 | TF→SceneObject, 쿼터니언 무변환, 누락 물체 |
-> | `isaac/tests/test_gripper_action_bridge_node.py` | 9 | **stalled 판정**, 목표 재발행 |
-> | `tests/test_isaac_sim_side_scripts.py` | 47 | 배포 구성 A~D 의 경로 해석 |
+> | `isaac/tests/test_scene_state_node.py` | **24** | TF→SceneObject, 쿼터니언 무변환, 누락 물체 |
+> | `isaac/tests/test_servo_command_bridge_node.py` | **19** | 배열 순서·stamp·NaN 방어 |
+> | `tests/test_isaac_sim_side_scripts.py` | **57** | 어느 배포에서도 통하는 경로 해석 |
+> | (`isaac/tests` 합계 43 · `tests` 합계 163) | | |
+>
+> **지금 환경에서는 `-p no:anyio` 가 필요하다.** pytest 6.2.5 에 `anyio` 플러그인이
+> `from _pytest.scope import Scope` 를 하는데 그 모듈이 없어, **수집이 시작되기도 전에**
+> `ModuleNotFoundError` 로 죽는다. 테스트가 깨진 것처럼 보이지만 한 건도 안 돌았다.
 >
 > **테스트가 실제 버그를 하나 잡았다.** 두 노드의 경고 스로틀이
 > `now - _logged.get(key, 0.0) >= interval` 형태라 **`now < interval` 인 동안 첫
 > 경고를 삼킨다.** Isaac 은 Stop 마다 sim time 이 0 으로 되돌아가므로 기동 직후
 > 5 초가 정확히 그 구간이고, 하필 "TF 가 안 온다"를 가장 보고 싶은 때다. 기본값을
-> `-inf` 로 바꿔 첫 번째는 반드시 남게 했다 (`isaac_scene_state_node`,
-> `isaac/scene_state_node`).
+> `-inf` 로 바꿔 첫 번째는 반드시 남게 했다.
 >
 > **대역을 만들다 배운 것 둘.**
 >
 > `_execute` 의 루프 조건이 `rclpy.ok()` 인데, `rclpy.init()` 을 부르지 않은
 > 프로세스에서는 False 다. 그러면 루프가 한 번도 안 돌아 **어떤 목표를 줘도
 > `reached_goal=False`** 가 나오고, 테스트는 통과하는 것처럼 보이면서 아무것도
-> 검증하지 않는다. DDS 를 띄우지 않으려고 그 지점만 대체한다.
+> 검증하지 않는다.
 >
 > `os.name` 을 전역으로 바꾸면 안 된다. `pathlib` 이 그 값으로 구현을 고르므로
 > `Path()` 가 `WindowsPath` 를 만들려다 예외를 내고, 그 예외가 pytest 리포터 안에서
@@ -784,227 +529,290 @@ Phase 0~7 의 검증은 전부 **수동 체크 스크립트**였다. 사람이 I
 | | |
 |---|---|
 | Isaac 쪽 | 없음 |
-| 우리 쪽 | `moveit.arm_command_*` 설정 3종, `config/robot_twin_panda_isaac.yaml` |
+| 우리 쪽 | `config/robot_twin_panda_isaac.yaml` — `move_group_mode: jtc` 하나로 끝난다. 명령 채널을 안 준다 |
 | 검증 | 트윈을 띄우고 REST 로 팔·그리퍼·세션을 실제로 움직인다 |
 
-**명령 채널을 설정으로 뚫는 것이 핵심이다.** `runtime.py` 가
-`create_move_group_client(node, mode=mode)` 만 부르고 있어 Isaac 의
-`/isaac/arm_command`(JointState) 대신 `/panda_arm_controller/commands`
-(Float64MultiArray)로 나갔다. **토픽 remap 으로는 못 고친다 — 메시지 타입이 다르다.**
+**명령 채널을 설정으로 뚫는 길이 이 단계에서 생겼다.** `runtime.py` 가
+`create_move_group_client(node, mode=mode)` 만 부르고 있어, 시뮬레이터가 직접
+`JointState` 를 받는 백엔드로는 내보낼 방법이 없었다 — **토픽 remap 으로는 못 고친다.
+메시지 타입이 다르다.**
 
-설정에 짝 검사를 넣었다. `jtc` 에 이 키들을 주면 거부하고(그 모드는 보지 않으므로
+그래서 설정에 짝 검사를 넣었다. `jtc` 에 이 키들을 주면 거부하고(그 모드는 보지 않으므로
 조용히 무시되는 키가 생긴다), `joint_state` 형식에 `arm_command_joint_names` 가
 없으면 거부한다(조회할 컨트롤러가 없어 첫 스트리밍에서 멈춘다).
 
-> ## ✅ Phase 9 완료 — 2026-08-30
->
-> `robot_twin_panda_isaac.yaml` 로 트윈을 띄워 REST 로 실제 제어를 확인했다.
+> **Isaac 은 그 키를 쓰지 않는다** — JTC 라 MoveGroup/ExecuteTrajectory 액션으로
+> 실행된다. 짝 검사 자체는 그대로 유효하다
+> ([`config.py`](../../src/robot_twin/robot_twin/config.py) 의 `_check_arm_command`) —
+> `jgpc` 를 쓰는 펑션베이·`panda_jgpc_mock` 설정이 그 검사를 탄다. 지금은 **Isaac yaml
+> 에 그 키가 생기면 거부되는 것**이 안전장치다.
+
+> **실측 (2026-09-05)** — 트윈 REST 로 **집기 전 과정**이 돌았다.
 >
 > ```
-> /health      move_group=READY  mode=jgpc
->              arm_command={topic:/isaac/arm_command, format:joint_state, joints:[7]}
-> 변수         joint_states / ee_pose / scene_objects / session_state 모두 OK
->              stamp 이 sim time (sec 3301)
-> move_to_joints          panda_joint1  0.000 -> +0.400  (나머지 6축 유지)
-> move_to_named_target    ready 복귀 COMPLETED
-> move_gripper_to_target  close 0.0017 / open 0.0383  (reached_goal=true)
-> 세션 4종     start_session -> start_episode -> stop_episode -> stop_session 전부 COMPLETED
+> open -> move_linear -> grasp -> lift    전부 COMPLETED
+>                                          블록이 +122 mm 따라 올라옴
+> move_gripper_to_target grasp             통과 (빈손이면 FAILED/TIMEOUT 으로 갈린다)
+> 배포 설정 계약 (Isaac 없이 검사)          14건 통과
+>   move_group_mode: jtc · 명령 채널 없음 · use_sim_time: true
+>   오퍼레이션 목록이 mock 과 동일 (reset_scene 포함)
 > ```
 >
-> **여기서 제어 계층의 버그를 하나 찾았다.** `plan_joints_async` 가
-> `externally_spun` 을 **받지도 넘기지도 않아서**, executor 가 다른 스레드에서 노드를
-> 돌리는 트윈에서는 `_complete_joint_values` 가 노드를 직접 spin 하려다 영원히
-> 멈췄다. 콜백은 executor 쪽으로 가므로 여기서는 영영 오지 않는다 — **예외도
-> 타임아웃도 없이 오퍼레이션이 RUNNING 인 채로 남는다.** 인자를 추가하고
-> `move_to_joints_streamed_async` 에서 전달하게 고쳤다
-> (`moveit/tests/test_externally_spun_propagation.py` 5건).
+> **`move_gripper_to_target grasp` 이 통과하는 것이 이 백엔드의 특징이다** — mock 에서는
+> 타임아웃한다. mock 은 손가락에 effort state interface 가 없어 `stalled` 을 판정할 수
+> 없고, `grasp` 의 `at_goal` 이 영영 서지 않기 때문이다.
 >
-> `plan_named_target_async` 는 같은 문제가 없다 — 관절값을 콜백 체인으로 얻으므로
-> 애초에 spin 하지 않는다. 그래서 `move_to_named_target` 만 먼저 동작해 원인이
-> 더 헷갈렸다.
+> **트윈 설정이 비어 있는 것이 계약이다.** `arm_command_*` 에 값이 생기면 누군가 옛
+> bridge 설정을 되살린 것이므로, 짝 검사가 그 조합(`jtc` + 명령 채널)을 **설정 로드에서
+> `ValidationError` 로 거부한다** — 조용히 어긋나지 않고 기동 자체가 실패한다.
+>
+> **여기서 제어 계층의 버그를 하나 찾았다.** `plan_joints_async` 가 `externally_spun`
+> 을 **받지도 넘기지도 않아서**, executor 가 다른 스레드에서 노드를 돌리는 트윈에서는
+> `_complete_joint_values` 가 노드를 직접 spin 하려다 영원히 멈췄다. 콜백은 executor
+> 쪽으로 가므로 여기서는 영영 오지 않는다 — **예외도 타임아웃도 없이 오퍼레이션이
+> RUNNING 인 채로 남는다.** `plan_named_target_async` 는 관절값을 콜백 체인으로 얻어
+> 애초에 spin 하지 않으므로 멀쩡했고, 그래서 `move_to_named_target` 만 먼저 동작해
+> 원인이 더 헷갈렸다. 회귀는 `moveit/tests/test_externally_spun_propagation.py` 5건
+> (2026-09-05 통과 확인).
 >
 > **트윈은 시작 자세 충돌에서 스스로 빠져나올 수 없다.** 모든 팔 오퍼레이션이 MoveIt
-> 계획을 거치는데, 시작 자세가 충돌이면 계획 자체가 거부된다(§7 시작 자세). 실제로
-> 첫 시도가 그렇게 막혔다(손가락이 `block_a` 를 물고 있었다). 계획을 거치지 않는
-> 복구 경로가 필요해 `scripts/isaac/is_recover.py` 를 만들었다.
->
-> **`reset_scene` 은 노출하지 않는다.** scene 물체가 USD 스테이지에 있어 고치려면
-> 시뮬레이터 안에서 스테이지를 써야 한다 — ROS 쪽 노드는 원리적으로 할 수 없고,
-> `isaac_scene_state_node` 가 `/scene/reset` 서비스를 열지조차 않는 이유다.
-> 남겨 두면 결과 토픽을 기다리다 타임아웃할 뿐 구독자가 없다는 단서는 안 남는다.
->
-> ## ✅ 해소됨 — 2026-09-02
->
-> **전제가 바뀌었다.** Isaac 6.0 의 `isaacsim.ros2.sim_control` 확장이 표준
-> `simulation_interfaces` 서비스(`/set_entity_state` 등 19개)를 연다. ROS 쪽 노드가
-> 스테이지를 직접 못 쓰는 것은 여전히 맞지만, **Isaac 에게 부탁할 창구가 생겼다.**
-> `isaac_scene_state_node` 가 `/scene/reset` 을 열고 물체마다 `/set_entity_state` 를
-> 부른다 — 시뮬레이터 쪽에 상주 스크립트를 두지 않는다.
-> 상세는 [../scene/isaac_scene_reset.md](../scene/isaac_scene_reset.md).
->
-> `gripper_last_command_result` / `gripper_position` 은 `NO_DATA` 다. QoS 는
-> 일치하므로 불일치가 아니고, mock 설정에서도 같다 — Isaac 과 무관한 별개 항목이다.
-
-**곁가지로 드러난 것 — robot_twin 테스트가 통째로 안 돌고 있었다.** `test_api.py` 의
-모듈 최상단 `pytest.importorskip('httpx')` 가 이 조합(pytest 6.2.5 + 패키지 형태의
-tests 디렉터리)에서 **디렉터리 수집 자체를 끝내버려서**, 뒤따르는 열한 개 파일
-190여 개가 사라졌다. 결과가 `1 skipped` 한 줄뿐이라 **없어진 것을 아무도 눈치채지
-못한다.** import 를 직접 감싸고 `pytestmark` 로 건너뛰게 고쳤다.
+> 계획을 거치는데, 시작 자세가 충돌이면 계획 자체가 거부된다(§7 시작 자세). 계획을
+> 거치지 않는 복구 경로가 `scripts/isaac/is_recover.py` 다.
 
 ### Phase 10 — servo(twist) 경로
 
-**두 텔레오퍼레이션 경로가 모두 servo 로 수렴한다.** 그래서 이 다리가 없으면 Isaac 을
+**두 텔레오퍼레이션 경로가 모두 servo 로 수렴한다.** 그래서 이 경로가 막히면 Isaac 을
 손으로 몰 수 없고, 손으로 못 몰면 파지 에피소드를 모을 수 없다 — 이 프로젝트의 목적이
 바로 그것이므로 Q3 은 "있으면 좋은 것"이 아니었다.
 
 ```
 teleop_keyboard  -> delta_twist_cmds ─┐
-teleop_retarget  -> ee_twist_node ────┴─> servo -> [다리] -> /isaac/arm_command
+teleop_retarget  -> ee_twist_node ────┴─> servo -> JTC -> /isaac/arm_command
 ```
 
 | | |
 |---|---|
 | Isaac 쪽 | **없음** |
-| 우리 쪽 | `isaac/servo_command_bridge_node.py`, `panda_isaac.launch.py` 의 `enable_servo` |
-| 검증 | `isaac/tests/test_servo_command_bridge_node.py` (14건) |
+| 우리 쪽 | **없음** — servo 가 기본 경로(`JointTrajectory` → `panda_arm_controller`)로 나가고 `TopicBasedSystem` 이 그 뒤를 잇는다. `panda_isaac.launch.py` 의 `enable_servo` 로 `servo_node` · `servo_auto_start` 둘만 띄운다 |
+| 검증 | `enable_servo` 기동 검사. servo 파라미터 오버라이드가 없으므로 launch 쪽 회귀 대상도 없다 |
 
-**타입이 맞지 않아 remap 으로는 못 잇는다.** servo 의 `command_out_type` 은
-`trajectory_msgs/JointTrajectory` 아니면 `std_msgs/Float64MultiArray` 둘뿐이고,
-Isaac 의 ROS2 브리지는 `ROS2SubscribeJointState` 만 제공한다. 양쪽 어느 쪽도 상대
-타입을 낼 수 없으므로 변환 노드가 하나 필요하다.
+**변환 노드가 필요 없어진 것이 ros2_control 을 얹어 얻은 것 중 하나다.** 그 전에는
+servo 의 출력 타입(`JointTrajectory` / `Float64MultiArray`)과 Isaac 의 입력
+(`ROS2SubscribeJointState`)이 어느 쪽도 상대를 못 내서 `servo_command_bridge` 를
+끼워야 했다. 그 노드는 [펑션베이 전용으로 남았고](../../src/robot_control/robot_control/isaac/servo_command_bridge_node.py),
+`publish_joint_velocities: false` 같은 servo 파라미터 오버라이드도 그쪽으로 옮겨 갔다.
 
-`Float64MultiArray` 를 고른 이유는 JGPC mock 과 같다. `JointTrajectory` 를 쓰면
-컨트롤러가 없는 스택에서 `/panda_arm_controller/joint_trajectory` 라는 이름을 쓰게
-되어 **없는 것을 있는 것처럼** 보이게 만든다. 중간 토픽은 `/isaac/servo_command` 다.
-
-> ## 🔶 Phase 10 구현 완료 · **실기 미검증** — 2026-08-30
+> ## 🔶 Phase 10 — **오늘(2026-09-05) 실기 실측이 없다**
 >
-> `enable_servo:=true` 로 세 노드가 함께 뜬다 — `servo_node` ·
-> `servo_auto_start` · `servo_command_bridge`. launch 정적 검사로 확인했다.
+> **servo 를 태운 실행이 오늘 없었다** — 수집 실행의 집기는 MoveIt 카테시안이고 검사
+> 7종에도 servo 항목이 없다. 아래 수치는 전부 **2026-08-30**, 그것도 servo 출력이
+> 다리 노드를 거치던 시절 것이다. 지금은 JTC 로 직행하므로 **NaN 방어가 어디에도
+> 없다** (§8 Q20, §7).
 >
-> ```
-> moveit_servo   / servo_node_main
-> robot_control  / servo_auto_start_node
-> robot_control  / isaac_servo_bridge
->                    remap commands    -> /isaac/servo_command
->                    remap arm_command -> /isaac/arm_command
-> enable_servo=false -> 기동 0/3      true -> 기동 3/3
-> ```
->
-> **`publish_joint_velocities: false` 는 선택이 아니다.** `command_out_type` 이
-> Float64MultiArray 인데 positions 와 velocities 를 모두 발행하도록 두면 servo 의
-> 파라미터 검증이 실패해 **노드가 아예 기동하지 못한다.** 증상은 "팔이 안 움직인다"
-> 하나뿐이라 원인이 보이지 않는다. 오버라이드를 `override_servo_params_for_isaac()`
-> 로 빼서 회귀 검사를 걸었다.
->
-> **길이 불일치는 자르지 않고 버린다.** `Float64MultiArray` 에는 이름이 없고 배열
-> 순서가 곧 관절 순서다. 잘라 쓰면 순서가 밀린 채 팔이 움직이는데, 크래시가 아니라
-> '그럴듯하게 틀린 자세'로 나타난다. 조회할 컨트롤러가 없으므로 `joint_names` 는
-> **필수 파라미터**이며, 비면 기동 단계에서 실패한다.
->
-> **실기 확인 (2026-08-30, Isaac Play 중)** — twist 가 Isaac 까지 도달한다.
->
-> ```
-> /servo_node/delta_twist_cmds (+z)
->   -> /isaac/servo_command   132건 (Float64MultiArray, 길이 7)
->   -> /isaac/arm_command     132건 (JointState, panda_joint1~7)   ← 1:1, 손실 없음
->   -> EE z  0.5901 -> 0.6097  (+0.0196 m)
-> ```
+> **구성만 오늘 확인했다 (정적).** `enable_servo` 기본 `true` 로 `servo_node` +
+> `servo_auto_start` **둘만** 뜨고 다리 노드가 없다. servo 파라미터는
+> `build_servo_params()` 그대로다 — `panda_mock` 과 같고, 재정의가 필요한
+> `panda_functionbay` / `panda_jgpc_mock` 과 갈리는 지점이다.
 >
 > **입력은 m/s 가 아니다.** `command_in_type: unitless` 이고 `scale.linear: 0.4`,
 > `publish_period: 0.034` 이다. 즉 `linear.z = 0.05` 는 0.02 m/s 를 뜻한다 —
 > 처음에 m/s 로 읽어 "명령보다 훨씬 덜 움직인다"고 오독했다.
-
-**scene 을 켜도 정상이다.** 매 시행 전에 `ready` 로 되돌리고 planning scene 내용만 바꿔
-비교하면 `diff 없음 / 빈 diff / table / table+블록3` 넷이 모두 `NO_WARNING` 이고
-이동량도 같다(0.18~0.20 m). 처음에는 scene 을 원인으로 지목했는데 **틀렸다** — 재기동
-과정에 자세 초기화가 섞여 든 것이었다(§7 servo 드리프트).
+>
+> **scene 을 켜도 정상이다.** 매 시행 전에 `ready` 로 되돌리고 planning scene 내용만 바꿔
+> 비교하면 `diff 없음 / 빈 diff / table / table+블록3` 넷이 모두 `NO_WARNING` 이고
+> 이동량도 같다(0.18~0.20 m). 처음에는 scene 을 원인으로 지목했는데 **틀렸다** — 재기동
+> 과정에 자세 초기화가 섞여 든 것이었다(§7 servo 드리프트).
 
 | 항목 | 실측 | 상태 |
 |---|---|---|
 | 2초 구간 추종 배율 | 기대 대비 0.46~0.49 (scene on/off 무관) | 필터 램프업 + 개루프 지연이 후보. **분리 못 했다** |
 | 반복 주행 시 정지 | 누적 드리프트 | §7 servo 드리프트. 세션 사이 `is_recover.py` |
-| NaN 출력 | 7축 전부 NaN, status 는 `NO_WARNING` | **원인 규명·대응 완료** — §7 servo NaN |
+| NaN 출력 | 7축 전부 NaN, status 는 `NO_WARNING` | **닫힘 (2026-09-05).** 사슬에 필터는 없지만 **Isaac 이 흡수하고 스스로 복구한다** — §8 Q20 |
 | `ready` 에서 `DECEL_COLLISION` | 팔이 탁자와 실제 충돌한 뒤 발생 | **미규명.** `/check_state_validity` 는 충돌 없음으로 본다 |
 | `teleop_keyboard` 실주행 | — | **미검증** (지금까지는 raw twist 로만 확인) |
 
+
+### Phase 11 — ros2_control 연동 — **실측 완료 (2026-09-05)**
+
+`topic_based_ros2_control/TopicBasedSystem` 으로 `controller_manager` 를 ROS 쪽에서 돌린다.
+launch 는 `panda_isaac.launch.py`, 시뮬레이터는 `run_isaac_sim.sh --gui` (또는 `--headless`).
+
+**다리 노드도 servo 파라미터 재정의도 없다.** servo 는 기본 경로
+(`JointTrajectory` → `/panda_arm_controller/joint_trajectory`)로 나가고, 그리퍼는
+`panda_hand_controller` 가 받는다.
+
+#### 토픽 — Isaac 의 관절 상태는 비켜선다
+
+| 채널 | 토픽 |
+|---|---|
+| Isaac 의 관절 상태 | **`/isaac_joint_states`** |
+| `/joint_states` | `joint_state_broadcaster` 가 낸다 |
+| 팔 명령 | `/isaac/arm_command` |
+| 그리퍼 명령 | `/isaac/gripper_command` |
+
+**Isaac 의 관절 상태를 `/joint_states` 에 그대로 두면 `TopicBasedSystem` 이 자기 출력을
+되읽는 고리가 생긴다.** 명령 토픽을 팔·손으로 나눌 수 있는 것은 xacro 의
+`<ros2_control>` 이 둘로 갈려 있어 시스템마다 `joint_commands_topic` 을 따로 주기
+때문이다.
+
+연동 방식이 하나뿐이므로 고를 것이 없다 — `setup_graph.py` 와 `is_backend.py` 가 같은
+토픽 이름을 못박는다.
+
+#### 실측 (Isaac 6.0.1 · RTX 4000 Ada · headless)
+
+| 항목 | 값 |
+|---|---|
+| 컨트롤러 | `joint_state_broadcaster` · `panda_arm_controller`(**JTC**) · `panda_hand_controller`(GripperActionController) 전부 active |
+| 정착 오차 | 최악 **0.0003 rad** (`ready`) / 0.0001 rad (stretch) |
+| 카테시안 접근 | 오차 **0.2 mm**, 손 기울기 0.0° |
+| 손가락 effort | `TopicBasedSystem` 이 그대로 넘긴다 (파지 시 **22.4 N·m**) |
+| 트윈 REST | `open → move_linear → grasp → lift` 전 과정 COMPLETED, 블록이 **+122 mm 따라 올라옴** |
+| `move_gripper_to_target grasp` | **통과** — mock 에서 타임아웃하던 그 연산이다. 빈손은 `FAILED/TIMEOUT` 으로 갈린다 |
+| 검사 | **7종 전부 통과** — phase0 5/5 · phase1 5/5 · phase2 6/6 · phase3 5/5 · phase4 6/6 · phase6 6/6 · `is_recover` 복구 완료 (런북 회귀 실행) |
+
+#### ros2_control 을 얹는 대가 — 실측 (2026-09-05)
+
+**공짜가 아니다.** 같은 머신·같은 씬에서, `controller_manager` **없이** 토픽만으로 잇던
+구성을 대조군으로 잰 값이다.
+
+| | Isaac 단독 | + CM 없는 스택 | + 지금 스택 |
+|---|---|---|---|
+| `/clock` 배속 | 0.989 | **0.989** | **0.937** |
+| load average | 2.5 | 2.5 | **8.4** |
+| dead time (`phase1`) | — | **30 ms** | **131 ms** |
+| τ (`phase1`) | — | 35.3 ms | 35.8 ms |
+
+`controller_manager` 의 실시간 루프 + JTC 가 **배속 −5% · load 3배 · dead time +100 ms**
+를 얹는다. τ 는 사실상 같으므로 **추종 정확도가 아니라 지연과 부하가 대가다.**
+그래도 정착 오차는 지금 쪽이 더 좋았다(`ready` 에서 0.0000 vs 0.0003 rad).
+
+**부하의 출처는 Isaac 이 아니라 ROS 쪽이다** — 씬도 물리 계산량도 같은데 스택이 CPU 를
+가져간다. 대조군이 load 2.5 로 배속을 전혀 안 깎는 것이 그 근거다.
+
+#### 수집 전 과정 — 통과 (2026-09-05)
+
+`rdfp_panda_isaac.launch.py` 로 **세션 → `/scene/reset` → 에피소드 → 집기 → rosbag →
+mp4 → DB 적재**가 한 번에 통과했다. **수치와 함정은 Phase 7 실측에 있다** — 수집 계층
+연동이 그쪽 주제다.
+
+**검사는 계약 계층에 있다.** `phase6` 를 옮긴 근거는 삭제 직전 두 방식에서 나란히 돌려
+**같은 값이 나온 것**이다 — 열림 0.0700 / 물림 0.0448 / 들어올림 +0.0999 vs +0.0998 /
+낙하 0.0000. 검사가 보는 것이 연동 방식이 아니라 물리 결과라는 뜻이고, 그것이 §0 D1″ 에서
+연동 방식을 하나로 줄인 근거이기도 하다.
+
+> `phase0` 의 「계획」 항목이 **간헐적으로** `/move_group/get_parameters` 30 초
+> 타임아웃을 낸다. 재실행하면 통과하고, `is_probe_srdf.py` 로 재 보면 SRDF(9,314 B)
+> 조회는 네 조건 모두 1 초 안에 응답한다 — 스택 기동 직후 DDS 디스커버리가 덜 앉은
+> 상태로 보인다. **연동 방식과 무관하며 예전부터 있던 것이다.**
+
+**한때 미달이던 셋은 전부 해소됐다 — 셋 다 로봇이 아니라 검사 쪽 문제였다.**
+
+| 항목 | 무엇이었나 | 어떻게 닫혔나 |
+|---|---|---|
+| `phase0` 배속 0.872 | 부하 (load average 7.7 에 Isaac + MoveIt + 검사가 함께 돌았다) | 조용한 재실행에서 **0.9355** (허용 0.90~1.10). 다만 부하와 단조롭지 않은 점은 §8 Q19 로 남았다 |
+| `phase1` τ 52.6 ms | **측정 하한이 기준과 같았다** — `MIN_REACH_SEC` 50 ms + 2.6 ms | 상수를 10 ms 로 (§8 Q13) → **35.5 ms** |
+| `phase6` 물림 | **검사가 틀린 계층을 때렸다** — `gripper_cmd` 액션은 파지에서 완료되지 않는다 | `gripper_cmds`/`gripper_states` 계약 계층으로 이전 (§8 Q14) → **6/6** |
+
+---
 
 ## 3. 골격 구성
 
 ### 파일
 
 ```
-── ROS 쪽 (WSL2 / Ubuntu 스택) ────────────────────────────────────────────
-src/robot_control/launch/panda_isaac.launch.py            백엔드 launch (Phase 0~5)
+── ROS 쪽 스택 ────────────────────────────────────────────────────────────
+src/robot_control/launch/panda_isaac.launch.py            백엔드 launch
+src/rdfp/launch/rdfp_panda_isaac.launch.py                + 수집 계층
 src/robot_control/robot_control/isaac/
-    gripper_action_bridge_node.py                         액션 → 관절 토픽 (Phase 2)
-    scene_state_node.py                                   Isaac TF → /scene/objects (Phase 3)
-src/robot_control/robot_control/scene/
+    scene_state_node.py                                   Isaac TF → /scene/objects, /scene/reset
+    servo_command_bridge_node.py                          Float64MultiArray → JointState
+                                                          (**Isaac 은 안 쓴다** — 펑션베이 전용, §2 #12)
+    tests/                                                scene_state 24 · servo_bridge 19
 src/robot_control/config/
     isaac_scene.json                                      **물체·카메라 단일 진실원본**
-    fastdds_wsl_bridge.xml                                DDS 전송 프로파일 (구성 A 전용)
+    fastdds_wsl_bridge.xml                                DDS 전송 프로파일 (Windows+WSL2 전용)
     panda_real_joint_limits.yaml                          실제 Franka 관절 한계 (Q6)
+src/robot_twin/config/robot_twin_panda_isaac.yaml         트윈 설정
+config/recording_topics_isaac.list                        녹화 토픽 (카메라만 mock 과 다르다)
 
 ── 검증 스크립트 (ROS 쪽) ──────────────────────────────────────────────────
+scripts/isaac/is_backend.py                               검사들이 공유하는 백엔드 계약
 scripts/isaac/is_check_phase0.py ~ is_check_phase6.py     단계별 수용 기준 (phase5 는 철회)
 scripts/isaac/is_recover.py                               충돌 자세 탈출 (계획 없이 ready 복귀)
 scripts/isaac/is_topics.py                                배관 진단 (자체시험 + 수신량)
 scripts/isaac/is_probe_srdf.py                            파라미터 서비스 2×2 진단
 
-── Isaac 쪽 (Script Editor 에서 실행) ──────────────────────────────────────
-scripts/isaac/sim_side/load_robot.py                      Franka 를 스테이지에 올린다 (멱등)
-scripts/isaac/sim_side/setup_graph.py                     OmniGraph 구성 (단계 누적)
-scripts/isaac/sim_side/setup_scene.py                     물체·카메라 생성 / 리셋
-scripts/isaac/sim_side/tune_drive.py                      팔 drive 게인 (멱등)
-scripts/isaac/sim_side/tune_grasp.py                      손가락 drive·손끝 마찰 (멱등)
-scripts/isaac/sim_side/place_robot.py                     panda_link0 을 월드 원점으로 (멱등)
-scripts/isaac/sim_side/set_home_pose.py                   Play 시작 자세를 ready 로 (멱등)
+── Isaac 쪽 (sim_side) ─────────────────────────────────────────────────────
+scripts/isaac/sim_side/headless_bringup.py                아래 일곱을 순서대로 도는 진입점
+    load_robot.py                                         Franka 를 스테이지에 올린다 (멱등)
+    setup_scene.py                                        물체·카메라·조명 생성 / 리셋
+    setup_graph.py                                        OmniGraph 구성
+    place_robot.py                                        panda_link0 을 월드 원점으로 (멱등)
+    set_home_pose.py                                      Play 시작 자세를 ready 로 (멱등)
+    tune_drive.py                                         팔 drive 게인 (멱등)
+    tune_grasp.py                                         손가락 drive·손끝 마찰 (멱등)
 scripts/isaac/sim_side/check_colliders.py                 충돌·배치 진단 (읽기 전용)
-scripts/isaac/sim_side/verify_saved_scene.py              저장된 scene 검증
 scripts/isaac/sim_side/check_bridge.py                    Isaac 내부 토픽 가시성 진단
-scripts/isaac/sim_side/run_isaac_humble.bat               Windows 런처 (humble·프로파일 고정)
-
-docs/simulation/isaac_backend_skeleton.md                 이 문서
+scripts/isaac/sim_side/verify_saved_scene.py              저장된 scene 검증
+scripts/isaac/sim_side/run_isaac_humble.bat               Windows 런처 (humble 고정)
+scripts/run_isaac_sim.sh                                  Linux 런처 (--gui / --headless)
 ```
 
-`sim_side/` 아래만 **Isaac Sim 안에서** 돈다 — ROS 노드가 아니고, `colcon` 이 빌드하지도
-않는다. `.bat` 은 Windows 전용이며 `C:\isaacsim\` 에 **복사본**이 있다(원본을 고치면
-복사해야 한다).
-
-
-**Phase 0 에서 새로 만드는 Python 모듈은 없다.** 브리지 노드를 펑션베이 것으로
-그대로 쓰기 때문이다 (§4). `config/isaac_panda.yaml` 도 만들지 않는다 — 살아 있는
-소비자가 있는 키만 YAML 에 둔다는 원칙에 따라, launch 인자 기본값으로 충분한 동안은
-파일을 만들지 않는다.
+`sim_side/` 아래만 **Isaac Sim 안에서** 돈다 — ROS 노드가 아니고 `colcon` 이 빌드하지도
+않는다. **기본 경로는 `run_isaac_sim.sh --gui`** 이며 `headless_bringup.py` 가 일곱을
+자동으로 돈다. Script Editor 는 인자 없이(전체 편집기로) 띄웠을 때만 쓴다.
+`.bat` 은 Windows 전용이며 `C:\isaacsim\` 에 **복사본**이 있다(원본을 고치면 복사해야 한다).
 
 ### 토픽 계약
 
-| 방향 | 토픽 | 타입 | 단계 |
-|---|---|---|:-:|
-| Isaac → 스택 | `/clock` | `rosgraph_msgs/Clock` | 0 |
-| Isaac → 스택 | `/joint_states` | `sensor_msgs/JointState` | 0 |
-| 스택 → Isaac | `/isaac/arm_command` | `sensor_msgs/JointState` | 1 |
-| 스택 → Isaac | `/isaac/gripper_command` | `sensor_msgs/JointState` | 2 |
-| Isaac → 스택 | `/isaac/scene_poses` | 표준 타입 (TF or `PoseArray`) | 3 |
-| Isaac → 스택 | `/isaac/camera/image_raw` · `camera_info` | `sensor_msgs/Image` · `CameraInfo` | 4 |
+`setup_graph.py` 의 상수가 이 표를 정본으로 지목한다 — **여기를 고치면 코드도 함께 고친다.**
+
+| 방향 | 채널 | 타입 | 정하는 곳 |
+|---|---|---|---|
+| Isaac → 스택 | `/clock` | `rosgraph_msgs/Clock` | `setup_graph.CLOCK_TOPIC` |
+| Isaac → 스택 | **`/isaac_joint_states`** | `sensor_msgs/JointState` | `setup_graph.JOINT_STATE_TOPIC` ↔ xacro `joint_states_topic` |
+| 스택 → Isaac | `/isaac/arm_command` | `sensor_msgs/JointState` | `setup_graph.ARM_COMMAND_TOPIC` ↔ xacro `isaac_arm_command_topic` |
+| 스택 → Isaac | `/isaac/gripper_command` | `sensor_msgs/JointState` | `setup_graph.GRIPPER_COMMAND_TOPIC` ↔ xacro `isaac_gripper_command_topic` |
+| Isaac → 스택 | **`/tf`** (물체 프레임) | `tf2_msgs/TFMessage` | `setup_graph` 의 `PublishSceneTF` |
+| Isaac → 스택 | `/isaac/camera/image_raw` · `camera_info` | `sensor_msgs/Image` · `CameraInfo` | `isaac_scene.json` 의 `camera` |
+| 스택 → Isaac | `/set_entity_state` (**서비스**) | `simulation_interfaces/srv` | `isaac_scene_state_node` 가 `/scene/reset` 을 받아 호출 |
+
+**scene 은 전용 토픽이 아니라 `/tf` 로 온다.** `PoseArray` 대신 TF 를 고른 이유는 좌표
+변환·쿼터니언 규약을 tf2 가 대신하기 때문이다(Q2). `isaac_scene_state_node` 가 그것을
+`rdfp_msgs/SceneObjects` 로 바꿔 `/scene/objects` 에 싣는다 — 이름·종류·크기는 TF 에
+없으므로 `isaac_scene.json` 을 함께 읽는다.
 
 `/isaac/` 접두사는 **시뮬레이터 경계임을 이름으로 드러내기 위한 것**이다. 스택 내부
 토픽(`/joint_states`, `/scene/objects`)과 섞이면 어느 쪽이 원본인지 로그만 보고는
 알 수 없다. 펑션베이의 `/input`·`/output` 과 같은 의도다.
 
+> ⚠️ **관절 상태만 `/isaac_joint_states` 로 밑줄이다** — 규약대로면 `/isaac/joint_states`
+> 여야 한다. 상위 MoveIt 의 Panda xacro 가 `isaac` 분기 기본값으로 그 이름을 쓰고 있어
+> 따라간 것이다. 바꾸려면 xacro 인자와 `setup_graph` 를 같이 고쳐야 하며, 아직 안 했다.
+
 ### 기동 순서
 
 ```
-static_tf · robot_state_publisher · readiness_gate
-    └ readiness_gate 가 첫 /joint_states 를 받고 **정상 종료**
-         └ move_group · rviz · ee_pose
+static_transform_publisher · robot_state_publisher · readiness_gate
+    └ readiness_gate 가 첫 /isaac_joint_states 를 받고 **정상 종료**
+         └ ros2_control_node
+              └ joint_state_broadcaster
+                   └ panda_arm_controller (JTC)
+                        └ panda_hand_controller (GripperActionController)
+                             └ move_group · servo · rviz · ee_pose · gripper · scene · viewer
 ```
 
-**펑션베이와 달리 `joint_state_fusion` 이 없다** — Q1 이 Phase 0 실측으로 닫혔다(§8).
+**게이트가 `ros2_control_node` 보다 앞이다.** spawner 는 `controller_manager` 만 뜨면
+성공하므로 "Isaac 이 Play 중"을 보증하지 못한다. `use_sim_time` 이 켜진 채 `/clock` 이
+없으면 CM 의 update 루프가 시각 0 에 멈추고, **컨트롤러는 `active` 인데 아무것도 안
+움직이는** 상태가 된다(§7).
 
-spawner 가 없는 백엔드이므로 게이트 노드의 **종료 코드**를 기동 신호로 쓴다
-(`_chain_or_shutdown`). 실패 종료 시 launch 전체가 내려간다 — 시뮬레이터가 꺼져
-있는데 `move_group` 만 올라와 원인을 감추는 상황을 막는다.
+게이트가 실패 종료하면 `_chain_or_shutdown` 이 launch 전체를 내린다 — 시뮬레이터가 꺼져
+있는데 `move_group` 만 올라와 원인을 감추는 상황을 막는다. 그 뒤 spawner 사슬은
+`panda_mock` 과 같은 헬퍼(`create_controller_startup_handlers`)를 그대로 쓴다.
+
+**`joint_state_fusion` 이 없다** — Q1 이 Phase 0 실측으로 닫혔다(§8). `/joint_states` 는
+`joint_state_broadcaster` 가 소유한다.
 
 ---
 
@@ -1026,18 +834,25 @@ Phase 2 사이를 잇는 비계가 이미 있는 셈이다.
 > 이름을 바꾸지 않는 이유**는 펑션베이 작업이 중단 상태라 회귀를 확인할 사람이
 > 없기 때문이다.
 
-`fb_hold.py` / `fb_probe.py` / `fb_recover.py` 도 토픽 상수만 바꿔 `scripts/isaac/`
-로 이식한다 (Phase 1).
+~~`fb_hold.py` / `fb_probe.py` / `fb_recover.py` 도 토픽 상수만 바꿔 이식한다~~
+→ **`is_recover.py` 만 만들었다.** hold/probe 의 역할은 `is_backend.ArmCommander` 가
+대신한다 — 계획 없이 관절 목표를 밀어 넣는 경로가 하나면 충분했다.
 
 ---
 
-## 5. 하드웨어 제약 — 이 PC (WSL2)
+## 5. 하드웨어
 
-| | 실측 | Isaac Sim 5.1 최소 사양 |
+| | **검증 머신** (기본 배포) | WSL2 머신 (§1 부록) |
 |---|---|---|
-| RAM (호스트) | 32 GB | **32 GB** |
-| RAM (WSL2 몫) | **15.4 GB** (기본 50%, `.wslconfig` 에 `memory=` 없음) | — |
-| GPU | **RTX 4060 / VRAM 8 GB** | **RTX 4080 / VRAM 16 GB** |
+| OS | Ubuntu 22.04.5 | Windows + WSL2 |
+| GPU | **RTX 4000 SFF Ada · VRAM 20 GB** | RTX 4060 · VRAM 8 GB |
+| RAM | 62 GB | 32 GB (WSL2 몫 15.4 GB 기본) |
+| CPU | 20 코어 | 28 코어 |
+
+**Phase 11 실측(§2)은 전부 왼쪽 머신에서 나왔다.** 아래 절은 오른쪽 머신 전용이며,
+현행 사양이 아니다.
+
+### WSL2 머신의 제약 (Isaac Sim 5.1 기준)
 
 **WSL2 를 그대로 두면 Isaac 이 최소 사양의 절반으로 돈다.** WSL2 는 한 번 잡은
 메모리를 자동 반환하지 않으므로(`autoMemoryReclaim` 미설정) 캡을 거는 것이 맞다.
@@ -1069,7 +884,7 @@ RViz 를 띄우면 WSLg 가 같은 8 GB 를 나눠 쓰므로, 이 PC 에서는 `
 
 ---
 
-## 6. 운용 절차
+## 6. 운용의 근거
 
 
 > **새 Windows 머신에 처음 구축하는 경우**는 [isaac_windows_setup.md](isaac_windows_setup.md)
@@ -1080,154 +895,63 @@ RViz 를 띄우면 WSLg 가 같은 8 GB 를 나눠 쓰므로, 이 PC 에서는 `
 OmniGraph 를 구성한다 — UI 절차는 버전마다 바뀌고 재현이 안 되지만 스크립트는
 저장소에 남는다.
 
-### 절차
+> **절차 자체는 [isaac_bringup_runbook.md](isaac_bringup_runbook.md) 에 있다.**
+> `./scripts/run_isaac_sim.sh --gui` 가 `headless_bringup.py` 를 통해 sim_side 스크립트
+> 일곱을 순서대로 돌린다 — 평소에는 Script Editor 를 쓰지 않는다. **이 절은 그 절차가
+> 왜 그 모양인지만 남긴다.**
 
-1. **Isaac 을 `run_isaac_humble.bat` 으로 띄운다.**
+### 일곱의 순서에는 이유가 있다
 
-   ```
-   C:\isaacsim\run_isaac_humble.bat
-   ```
+`load_robot` → `setup_scene` → `setup_graph` → `place_robot` → `set_home_pose` →
+`tune_drive` → `tune_grasp` ([`SIM_SIDE_SCRIPTS`](../../scripts/isaac/sim_side/headless_bringup.py)).
+**전부 멱등이라 여러 번 돌려도 같은 상태가 된다.**
 
-   원본은 `scripts/isaac/sim_side/run_isaac_humble.bat` 이고 `C:\isaacsim\` 에
-   복사해 둔다(UNC 경로에서는 cmd 가 작업 디렉터리를 잡지 못한다).
+| 순서 | 왜 그 자리인가 |
+|---|---|
+| `load_robot` 이 맨 앞 | 로봇이 없으면 `setup_graph` 가 articulation root 를 못 찾고 멈춘다 |
+| `setup_scene` 이 `setup_graph` 앞 | TF 발행 대상 prim 이 먼저 있어야 `targetPrims` 가 잡힌다 |
+| `place_robot` | ROS 쪽 static TF 가 `world → panda_link0` 를 **항등변환으로 못박는다.** 안 맞추면 에러 없이 모든 좌표가 그만큼 어긋난다(§7 로봇 배치) |
+| `set_home_pose` | 에셋 기본 자세는 손이 탁자 안이라, 그대로 Play 하면 MoveIt 이 시작 자세 충돌로 계획을 거부한다(§7 시작 자세) |
+| `tune_drive` · `tune_grasp` | 에셋 기본 게인은 τ 195.6 ms 로 느리고, 손끝 마찰이 없으면 블록이 미끄러진다. 값은 **절대값으로** 설정한다 |
 
-   **왜 필요한가** — 기본 런처 `isaac-sim.bat` 은 `setup_ros_env.bat` 을 호출하고,
-   거기에 이렇게 박혀 있다.
+**`tune_grasp` 는 `setup_scene` 을 다시 돌린 뒤에도 다시 돌릴 필요가 없다** — 로봇
+에셋을 만지므로 scene 재생성과 무관하다. 그래서 손끝 재질을 scene root(`/World/Scene`)
+가 아니라 `/World/GraspMaterials` 에 둔다. scene 안에 두면 `setup_scene.py` 가 root 를
+통째로 지울 때 **바인딩이 끊어진 재질을 가리키게** 된다.
 
-   ```bat
-   set DEFAULT_ROS_DISTRO=jazzy
-   if "%ROS_DISTRO%"=="" (
-       set ROS_DISTRO=%DEFAULT_ROS_DISTRO%
-       set "PATH=%PATH%;%BRIDGE_EXT_PATH%\%DEFAULT_ROS_DISTRO%\lib"
-   )
-   ```
+### Script Editor 에서는 스크립트를 **붙여넣지 않는다**
 
-   즉 Windows 기본은 **jazzy** 이고, Humble 인 우리 스택과 서로 보이지 않는다.
+전체 편집기로 띄웠을 때만 쓰는 경로다. 런북의 snippet 은 4줄짜리 로더이고, 그것이
+파일을 `exec` 한다 — **내용을 통째로 붙여넣지 않는 이유가 둘이다.** ① Windows 기본
+인코딩이 cp949 라 한글 주석이 깨진다. ② 붙여넣은 사본이 저장소보다 낡는다.
 
-   **함정** — `ROS_DISTRO=humble` 만 미리 넣고 띄우면 **더 나빠진다.** 위 `if` 블록이
-   통째로 건너뛰어져 `humble\lib` 이 PATH 에 붙지 않고, Isaac 은 "사용자가 ROS 를
-   source 했다"고 판단해(`internal_lib_fallback=False`) 시스템 ROS 2 DLL 을 찾다가
-   **크래시한다.** `--/exts/isaacsim.ros2.bridge/ros_distro=humble` 플래그도 소용없다 —
-   그 설정은 `ROS_DISTRO` 환경변수가 **없을 때만** 읽힌다.
+Windows 런처(`run_isaac_humble.bat`)가 왜 필요한지는
+[isaac_windows_setup.md](isaac_windows_setup.md) 에 있다 — 벤더 런처가 `jazzy` 를 기본으로
+넣기 때문이고, `ROS_DISTRO=humble` 만 미리 넣으면 **오히려 더 나빠진다.**
 
-   런처는 벤더 스크립트가 jazzy 에 하던 일(환경변수 + PATH)을 humble 로 재현한다.
-   벤더 파일은 고치지 않는다 — 재설치·업데이트로 되돌아간다.
+### 설정을 되읽어 확인한다
 
-   확인은 kit 로그에서 한다.
+`setup_graph.py` 는 `SET_VALUES`(`domain_id` · 두 `topicName`)를 설정한 뒤 **되읽어
+로그에 남긴다.** `og.Controller.edit` 이 속성 이름을 틀려도 조용히 넘어가는 경우가 있어,
+"설정한 줄 알았는데 기본값"인 상태를 눈으로 확인하기 위해서다. 로그는 파일로도 남는다
+(`/tmp/isaac_setup_graph.log`) — Script Editor 출력창은 복사가 되지 않는다.
 
-   ```bash
-   grep -h "internal rclpy for ROS Distro\|Failed to load system ROS 2" \
-     "/mnt/c/Users/$USER/.nvidia-omniverse/logs/Kit/Isaac-Sim Full/6.0/"*.log | tail -2
-   ```
 
-2. Isaac UI 에서 **Franka(Panda) 를 스테이지에 올린다** (asset browser).
-   스크립트가 로봇을 불러오지 않는 이유는 에셋 경로가 Isaac 버전마다 바뀌기
-   때문이다 — 대신 스테이지의 **articulation root 를 자동 탐색**한다.
+### 저장한 스테이지를 쓰지 않는다 — 매번 짓는다
 
-   > **드래그해 올린 로봇은 원점에 떨어지지 않는다.** ROS 쪽 static TF 가
-   > `world -> panda_link0` 를 항등변환으로 못박고 있으므로 반드시 맞춰야 한다.
-   > 다음 단계의 `place_robot.py` 가 그 일을 한다 — 안 맞추면 **에러 없이**
-   > 모든 좌표가 그만큼 어긋난다(§7 로봇 배치).
+**현행은 저장하지 않는 쪽이다.** `.usd` 로 저장하면 물체 이름·크기가 USD 와
+`isaac_scene.json` **두 곳**에 살게 되는데, JSON 은 `isaac_scene_state_node` 도 읽는
+정본이라 갈라지면 시뮬레이터와 ROS 가 다른 크기를 믿는다 — **에러 없이.** 매번
+스크립트로 짓는 편이 느려도 어긋나지 않는다(런북 §6, `headless_bringup.py` 머리말).
 
-3. `Window > Script Editor` 에서 **붙여넣지 말고 파일을 불러 실행한다.**
+> 저장을 시도한 이력이 §8 Q7 에 있고 `verify_saved_scene.py` 도 남아 있다. 그 스크립트는
+> **저장된 파일이 있을 때의 진단 도구**로 자리를 옮겼다.
 
-   ```python
-   path = "//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/rdfp_ws"
-   exec(open(path + "/scripts/isaac/sim_side/setup_graph.py", encoding="utf-8").read())
-   ```
-
-   붙여넣기를 피하는 이유는 둘이다 — 인코딩을 타고(Windows 기본 cp949 로 읽으면
-   한글 주석이 깨진다), 사본이 저장소보다 낡는다. 경로 구분자는 슬래시를 쓴다
-   (Windows 의 `open()` 이 UNC 경로에서도 받는다). 배포판 이름이 `Ubuntu` 가 아니라
-   **`Ubuntu-22.04`** 인 점에 주의한다 — `wsl -l -q` 로 확인한다.
-
-4. 실행 결과를 **WSL 에서 읽는다.** Script Editor 출력창은 복사가 되지 않으므로
-   스크립트가 같은 내용을 파일로도 남긴다.
-
-   ```bash
-   cat /tmp/isaac_setup_graph.log
-   ```
-
-   로그에는 kit 빌드 버전, 스테이지의 articulation 목록, 그리고 **SET_VALUES 를
-   되읽은 값**(`domain_id` · 두 `topicName`)이 들어 있다. 되읽기를 넣은 이유는
-   `og.Controller.edit` 이 속성 이름을 틀려도 조용히 넘어가는 경우가 있어, "설정한
-   줄 알았는데 기본값"인 상태를 눈으로 확인하기 위해서다.
-
-5. **로봇을 월드 원점에 맞춘다** (Stop 상태에서).
-
-   ```python
-   exec(open(path + "/scripts/isaac/sim_side/place_robot.py", encoding="utf-8").read())
-   ```
-
-   `panda_link0` 이 월드 원점에 오도록 articulation root 를 옮기고 **되읽어
-   확인한다.** 멱등이라 이미 원점이면 아무것도 하지 않는다. scene 을 저장해 두면
-   다음부터는 건너뛰어도 되지만, 에셋을 다시 올렸다면 반드시 돌린다.
-
-6. **시작 자세를 못박는다** (Stop 상태에서).
-
-   ```python
-   exec(open(path + "/scripts/isaac/sim_side/set_home_pose.py", encoding="utf-8").read())
-   ```
-
-   Play 를 누르는 순간의 관절값을 `ready` 로 만든다. 안 하면 에셋 기본 자세
-   (손목이 말린 자세)로 시작해 **손이 탁자 안에 들어간 채** 출발하고, 그 상태에서는
-   MoveIt 이 계획 자체를 거부한다(§7 시작 자세).
-
-7. **팔 관절 drive 를 튜닝한다** (Phase 1 이상, Stop 상태에서).
-
-   ```python
-   exec(open(path + "/scripts/isaac/sim_side/tune_drive.py", encoding="utf-8").read())
-   ```
-
-   에셋 기본값 `stiffness=400 / damping=80` 은 τ 195.6 ms 로 느리다. 스크립트가
-   `10000 / 400` 을 **절대값으로** 설정한다(멱등 — 여러 번 돌려도 같은 상태).
-   `DRY_RUN = True` 로 바꾸면 현재 값만 읽는다.
-
-   > **이 값은 스테이지에 있다.** USD 를 저장하지 않으면 scene 을 다시 열 때 기본값으로
-   > 돌아간다. 저장하거나, 열 때마다 이 스크립트를 다시 돌린다.
-
-8. **파지 준비를 한다** (Phase 6 이상, Stop 상태에서).
-
-   ```python
-   exec(open(path + "/scripts/isaac/sim_side/tune_grasp.py", encoding="utf-8").read())
-   ```
-
-   손가락 drive 게인과 **손끝 마찰 재질**을 설정한다. 목표값은 `isaac_scene.json` 의
-   `gripper` 블록이며, scene 물체의 마찰과 같은 파일에 있다 — 둘은 접촉면의 양쪽이라
-   따로 두면 어긋난다. `tune_drive.py` 와 마찬가지로 절대값이라 멱등이다.
-
-   `setup_scene.py` 를 다시 돌린 뒤에도 **이 스크립트는 다시 돌릴 필요가 없다** —
-   로봇 에셋을 만지므로 scene 재생성과 무관하다. 그래서 손끝 재질을 scene root
-   (`/World/Scene`) 가 아니라 `/World/GraspMaterials` 에 둔다. scene 안에 두면
-   `setup_scene.py` 가 root 를 통째로 지울 때 **바인딩이 끊어진 재질을 가리키게**
-   된다.
-
-9. **Play(▶) 를 누른다.** `OnPlaybackTick` 은 재생 중에만 tick 을 내므로 정지
-   상태에서는 토픽이 하나도 보이지 않는 것이 정상이다.
-
-### scene 을 저장해도 **`setup_graph.py` 는 매번 돌려야 한다**
-
-저장된 USD 에 그래프 prim 은 보존되지만 **ROS 2 bridge 확장의 활성화 상태는 저장되지
-않는다.** scene 만 열면 그래프 prim 은 있는데 노드 타입이 해석되지 않아 발행이 하나도
-없고, kit 로그에 `internal rclpy for ROS Distro` 줄조차 나오지 않는다. 확장을 켜는
-것이 `setup_graph.py` 의 첫 동작이기 때문이다.
-
-그래서 scene 을 여는 절차는 **항상** 이렇게 고정한다.
-
-```
-run_isaac_humble.bat → scene 열기 → setup_graph.py → Stop → Play
-```
-
-**`setup_scene.py` 는 물체가 저장된 scene 에서는 생략할 수 있다.** prim·물리 API·초기
-pose 는 전부 USD 에 담기기 때문이다. 다만 아래 두 경우에는 다시 돌린다.
-
-- **물체를 초기 위치로 되돌릴 때** — 에피소드를 반복할 때 쓰는 리셋 수단이다
-  (`root_prim` 을 통째로 지우고 다시 만든다).
-- **`isaac_scene.json` 을 고쳤을 때** — 물체를 추가하거나 크기를 바꾸면 scene 과 정의가
-  어긋난다. 이때는 `setup_graph.py` 도 함께 돌려야 한다 (`targetPrims` 가 바뀐다).
-
-> **저장은 Stop 상태에서 한다.** 재생 중에는 동적 물체가 움직인 자리가 그대로 굳을
-> 수 있다. Stop 하면 Isaac 이 시뮬레이션 이전 상태로 되돌리므로 그때 저장한다.
+**설령 저장하더라도 `setup_graph.py` 는 매번 돌려야 한다.** 저장된 USD 에 그래프 prim 은
+보존되지만 **ROS 2 bridge 확장의 활성화 상태는 저장되지 않는다.** scene 만 열면 그래프
+prim 은 있는데 노드 타입이 해석되지 않아 발행이 하나도 없고, kit 로그에
+`internal rclpy for ROS Distro` 줄조차 나오지 않는다. 확장을 켜는 것이 그 스크립트의 첫
+동작이기 때문이다.
 
 ### 정적 물체도 kinematic rigid body 로 만든다
 
@@ -1246,7 +970,7 @@ collider 만 있는 prim 은 PhysX 에서 제자리에 고정되지만 **TF 발�
 
 ```
 OnPlaybackTick ─┬─> ROS2PublishClock       → /clock
-                └─> ROS2PublishJointState  → /isaac/joint_states
+                └─> ROS2PublishJointState  → /isaac_joint_states
 IsaacReadSimulationTime ─> 두 노드의 timeStamp
 ROS2Context(domain_id=31) ─> 두 노드의 context
 ```
@@ -1265,7 +989,7 @@ WSL 에서 도는 `is_check_phase0.py` 는 리눅스 터미널이라 한글이 �
 | 설정 | 이유 |
 |---|---|
 | `useDomainIDEnvVar=False` + `domain_id=31` | Windows 에서 Isaac 을 GUI 로 띄우면 `ROS_DOMAIN_ID` 가 프로세스 환경에 없을 수 있다. 그러면 도메인 0 으로 붙어 **아무 에러 없이** 스택과 서로 보이지 않는다 |
-| `PublishJointState.topicName = /isaac/joint_states` | 기본값이 `joint_states` 라 그대로 두면 우리 fusion 노드의 출력과 **같은 토픽에 publisher 가 둘** 붙는다 |
+| `PublishJointState.topicName = /isaac_joint_states` | 기본값 `joint_states` 를 그대로 두면 `joint_state_broadcaster` 와 **같은 토픽에 publisher 가 둘** 붙고, `TopicBasedSystem` 이 자기 출력을 되읽는 고리가 생긴다. (fusion 노드가 이유이던 시절이 있으나 그 노드는 Q1 에서 제거됐다) |
 
 **Windows 에서는 Isaac 내장 ROS 2 라이브러리를 쓴다** (별도 ROS 2 설치 불필요).
 Ubuntu 머신에서는 워크스페이스를 source 한 상태로 실행해도 되지만, D2 에 따라 어느
@@ -1297,8 +1021,8 @@ Phase 0 은 **Isaac 재고 Franka 에셋으로 시작한다.** 설계 원칙은 
 | 기동 게이트가 **즉시** 또는 **영원히** 실패 | ROS 클럭으로 시간을 쟀다 | 기동 게이트 |
 | `TF_OLD_DATA` 경고 후 조회 실패 | Stop 이 sim time 을 0 으로 되돌렸다 | Stop/Play |
 | 팔이 목표에 못 미치는데 강성을 올려도 그대로 | **관절 한계 클램프** (처짐이 아니다) | 관절 한계 |
-| 그리퍼가 명령을 받는데 안 움직인다 | 손가락이 물체에 박혔다 | scene 물체는 MoveIt 에도 |
-| 계획은 되는데 시뮬레이터에서 막힌다 | MoveIt 이 scene 을 모른다 | scene 물체는 MoveIt 에도 |
+| 그리퍼가 명령을 받는데 안 움직인다 | 손가락이 탁자·물체에 박혔다 — **고치지 않는 비용** | 팔이 탁자를 뚫는다 |
+| 계획은 되는데 시뮬레이터에서 막힌다 | MoveIt 이 scene 을 모른다 — **의도된 것** (Q8) | 팔이 탁자를 뚫는다 |
 | `UnicodeDecodeError` 가 뜬다 | 진짜 원인을 cp949 가 가렸다 | 한국어 Windows |
 | 저장한 scene 이 비어 보인다 | `strings` 로는 USDC 를 못 읽는다 | 저장된 USD |
 | `PoseTree ... eInvalid` 가 60 Hz 로 쏟아진다 | 정적 물체에 RigidBody 가 없다 | §6 정적 물체 |
@@ -1308,6 +1032,10 @@ Phase 0 은 **Isaac 재고 Franka 에셋으로 시작한다.** 설계 원칙은 
 | 트윈 오퍼레이션이 `RUNNING` 인 채 안 끝난다 | `externally_spun` 미전달 | 외부 spin |
 | twist 를 보내는데 팔이 거의 안 움직인다 | 개루프 드리프트가 쌓였다 (scene 탓이 아니다) | servo 드리프트 |
 | 명령은 29 Hz 로 나가는데 팔이 **전혀** 안 움직인다 | servo 가 **NaN** 을 내보낸다 | servo NaN |
+| 파지 한 번 뒤 그리퍼가 명령을 **영영 무시**한다 | `gripper_action_node` 가 로거 예외로 죽었다 | 로거 severity |
+| 그리퍼 액션 결과를 기다리다 타임아웃한다 | 파지에서는 그 액션이 완료되지 않는다 | 파지 액션 |
+| 시뮬 **프로세스** 재시작 후 컨트롤러는 `active` 인데 TF 가 쏟아진다 | sim 시계 되감기 (plugin) | 시뮬레이터 재시작 |
+| 타임라인 Stop 중 토픽이 멎는다 | 정상이다 — Play 하면 복구된다 | 시뮬레이터 재시작 |
 | JSON 을 고쳤는데 ROS 쪽만 옛 값을 쓴다 | `src` 와 `install/share` 사본이 다르다 | 단일 출처 |
 | 문 블록이 손가락 사이로 미끄러진다 | 마찰 재질 미바인딩 (기본 0.5) | 마찰은 조용히 |
 
@@ -1519,36 +1247,46 @@ Isaac 을 Stop 하면 sim time 이 0 으로 리셋된다. 스택은 계속 떠 �
 > 실물에 없는 자세이므로 실패가 옳다. `is_check_phase0.py` 의 계획 검사는 `ready` 로
 > 바꾸고, SRDF 파싱은 named target **목록 조회**로 따로 확인한다.
 
-### scene 물체는 MoveIt 에도 알려야 한다 (Q8 결정)
+### 팔이 탁자를 뚫는다 — **고치지 않기로 했다** (Q8 최종)
 
 `/scene/objects` 를 발행하는 것만으로는 **MoveIt 이 물체를 모른다.** 빈 공간을 가정해
 계획하므로 팔이 테이블을 뚫는 궤적이 나온다 — Phase 2 에서 손가락이 상판 안에 박혀
 그리퍼가 물리적으로 막혔고, 이동량 0.0018 m 를 "그리퍼 고장"으로 오독했다.
 
-(2026-09-01 삭제됨) 예전에는 `planning_scene_sync` 가 `/scene/objects` 를 planning scene 으로 옮겼다.
+**관측된 실패이지 가설이 아니다.** 그런데도 **감수하기로 했다** (2026-09-01, Q8).
 
-```
-mock 백엔드   : planning scene → /scene/objects   (읽는다)
-이 노드        : /scene/objects → planning scene   (쓴다)
-```
+#### 왜 감수하나
 
-**그래서 mock 백엔드에서는 띄우면 안 된다** — 자기가 읽은 것을 자기가 되쓰는 고리가
-된다. 시뮬레이터가 scene 의 원본인 백엔드(Isaac·펑션베이)에서만 쓴다.
+`/scene/objects` 에 실리는 것은 **전부 조작 대상**이고, 조작 대상을 planning scene 에
+넣으면 **파지 자세가 시작 상태 충돌이 되어** 관절 공간 계획이 `INVALID_MOTION_PLAN`(-2)
+으로 거부된다. 그래서 "고정물만 넣자"로 좁혔는데, 이어서 **환경 물체를 `/scene/objects`
+에 아예 발행하지 않기로** 정하자 넣을 것이 남지 않았다. `planning_scene_sync` 노드와
+`SceneObject.fixture` 필드를 함께 삭제했다.
 
-실측 — 적용 후 planning scene 에 물체 4개가 올라가고, 문제의 자세는 계획 단계에서
-막힌다.
+**노출은 좁다** — 자기 충돌 검사는 ACM 이라 world 물체와 무관하게 계속 동작하고, 파지
+동작은 접근·하강·들어올림이 전부 cartesian 이라 `GetCartesianPath` 의 `avoid_collisions`
+기본값 `False` 로 planning scene 을 보지 않는다. **관절 공간 이동에서만 드러난다.**
 
-```
-충돌 물체: block_a(0.05³) block_b(0.05³) block_c(0.05³) table(0.6×1.0×0.4)
-ready 계획       : 성공
-테이블 관통 자세  : RuntimeError code -27 (GOAL_IN_COLLISION)
-```
+#### 되살린다면
 
-> **부작용을 의도한 것이다.** 전에는 계획이 성공하고 시뮬레이터에서 조용히 막혔다.
-> 이제는 계획이 실패한다 — 실패가 눈에 보이는 편이 낫다.
->
-> **남은 과제**: 물체를 **집을 때**는 손가락과 물체의 접촉이 충돌로 잡힌다. 파지
-> 시나리오에서는 `AttachedCollisionObject` 로 옮기거나 허용 충돌 행렬을 손봐야 한다.
+토픽 → planning scene 동기화 노드를 다시 만들지 않는다. **탁자 하나만 launch 시점에
+상자로 정적 등록**하는 편이 맞다 — 조작 대상은 여전히 넣지 않으므로 위 -2 문제가 생기지
+않고, 실제로 부딪히는 것은 탁자뿐이다.
+
+<details>
+<summary>이력 — 삭제된 `planning_scene_sync` (2026-08~09-01)</summary>
+
+`/scene/objects` 를 planning scene 으로 옮기는 노드였다. mock 백엔드와 방향이 반대라
+(mock 은 planning scene → `/scene/objects`) **mock 에서 띄우면 자기가 읽은 것을 자기가
+되쓰는 고리**가 됐다. 시뮬레이터가 scene 의 원본인 백엔드에서만 썼다.
+
+실측으로는 의도대로 동작했다 — planning scene 에 물체 4개가 올라가고 문제의 자세가
+계획 단계에서 막혔다(`GOAL_IN_COLLISION`, -27). 전에는 계획이 성공하고 시뮬레이터에서
+조용히 막혔으니 **실패가 눈에 보이는 편이 나았다.** 남은 과제로 "집을 때 손가락과 물체의
+접촉이 충돌로 잡힌다 — `AttachedCollisionObject` 로 옮기거나 ACM 을 손봐야 한다"를
+적어 두었는데, 그 `attach`/`detach` 자체가 Q9 에서 철회되면서 이 노드도 함께 정리됐다.
+
+</details>
 
 ### Isaac 은 관절 한계를 **강제한다**
 
@@ -1704,6 +1442,14 @@ planning scene 이 **완전히 비어 있는데도** `DECELERATE_FOR_COLLISION` 
 
 ### servo 는 **NaN 을 내보내면서 `NO_WARNING` 을 유지한다**
 
+> ⚠️ **아래는 bridge 시절(2026-08-30)의 실측이며, plugin 에서 재검증하지 않았다.**
+> servo 출력이 다리 노드를 거치지 않고 **JTC 로 직행**하도록 바뀌었기 때문이다(D1″).
+> **닫혔다 (2026-09-05).** 사슬에 NaN 필터가 하나도 없다 — JTC 는 로그 없이 받아들이고
+> `TopicBasedSystem` 은 오히려 반드시 발행해서 **NaN 이 `/isaac/arm_command` 까지 간다.**
+> **그런데 Isaac 이 흡수한다** — 관절별로 무시하고 마지막 목표를 유지하며 다음 정상
+> 궤적에 스스로 복구한다. 그래서 방어 노드를 되살리지 않기로 했다 (§8 Q20).
+> 남는 위험은 **부분 NaN 의 '그럴듯하게 틀린 자세'** 하나다.
+
 servo 출력 일곱 값이 전부 NaN 이 되는 상태가 있다. 그런데,
 
 ```
@@ -1720,7 +1466,9 @@ servo 출력 일곱 값이 전부 NaN 이 되는 상태가 있다. 그런데,
 무작위가 아니다. **두 가지가 겹쳐야** 한다.
 
 1. servo 가 **충돌 정지 상태**다 (`HALT_FOR_COLLISION` / `DECELERATE_FOR_COLLISION`)
-2. 그 상태에서 **외부가 로봇을 점프시킨다** — `/isaac/arm_command` 에 직접 쓰는 것
+2. 그 상태에서 **외부가 로봇을 점프시킨다** — 당시에는 `/isaac/arm_command` 에 직접
+   쓰는 것이었다. **지금 `is_recover.py` 는 `ArmCommander` 로 JTC 에 `JointTrajectory` 를
+   쓴다** — 같은 조건이 성립하는지는 미확인이다
 
 ```
 한 방향 주행 -> status {3: 72, 4: 5}   (HALT 진입)
@@ -1751,11 +1499,19 @@ start   -> (True, '')  ->  출력 68건
 수정 후 같은 전제조건에서 확인 — 복구가 정상 완료되고(관절 오차 0.0003 rad) 이후
 twist 3회 모두 **NaN 0건**이다.
 
-#### 다리가 막는다
+#### ~~다리가 막는다~~ — **Isaac 에는 그 방어층이 없다**
 
-`isaac_servo_bridge` 가 유한하지 않은 값을 **버리고 경고**한다. 원인을 못 막더라도
-NaN 이 시뮬레이터까지 가지는 않게 한다 — 가면 조용히 무시되어 증상이 servo 바깥을
-가리킨다.
+당시에는 `isaac_servo_bridge` 가 유한하지 않은 값을 **버리고 경고**했다. 원인을 못
+막더라도 NaN 이 시뮬레이터까지 가지는 않게 하려는 것이다 — 가면 조용히 무시되어 증상이
+servo 바깥을 가리킨다.
+
+**D1″ 이후 Isaac 경로에는 그 노드가 없다.** servo 출력이 JTC 로 직행하므로, NaN 을
+막는 것이 있다면 **JTC 자신**이어야 한다. 확인하지 않았다.
+
+> 방어 코드 자체는 살아 있다 —
+> [`servo_command_bridge_node.py`](../../src/robot_control/robot_control/isaac/servo_command_bridge_node.py)
+> 의 유한성 검사(L122~)는 그대로이고, **펑션베이가 그 노드를 쓴다.** 즉 방어층이 사라진
+> 것은 Isaac 경로뿐이다.
 
 ### 마찰은 **조용히** 기본값이 된다
 
@@ -1774,17 +1530,99 @@ USD 에서 마찰은 prim 의 속성이 아니라 **별도 Material prim** 이�
 3번까지 실패하면서 폭이 0 에 가까우면 마찰이 아니라 **접근 높이**가 어긋난 것이다
 (`TCP_OFFSET` 0.1034 m, 또는 손이 아래를 보지 않는 경우 — 검사가 기울기를 함께 찍는다).
 
+### 파지 한 번 뒤 그리퍼가 명령을 영영 무시한다 — **로거 severity** (해결됨)
+
+`gripper_action_node` 가 **죽는다.** 그런데 launch 전체가 내려가지 않으므로 로그를 보지
+않으면 "그리퍼가 이상하다"로만 보인다. 명령은 발행되고 아무 일도 일어나지 않는다.
+
+```
+File ".../gripper_action_node.py", line 235, in _on_result
+    level(f'[gripper] {goal}: action finished (status={status})')
+ValueError: Logger severity cannot be changed between calls.
+```
+
+**rclpy 로거는 호출 지점(파일·행)마다 severity 를 기억한다.** 레벨을 변수에 담아 한 줄에서
+부르면, 두 번째 호출이 다른 레벨일 때 예외가 난다. 그것이 `done_callback` 안에서 터지므로
+노드가 통째로 죽는다.
+
+발현 조건이 **plugin 에서 처음 갖춰졌다** — `GripperActionController` 는 선점을
+`CANCELED`(status 5), 정상 종료를 `SUCCEEDED`(status 4)로 돌려주므로 같은 줄이 WARN 과
+INFO 로 번갈아 불린다. `isaac_gripper_bridge` 는 늘 SUCCEEDED 였다. **백엔드에 특유한
+버그가 아니다** — mock 에서도 비성공 결과가 한 번 섞이면 같은 일이 난다.
+
+고침: 레벨을 변수에 담지 말고 `if`/`else` 로 갈라 각 줄에서 부른다.
+
+### 그리퍼 액션 결과를 기다리면 타임아웃한다 — **파지는 완료되지 않는다**
+
+plugin 에서 `panda_hand_controller`(`GripperActionController`)에 `grasp` 를 보내면
+**액션이 끝나지 않는다.** 다음 명령이 선점할 때까지 살아 있다가 `CANCELED` 로 끝난다.
+
+원인은 이 컨트롤러가 stall 을 **속도**로 판정하기 때문이다 (`stall_velocity_threshold`,
+기본 0.001). Isaac 은 PhysX 접촉에서 손가락이 계속 떨려 그 조건이 서지 않는다.
+`allow_stalling: true` 로 켜도 마찬가지다 — 속도 기반으로는 원리적으로 안 된다.
+
+**그런데 이것은 고칠 필요가 없다.** 소비자는 액션 결과를 보지 않는다 — `GripperNode` 가
+effort 로 `at_goal` 을 판정해 `/gripper_states` 로 내고, 트윈·텔레오퍼레이션은 그것만
+본다. 실측으로 파지 22.4 N·m 에서 `stalled: true, at_goal: true` 가 정확히 선다.
+미완료 목표가 쌓이지도 않는다.
+
+**결과를 기다리는 코드만 고치면 된다.** `is_check_phase6.py` 가 그렇게 만들어져 있어
+15 초 타임아웃을 "그리퍼 목표가 거부됐다"로 보고했는데, 컨트롤러 로그에는
+`Received & accepted` 가 찍혀 있었다 — **거부가 아니라 미완료다.**
+
+### 시뮬레이터 재시작 — **타임라인 Stop/Play 와 프로세스 재시작은 다르다** (plugin)
+
+둘을 같은 것으로 묶으면 안 된다. 실측(2026-09-05)으로 갈렸다.
+
+**① 타임라인 Stop → Play (`/set_simulation_state`) — 스택을 건드릴 필요가 없다.**
+
+`setup_graph.py` 가 `resetOnStop` 을 꺼 두었으므로 **sim 시계가 되감기지 않는다.**
+정지 중에는 `/clock` 과 `/joint_states` 가 멎지만(컨트롤러는 `active` 로 남는다),
+Play 하면 **스스로 복구된다** — 실측 `TF_OLD_DATA` 0 건, 시계는 414.8 에서 이어졌다.
+
+**② 프로세스 재시작 — 스택도 다시 띄워야 한다.**
+
+sim 시계가 0 으로 돌아가고 TF 버퍼에 미래 타임스탬프가 남아 `TF_OLD_DATA` 가 쏟아진다
+(실측 6,424 건). **컨트롤러는 계속 `active` 라고 보고하므로 상태를 건강 신호로 쓰면
+안 된다** — bridge 에서는 `/ee_pose` 가 어는 것이 유일한 증상이었는데 plugin 은
+"정상"이라고 답하는 창구가 하나 더 생긴 셈이다.
+
+> `/joint_states` 가 **완전히 멎는지**는 깨끗하게 가르지 못했다. 한 번은 0 건이었고
+> 다른 한 번은 흐르고 있었는데, 두 번째 관측이 스택 재기동과 겹쳐 오염됐다. **믿을 수
+> 있는 지표는 `TF_OLD_DATA` 누적과 `/ee_pose` 의 stamp 정지다.**
+
+**조치와 그 효과는 확인됐다** — `./scripts/kill_stack.sh --ros` 후 스택만 다시 띄우면
+게이트가 통과하고 `TF_OLD_DATA` 0 건으로 세 채널(`/clock`·`/joint_states`·`/ee_pose`)의
+stamp 가 일관되게 흐른다.
+
+---
+
 ## 8. 열려 있는 결정
+
+**열린 것을 먼저, 각 묶음 안에서는 번호순.** 닫힌 항목은 지우지 않는다 — 판단이 왜
+뒤집혔는지가 그 자체로 근거다.
 
 | # | 항목 | 언제 정하나 |
 |:-:|---|---|
+| Q5 | `PublishJointState.targetPrim` 이 deprecated — `IsaacReadJointState` 노드 출력을 연결하는 방식으로 교체할지 | Phase 0 통과 후 (동작에는 지장 없음) |
+| Q17 | **수집 launch 의 mp4 레코더가 `/session` 을 따라 돌지 않는다.** `rdfp_panda_isaac_*` 은 `image_recorder_node`(서비스 구동, `auto_start:=false`)를 띄우므로 `/image_recorder/start_session` 을 따로 불러야 한다. `/session` 을 보고 자동 분절하는 것은 `rdfp_image_recorder` 로 다른 노드다. **데이터셋에는 지장이 없다**(mp4 는 `import` 가 rosbag 에서 만든다) — 다만 "세션만 시작하면 mp4 가 나온다"는 기대와 어긋난다. 둘 중 무엇을 기본으로 둘지 | 수집 절차를 문서로 굳힐 때 |
+| Q18 | **에피소드 라벨을 놓치기 쉽다.** `set_task_label` 의 필드는 `task_label` 인데 이름을 틀리면 서비스가 실패하고, **그대로 진행하면 빈 라벨로 기록된다.** 기록이 끝난 뒤에는 재import 로도 못 고친다. `start_episode` 가 라벨 없이 시작할 때 경고하거나, 라벨을 인자로 받게 하는 편이 나을지 | 수집을 반복하기 전에 |
+| Q19 | **배속 0.872 가 부하 탓인지 기동 과도인지 안 갈렸다.** load average 와 **단조롭지 않다** — load 8.4 에서 0.937 이 나왔는데 load 7.7 에서 0.872 가 나왔다. 후보 둘: ① load average 는 1분 평균이라 순간 경합을 못 잡는다, ② 0.872 는 **스택 기동 직후 첫 검사** 값이라 MoveIt 이 계획 파이프라인 셋을 올리고 TF 버퍼가 차는 과도 구간일 수 있다 — 같은 실행에서 `phase0` 의 「계획」이 타임아웃했다가 재실행에서 통과한 것이 그 정황이다. 가르는 법: 배속을 **프로세스별 CPU 사용률과 함께** 재거나, plugin 스택이 안정된 뒤 `phase0` 를 반복해 첫 실행만 낮은지 본다 (bridge 에서는 재실행 시 0.996 이 나왔으나 조건이 달라 결정적이지 않다) | 배속이 실제로 문제가 될 때 |
+| — | **↓ 아래는 닫힌 항목 (이력)** | — |
 | ~~Q1~~ | **닫힘 (2026-08-29)** — Isaac 은 `name` 을 채우고 팔 7관절 + finger 2관절을 모두 보낸다. `joint_state_fusion` 을 **제거**했다. 남겨 두면 `extra_joint_*` 주입을 끌 수 없어(빈 리스트는 기본값으로 되돌아간다) `panda_finger_joint1` 이 중복 발행된다 | — |
 | ~~Q2~~ | **닫힘 (2026-08-29)** — **TF** 로 확정. Isaac 이 `ROS2PublishTransformTree` 를 기본 제공하고, 좌표 변환·쿼터니언 규약을 tf2 가 대신한다. Phase 3 실측으로 검증됐다 | — |
-| ~~Q3~~ | **닫힘 (2026-08-30) — 지원한다.** teleop 두 경로(`teleop_keyboard` 의 twist, `teleop_retarget` → `ee_twist_node`)가 **모두 servo 로 수렴**하므로 없으면 Isaac 을 손으로 몰 수 없다. servo 출력을 `sensor_msgs/JointState` 로 옮기는 다리(`isaac_servo_bridge`)를 두고 `enable_servo` 로 켠다(§2 Phase 10). 펑션베이에서 무산된 것은 그 백엔드에 그리퍼·컨트롤러가 함께 없었기 때문이며, 타입 문제 자체는 같은 방식으로 풀린다 | — |
-| Q4 | Ubuntu 22.04 머신의 GPU 사양 | Phase 4 는 **이 PC 에서 완료**했다(640×480 @ 5 Hz). 고해상도·고주파가 필요해질 때 확인한다 |
+| ~~Q3~~ | **닫힘 (2026-08-30) — 지원한다.** teleop 두 경로(`teleop_keyboard` 의 twist, `teleop_retarget` → `ee_twist_node`)가 **모두 servo 로 수렴**하므로 없으면 Isaac 을 손으로 몰 수 없다. ~~servo 출력을 `sensor_msgs/JointState` 로 옮기는 다리(`isaac_servo_bridge`)를 두고~~ **→ D1″ 이후 다리가 없다** — ros2_control 이 있어 servo 가 기본 경로(`JointTrajectory` → JTC)로 나간다. `enable_servo` 는 기본 `true` 다. 펑션베이에서 무산된 것은 그 백엔드에 그리퍼·컨트롤러가 함께 없었기 때문이며, 타입 문제 자체는 같은 방식으로 풀린다 | — |
+| ~~Q4~~ | **닫힘 (2026-09-05)** — 검증 머신 사양을 §5 에 적었다: **RTX 4000 SFF Ada · VRAM 20 GB** · RAM 62 GB · 20 코어 · Ubuntu 22.04.5. Phase 4 는 이 머신에서 640×480 @ 5 Hz 로 통과했고, Phase 11 실측도 전부 여기서 나왔다. 고해상도·고주파가 필요해지면 그때 다시 재면 되는 **조건부 후속 작업**이지 미지수가 아니다 | — |
 | ~~Q6~~ | **닫힘 (2026-08-29)** — **실제 Franka 스펙으로 좁혔다.** `config/panda_real_joint_limits.yaml` 을 `panda_isaac.launch.py` 가 넘긴다. 적용 범위는 Isaac 뿐이며, mock/Gazebo/펑션베이까지 넓힐지는 별도 결정 |  — |
-| ~~Q9~~ | **철회 (2026-09-01).** `attach`/`detach` 자체를 없앴다. (1) 근거였던 "rosbag 에 남는다"가 **거짓**이었다 — `/scene/commands` 는 `recording_topics.list` 에 없다. (2) `attach` 는 명시적 detach 까지 유지되는데 **물체는 미끄러져 떨어질 수 있어** 믿음이 조용히 틀린다. 떨어지면 planner 는 손에 있다고 믿으면서 탁자 위의 그것도 못 본다(붙은 물체는 world 동기화에서 제외되므로). (3) 애초에 파지 동작은 cartesian 이라 `avoid_collisions` 기본값 `False` 로 **planning scene 을 보지 않는다** | — |
+| ~~Q7~~ | **철회 (2026-09-02)** — ~~`C:\isaacsim\scenes\panda_rdfp.usd` 에 저장 완료. 다음부터는 열고 Play 만 하면 된다~~ **저장한 스테이지를 쓰지 않기로 했다** — 물체 이름·크기가 USD 와 `isaac_scene.json` 두 곳에 살면 조용히 갈라지고, JSON 은 `isaac_scene_state_node` 도 읽는 정본이다(§6 「저장한 스테이지를 쓰지 않는다」). `verify_saved_scene.py` 는 **저장된 파일이 있을 때의 진단 도구**로 남았다 | — |
 | ~~Q8~~ | **닫힘 (2026-08-29) → 축소 (2026-09-01) → 철회 (2026-09-01).** 최종: **planning scene 에 아무것도 넣지 않는다.** `planning_scene_sync` 노드와 `SceneObject.fixture` 필드를 삭제했다. 경위 — 조작 대상을 넣으면 파지가 시작 자세 충돌이 되어 `INVALID_MOTION_PLAN`(-2)이므로 고정물만 넣도록 축소했는데, 이어서 **환경 물체를 `/scene/objects` 에 아예 발행하지 않기로** 정하자 넣을 것이 남지 않았다. 원래 동기("팔이 탁자를 뚫는다", `panda_link4`·`panda_link5` 가 상판을 파고든 것을 실측)는 **단순성을 위해 감수한다**. 되살릴 때는 토픽→scene 노드가 아니라 탁자만 launch 시점에 상자 하나로 정적 등록하는 편이 맞다 | — |
-| ~~Q7~~ | **닫힘 (2026-08-29)** — `C:\isaacsim\scenes\panda_rdfp.usd` 에 저장 완료. ActionGraph 10개 prim · 타임라인 0..1e7 · drive gain 10000/400 이 모두 담긴 것을 `verify_saved_scene.py` 로 확인했다. 다음부터는 열고 Play 만 하면 된다 | — |
-| ~~Q10~~ | **닫힘 (2026-08-30)** — `moveit.arm_command_topic` / `arm_command_format` / `arm_command_joint_names` 를 설정에 추가하고 `config/robot_twin_panda_isaac.yaml` 을 만들었다. REST 로 팔·그리퍼·세션 제어를 실측했다(§2 Phase 9). `reset_scene` 은 원리적으로 불가능해 노출하지 않는다 | — |
-| Q5 | `PublishJointState.targetPrim` 이 deprecated — `IsaacReadJointState` 노드 출력을 연결하는 방식으로 교체할지 | Phase 0 통과 후 (동작에는 지장 없음) |
+| ~~Q9~~ | **철회 (2026-09-01).** `attach`/`detach` 자체를 없앴다. (1) 근거였던 "rosbag 에 남는다"가 **거짓**이었다 — `/scene/commands` 는 `recording_topics.list` 에 없다. (2) `attach` 는 명시적 detach 까지 유지되는데 **물체는 미끄러져 떨어질 수 있어** 믿음이 조용히 틀린다. 떨어지면 planner 는 손에 있다고 믿으면서 탁자 위의 그것도 못 본다(붙은 물체는 world 동기화에서 제외되므로). (3) 애초에 파지 동작은 cartesian 이라 `avoid_collisions` 기본값 `False` 로 **planning scene 을 보지 않는다** | — |
+| ~~Q10~~ | **닫힘 (2026-08-30), 이후 두 번 뒤집힘** — 트윈으로 REST 팔·그리퍼·세션 제어를 실측했다(§2 Phase 9). 다만 ① ~~`arm_command_topic`/`format`/`joint_names` 3종을 설정에 추가~~ **→ D1″ 에서 제거** (JTC 라 명령 채널을 안 준다), ② ~~`reset_scene` 은 원리적으로 불가능해 노출하지 않는다~~ **→ 2026-09-02 에 노출** (Isaac 6.0 의 `simulation_interfaces` 서비스를 `isaac_scene_state_node` 가 대신 부른다). 현재 설정은 `move_group_mode: jtc` 하나이고 `reset_scene` 을 포함한다 | — |
+| ~~Q11~~ | **닫힘 (2026-09-05)** — `ros-humble-simulation-interfaces` 1.4.0 을 설치했다. `isaac_scene_state_node` 가 ERROR 대신 `reset: /scene/reset -> /set_entity_state (root '/World/Scene')` 를 찍는 것을 확인했다. **새 머신에서는 매번 필요하다** — 없어도 스택은 정상 기동하고 에피소드를 시작하고 나서야 물체를 못 놓는다는 것을 알게 되므로, 런북 §2 에 선행 조건으로 적어 두었다 | — |
+| ~~Q12~~ | **닫힘 (2026-09-05)** — 두 사건이 다르다는 것이 실측으로 갈렸다(§7). 타임라인 Stop/Play 는 `resetOnStop` 이 꺼져 있어 **시계를 되감지 않고 스택이 자동 복구**된다. 프로세스 재시작만 파손을 만들며, 그때는 `kill_stack.sh --ros` + 재기동으로 **완전히 복구된다**(게이트 통과, `TF_OLD_DATA` 0 건) | — |
+| ~~Q13~~ | **닫힘 (2026-09-05)** — `MIN_REACH_SEC` 을 **10 ms** 로 낮췄다(`controller_manager` update 주기가 어차피 하한이다). 항목을 빼지 않은 이유는 plugin 사용자에게는 **명령 사슬 전체의 응답**이 재려는 값이기 때문이다. 다만 컨트롤러 보간이 남으므로 **bridge 수치와 직접 비교하면 안 되고**, τ 초과 시 출력이 그 사실을 말한다 | — |
+| ~~Q14~~ | **닫힘 (2026-09-05) — 양쪽 모두에 적용했다.** `is_check_phase6.py` 가 `gripper_cmds` 로 심볼을 보내고 `gripper_states` 의 `goal` 일치 + `at_goal` 로 판정한다. 방식 분기가 없다 — production 이 쓰는 경로가 하나이므로 검사도 하나다. 딸려 나온 것 셋: ① 명령이 `close`(위치 0) 에서 **`grasp`** 로 바뀌었다 — `close` 는 힘을 주지 않아 물체를 놓친다, ② 폭의 출처가 `/joint_states` 에서 `GripperState.width` 로 바뀌어 **단위가 관절값에서 개구 폭으로** 달라졌다(임계값을 2배로 조정), ③ 노드 존재 확인이 액션 서버에서 상태 수신으로 바뀌었다 | — |
+| ~~Q15~~ | **닫힘 (2026-09-05) — plugin 이 실제로 더 무겁다.** 같은 머신·같은 씬에서: Isaac 단독 **0.989**(load 2.5) → **bridge** 스택을 얹어도 **0.989**(load 2.5, 사실상 0 비용) → **plugin** 스택은 **0.937**(load 8.4). dead time 도 갈린다 — `phase1` 기준 bridge **30 ms** / plugin **131 ms**. 즉 `controller_manager` 의 실시간 루프 + JTC 가 **배속 −5%, load 3배, dead time +100 ms** 를 얹는다. 부하의 출처는 Isaac 이 아니라 ROS 쪽이다 — 씬도 물리 계산량도 같은데 스택이 CPU 를 가져간다. **다만 `phase0` 의 0.872 는 이것으로 설명되지 않는다** (Q19) | — |
+| ~~Q16~~ | **닫힘 (2026-09-05)** — `rdfp_panda_isaac.launch.py` 를 만들었다. bridge 판과 갈리는 것은 include 대상 하나뿐이다. **action 채널은 양쪽이 같다** (`/isaac/arm_command`) — plugin 에서 그 토픽을 채우는 것은 `TopicBasedSystem` 이고 컨트롤러 update 주기로 보간된 값이 흐른다. 드문드문한 계획(`joint_trajectory`)이 아니라 **실제로 로봇에 들어간 값**이라 모방학습에 맞고, 두 방식으로 모은 데이터셋이 섞이지 않는다 | — |
+| ~~Q20~~ | **닫힘 (2026-09-05) — 방어 노드는 만들지 않는다. 감시로 충분하다.** 사슬 어디에도 NaN 필터가 없다는 것은 실측으로 확인했다 — JTC 는 로그 없이 받아들여 `controller_state.desired` 를 NaN 으로 만들고(mock), `TopicBasedSystem::write()` 는 발행 억제 조건이 `diff <= threshold` 인데 **NaN 비교가 거짓**이라 조기 반환을 건너뛰어 **오히려 반드시 발행한다**. Isaac 에서 `/isaac/arm_command` 에 NaN 이 실리는 것도 확인했다. **그런데 Isaac 이 흡수한다** — `ArticulationController` 가 NaN 목표를 관절별로 무시하고 마지막 목표를 유지하며, `/joint_states` 는 유한하게 남고 **다음 정상 궤적에 스스로 복구한다**(7축 전부 NaN·부분 NaN 둘 다). 그래서 필터 노드를 되살릴 이유가 없다. **남는 위험은 부분 NaN 하나** — 정상 6축은 목표로 가고 NaN 축만 제자리라 **'그럴듯하게 틀린 자세'가 조용히 나온다**(실측). 다만 servo 의 관측된 고장은 7축 전부 NaN 이고 그 경우는 팔이 멈출 뿐이다. **`mock` 으로는 이 문제가 안 보인다** — `GenericSystem` 이 NaN 을 흡수해 `desired` 를 봐야만 갈린다 | — |
+| ~~Q21~~ | **닫힘 (2026-09-05) — `servo_command_bridge_node.py` 를 `isaac/` 에 그대로 둔다.** 소비자가 펑션베이뿐인데 파일은 `isaac/` 아래라 위치가 어긋나 보인다. 그래도 옮기지 않는 이유는 `functionbay/readiness_gate_node.py` 를 Isaac 이 쓰는 것과 **같은 상황**이고(백엔드 중립 노드가 한쪽 디렉터리에 있을 뿐), **옮기면 유일한 소비자의 회귀를 확인할 사람이 없기** 때문이다 — 펑션베이 작업이 중단 상태다. docstring 에 '현재 소비자는 펑션베이뿐'을 명시했다. 세 번째 소비자가 생기거나 펑션베이가 재개되면 두 파일을 중립 위치로 함께 옮긴다 | — |
