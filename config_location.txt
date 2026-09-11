@@ -1,0 +1,8 @@
+[서울대 솔버 관련]
+(조인트 관련 출력 토픽 주기 설정)
+파일: D:\Temp\MMR-Build_260907\MMR_Database\Database\VariableModel\t1__panda_robotiq_ref_1_vm.xml
+
+  <Output>
+    <ROS2_Topic Prefix="out_" Hz="10" />   ← 이 값을 30 으로
+  </Output>
+
