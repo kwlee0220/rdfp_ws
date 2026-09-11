@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "이 워크스페이스에서 쓰는 MCP 서버.",
+    "",
+    "`robot-twin` 은 **로봇 트윈(REST)을 도구·프롬프트로 감싼 것**이다. 구현은 별도",
+    "저장소에 있다: /home/kwlee/development/mdtpy/robot-twin",
+    "",
+    "== 인자를 반드시 줘야 한다 ==",
+    "",
+    "서버 기본값은 `--port 8801 --twin-id panda01` (mock 스택)이다. 펑션베이는 포트와",
+    "트윈 이름이 모두 다르므로 **안 주면 엉뚱한 트윈에 붙거나 연결 자체가 안 된다.**",
+    "",
+    "== 무엇이 떠 있어야 하나 ==",
+    "",
+    "  1. 시뮬레이터 (Windows: MetaMotionRobot + SolverTCPServer)",
+    "  2. ROS 스택        ros2 launch robot_control panda_functionbay.launch.py",
+    "  3. 트윈            ros2 run robot_twin robot_twin --config \\",
+    "                       install/robot_twin/share/robot_twin/config/robot_twin_panda_functionbay.yaml",
+    "",
+    "셋 중 하나라도 없으면 도구는 목록에 나오지만 호출이 실패한다 — 오류 문장이",
+    "무엇이 없는지 알려 준다.",
+    "",
+    "== uv 가 아니라 venv 스크립트를 쓰는 이유 ==",
+    "",
+    "`uv run` 은 매 호출마다 의존성을 확인하느라 기동이 느리고, MCP 클라이언트가",
+    "그 지연을 타임아웃으로 읽을 수 있다. venv 안의 콘솔 스크립트는 바로 뜬다.",
+    "의존성을 바꾸면 `uv sync --extra mcp` 를 한 번 돌려 venv 를 갱신한다.",
+    "",
+    "== peg-in-hole ==",
+    "",
+    "`peg_in_hole` 프롬프트를 먼저 읽는다. 도구는 peg_status / pick_peg / place_peg /",
+    "move_peg 넷이며, **수치는 전부 코드가 갖는다** — 좌표를 직접 만들지 않는다.",
+    "설계·실측: docs/robot_twin/peg_in_hole_via_mcp_plan.md"
+  ],
+
+  "mcpServers": {
+    "robot-twin": {
+      "command": "/home/kwlee/development/mdtpy/robot-twin/.venv/bin/robot-twin-mcp",
+      "args": ["--port", "8803", "--twin-id", "panda_functionbay"]
+    }
+  }
+}
