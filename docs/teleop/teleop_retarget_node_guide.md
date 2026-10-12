@@ -477,7 +477,7 @@ ros2 topic hz /leader/ee_pose
 ros2 topic hz /ee_pose            # 팔로워 — 스택이 ee_pose_node 를 띄웠는지
 ```
 
-팔로워 pose 는 `rdfp_panda_mock` / `rdfp_panda_jgpc_mock` 이 기동하는
+팔로워 pose 는 `panda_mock` / `panda_mock_jgpc` 이 기동하는
 `ee_pose_publisher` 가 공급한다. `replay_panda_mock` 에는 **없으므로** 그 스택에서는
 retarget 을 쓸 수 없다.
 
@@ -537,4 +537,4 @@ ros2 service call /teleop_retarget/clutch std_srvs/srv/SetBool "{data: true}"
 - [omy_leader_teleop_guide.md](omy_leader_teleop_guide.md) — 전체 체인 기동 절차 (실행 순서·진단)
 - [leader_follower_mirroring_design.md](leader_follower_mirroring_design.md) — 설계 근거, 구동 방식 3가지 비교, 안전장치 설계
 - [external_input_adapters.md](external_input_adapters.md) — 리더 pose 공급자가 지켜야 할 계약
-- [../moveit/servo_client_programmers_guide.md](../moveit/servo_client_programmers_guide.md) — 하류 servo
+- [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — 하류 servo

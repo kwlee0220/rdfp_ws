@@ -30,7 +30,7 @@
 채널 이름이 따라 바뀌어 녹화 목록과 트윈 설정이 함께 깨진다. 백엔드 이름이 샌 것과 증상은
 같고, 고치는 방법도 같다 — 루트 상대로 두는 것이다(§2.2).
 
-실제로 그렇게 갈라진 흔적이 있다. `rdfp_panda_isaac.launch.py` 는 카메라 토픽을
+실제로 그렇게 갈라진 흔적이 있다. (삭제된) `rdfp_panda_isaac.launch.py` 는 카메라 토픽을
 `isaac_scene.json` 에서 읽어 넘기고, `rdfp_collect.launch.py` 로 분리해 쓰려면 인자
 네 개를 손으로 맞춰야 한다.
 
@@ -46,12 +46,14 @@
 | 채널 | 정규 이름 | 타입 | 비고 |
 |---|---|---|---|
 | 관절 상태 | `joint_states` | `sensor_msgs/JointState` | ROS 표준 이름. 바꾸지 않는다 |
-| 엔드이펙터 자세 | `ee_pose` | `geometry_msgs/PoseStamped` | **단수** — 한 시점의 값 하나다 |
+| 엔드이펙터 자세 | `ee_pose` | `geometry_msgs/PoseStamped` | **단수** — 한 시점의 값 하나다. **그리퍼 파지 중심(TCP)의 자세**이며 의미 계약은 [rdfp_framework_design.md](rdfp_framework_design.md) §2.1 에 있다 (설계안) |
 | 카메라 이미지 | `camera/image_raw` | `sensor_msgs/Image` | `image_transport` 규약 |
 | 카메라 압축 이미지 | `camera/image_compressed` | `sensor_msgs/CompressedImage` | |
 | 카메라 정보 | `camera/camera_info` | `sensor_msgs/CameraInfo` | `image_raw` 와 짝 |
 | 그리퍼 상태 | `gripper_states` | `rdfp_msgs/GripperState` | **연속 상태.** `/joint_states` 로 대신할 수 없다 — §2.2 |
 | scene 물체 | `scene/objects` | `rdfp_msgs/SceneObjects` | **복수** — 메시지가 실제로 배열이다 |
+| 실행 궤적 | `motion/trajectory` | `rdfp_msgs/MotionTrajectory` | **단수** — 연산 하나에 궤적 하나다. **계획 궤적(`/display_planned_path`)이 아니라 컨트롤러로 보낸 것**이고, `header.stamp` 는 발행 시각이 아니라 궤적의 0초가 시작된 시각(t₀)이다. `motion/` 으로 묶은 것은 같은 생산자(MoveGroup 클라이언트)가 내는 짝 채널(아래 `motion/event`)과의 관계를 이름에 드러내기 위해서다 — 설계: [collect/학습_샘플_사양.md](learning/학습_샘플_사양.md) |
+| 연산 이벤트 | `motion/event` | `rdfp_msgs/MotionEvent` | **단수** — 메시지 하나가 종료 사건 하나다. `motion/trajectory` 의 **짝**이고 `operation_id` 로 짝짓는다 — 그쪽이 "무엇을 보냈나", 이쪽이 "어떤 연산이었고 어떻게 끝났나"(결과 · 끝난 시각 · 궤적 기준 중단 시각)다. **`motion/operation` 이 아닌 이유**는 연산 그 자체가 아니라 **연산의 종료 사건**을 싣기 때문이다 — 명령 채널이 아니다(명령은 트윈 REST 로 들어온다). 설계: [collect/학습_샘플_사양.md](learning/학습_샘플_사양.md) |
 
 > **단수/복수는 메시지 모양을 따른다.** `ee_pose` 는 값 하나라 단수, `scene/objects` 는
 > `SceneObject[]` 를 담으므로 복수다. `camera_images` 처럼 채널이라는 이유로 복수를
@@ -65,7 +67,7 @@
 | `gripper_states` | `rdfp_msgs/GripperState` | 관측 |
 
 **규약이 아는 그리퍼 채널은 이 둘뿐이다.** 필드의 뜻(개구 폭 단위, `stalled` 와
-`at_goal` 의 차이, 판정 주체)은 [GripperNode_Design.md](gripper/GripperNode_Design.md)
+`at_goal` 의 차이, 판정 주체)은 [gripper_node_design.md](control/gripper_node_design.md)
 §2 가 정본이다 — 이름 규약 문서가 함께 설명하면 두 문서가 갈라진다. 아래는 **이름에
 관한 결정**만 적는다.
 
@@ -107,7 +109,7 @@
 | EE twist | `servo_node/delta_twist_cmds` | `geometry_msgs/TwistStamped` | **예외** — §2.4 |
 | 관절 jog | `servo_node/delta_joint_cmds` | `control_msgs/JointJog` | **예외** — §2.4 |
 | 목표 관절값 | `target_joint_cmds` | `sensor_msgs/JointState` | **데이터셋의 action 채널** |
-| 목표 EE 자세 | `target_ee_pose` | `geometry_msgs/PoseStamped` | **단수**. teleop retarget 결과 |
+| 목표 EE 자세 | `target_ee_pose` | `geometry_msgs/PoseStamped` | **단수**. teleop retarget 결과. `ee_pose` 와 같은 TCP 정의를 따른다. MoveIt 생성 데이터의 명령 TCP 채널로는 쓰지 않는다 — 그 데이터의 명령 TCP 궤적(TCP-명령)은 관절 명령과 기구학 모델 스냅샷으로 다시 계산한다 ([결정_기록.md](learning/결정_기록.md) §5.7) |
 | 그리퍼 명령 | `gripper_cmds` | `rdfp_msgs/GripperCommand` | **심볼만 싣는다** — §2.2 |
 
 ### 2.4 예외 — servo 입력 두 개는 노드 이름을 달고 있다
@@ -229,7 +231,7 @@
 **그 밖에는 파라미터를 쓰지 않는다.** 아래 표의 상당수가 여기에 해당한다 — 세 조건 중
 어디에도 안 들어가면서 파라미터로 받고 있고, 기본값이 절대라 네임스페이스도 안 먹는다.
 
-### 지금 어긋나 있는 곳
+### 지금 어긋나 있는 곳 (2026-09-02 기준 — 그리퍼 둘은 그 뒤 루트 상대로 바뀌었다. 나머지 행은 재확인 필요)
 
 | 위치 | 문제 |
 |---|---|
@@ -276,12 +278,12 @@ GroupAction([
 
 ---
 
-## 6. 적용 순서 (제안)
+## 6. 적용 순서 — 현황 (2026-09-21 갱신)
 
 | 단계 | 내용 | 위험 |
 |:-:|---|---|
-| 1 | 이 문서 — 이름 확정 | 없음 |
-| 2 | Isaac 백엔드만 전환해 실측 검증 (`is_check_phase*.py` 가 회귀를 잡는다) | 낮음 |
-| 3 | 나머지 백엔드 + 소비자(스크립트·트윈·녹화 목록) | 중간 |
+| ~~1~~ | 이 문서 — 이름 확정 | **적용됨 (2026-09-01)** |
+| ~~2~~ | Isaac 백엔드만 전환해 실측 검증 (`is_check_phase*.py` 가 회귀를 잡는다) | **적용됨 (2026-09-05)** |
+| ~~3~~ | 나머지 백엔드 + 소비자(스크립트·트윈·녹화 목록) | **적용됨** — 녹화 목록 · 트윈 설정 · 펑션베이가 정규 이름을 쓴다. `motion/trajectory` · `motion/event` 도 2026-09-18 에 §2 표에 올랐다 |
 | 4 | 네임스페이스 (`name` 인자) | 중간 |
 | 5 | TF 프레임 접두사 | **큼** — 다중 로봇이 실제로 필요해질 때 |

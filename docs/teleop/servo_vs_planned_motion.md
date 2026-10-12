@@ -130,7 +130,7 @@ servo 는 매 주기 *측정된* 관절값에 IK 증분을 더해 다음 명령�
 
 `move_linear` 은 수정 후에도 그대로다 — 트윈의 `pick()` 이 세 번 부르는 `move_linear` 이
 모두 5 mm 안에 들어왔다. JTC open-loop 는 MoveIt 궤적의 시작점도 마지막 명령으로 잡지만,
-정착 오차(0.3 mrad, 부하 시 20 mrad)는 드라이브가 즉시 메운다. `rdfp_panda_isaac` 은 이
+정착 오차(0.3 mrad, 부하 시 20 mrad)는 드라이브가 즉시 메운다. `panda_isaac` 은 이
 launch 를 include 하므로 수집 스택도 같은 수정을 받는다.
 
 ### 4.1 부작용 — servo 가 빨라졌다
@@ -187,7 +187,7 @@ ros2 launch robot_control panda_isaac.launch.py \
 | 자유 공간에서 눈대중으로 자세를 잡는다 | `teleop_keyboard` (servo) |
 | 정해진 자세로 복귀한다 | `move_to_named_target` (`teleop_keyboard` 의 `/`) |
 
-트윈으로 집고 옮기는 전 과정은 [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md)
+트윈으로 집고 옮기는 전 과정은 [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md)
 를 본다. 외부 저장소 `mdtpy/robot-twin-client` 의 `robot-twin-stack` 이 그 흐름을 그대로
 구현한 예다 — 거기에는 **쥔 뒤 손끝과 물체 중심의 실제 차이를 재서** 놓을 좌표를
 보정하는 부분이 있다. 파지 미끄러짐이 실측에서 12 mm / 1.0 mm / −3.2 mm 로 매번
@@ -239,10 +239,10 @@ ros2 service call /servo_node/start_servo std_srvs/srv/Trigger   # 다시 쓸 �
 
 ## 8. 관련
 
-- [../moveit/servo_client_programmers_guide.md](../moveit/servo_client_programmers_guide.md) — `/servo_node` 시작·정지·상태
-- [../moveit/MoveGroupClient_UserGuide.md](../moveit/MoveGroupClient_UserGuide.md) — 카테시안 계획·실행
-- [../robot_twin/robot_twin_user_guide.md](../robot_twin/robot_twin_user_guide.md) — `move_linear` / `move_gripper_to_target`
-- [../simulation/isaac_backend_skeleton.md](../simulation/isaac_backend_skeleton.md) — Isaac 백엔드 구성과 실측
+- [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — `/servo_node` 시작·정지·상태
+- [../moveit/move_group_client_user_guide.md](../control/move_group_client_user_guide.md) — 카테시안 계획·실행
+- [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) — `move_linear` / `move_gripper_to_target`
+- [../simulation/isaac_backend.md](../backends/isaac/isaac_backend.md) — Isaac 백엔드 구성과 실측
 - [README.md](README.md) — teleop 문서 진입점
 
 ---
@@ -273,7 +273,7 @@ ros2 launch robot_control panda_isaac.launch.py
 ros2 run robot_twin robot_twin --config src/robot_twin/config/robot_twin_panda_isaac.yaml
 ```
 
-기동이 이상하면 [../simulation/isaac_bringup_runbook.md](../simulation/isaac_bringup_runbook.md)
+기동이 이상하면 [../simulation/isaac_bringup_runbook.md](../backends/isaac/isaac_bringup_runbook.md)
 §4 의 확인 순서를 먼저 탄다.
 
 **어느 스택을 재는가.** 기본 스택은 §4 의 수정이 들어 있어 A 가 재현되지 않는다(비율 0.01).

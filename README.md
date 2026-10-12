@@ -47,10 +47,22 @@ source install/setup.bash
 대표 launch:
 
 ```bash
-ros2 launch robot_control panda_mock.launch.py            # MoveIt2 mock 단독
-ros2 launch rdfp rdfp_panda_mock.launch.py       # + camera / recorder / ee_pose
-ros2 launch rdfp replay_panda_mock.launch.py     # replay 모드 스택
+# 로봇 스택 — 백엔드마다 하나 (robot_control)
+ros2 launch robot_control panda_mock.launch.py        # MoveIt2 mock (JTC)
+ros2 launch robot_control panda_mock_jgpc.launch.py   # 위의 JGPC 판
+ros2 launch robot_control panda_isaac.launch.py       # Isaac Sim
+ros2 launch robot_control panda_functionbay.launch.py # 펑션베이
+ros2 launch robot_control panda_gazebo.launch.py      # Gazebo
+
+# 수집 계층 — 위 스택 **위에** 다른 터미널에서 얹는다 (rdfp)
+ros2 launch rdfp rdfp_collect.launch.py backend:=mock
+
+ros2 launch rdfp replay_panda_mock.launch.py          # replay 모드 스택
 ```
+
+> **백엔드별 묶음 launch(`rdfp_panda_*`)는 2026-09-13 에 전부 삭제했다.** 제어 스택과
+> 수집 계층을 런치 둘로 나눠 띄우며, `backend:=<이름>` 이 arm 명령 채널·카메라
+> 토픽·해상도·`use_sim_time` 을 `config/backends/<이름>.yaml` 에서 가져온다.
 
 대표 console_script (각각 독립 명령):
 
@@ -82,7 +94,7 @@ ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
   메타데이터를 재구성하면 됨.
 - **DB 스키마 미생성으로 import 실패 (`required tables not found`)** —
   `ros2 run rdfp init-db --dsn-env RDFP_DB_DSN` 을 먼저 실행.
-- **launch 가 YAML 을 못 찾음 (`panda_robot.yaml not found`)** —
+- **launch 가 YAML 을 못 찾음 (`... .yaml not found`)** —
   setup.py 의 `data_files` 글로브는 `src/rdfp/config/*` 만 share 로
   설치한다. 워크스페이스 root 의 YAML 은 `config_file:=<absolute-path>` 로
   넘기거나 `src/rdfp/config/` 로 옮길 것.
@@ -96,11 +108,11 @@ ros2 run rdfp rosbag   list-episodes --config rosbag_config.yaml
 
 ## 설정 파일
 
-샘플은 [docs/rosbag2/](docs/rosbag2/) 에 있다. 실제 인스턴스는 사용자별 경로
-와 DSN 정보가 들어가므로 `.gitignore` 로 제외되어 있다.
+예시는 [config/dataset_config.yaml](config/dataset_config.yaml) 이다(경로 필드는 `${RDFP_*}` 환경변수를 치환한다 — `.rdfprc`).
+DSN 은 환경변수 `RDFP_DB_DSN` 으로만 준다.
 
 ```bash
-cp docs/rosbag2/dataset_config.sample.yaml dataset_config.yaml
+cp config/dataset_config.yaml dataset_config.yaml
 vi dataset_config.yaml   # rosbag_dir / output_mp4_dir / db.dsn_env 등 편집
 ```
 
@@ -141,22 +153,24 @@ rdfp_ws/
   `rdfp_image_recorder`, `session_control_node`, dataset CLI, replay GUI).
 - [src/robot_control/launch/README.md](src/robot_control/launch/README.md) — 제어 계열 launch
   + helper 인벤토리 (자체 완결).
-- [src/rdfp/launch/README.md](src/rdfp/launch/README.md) — 수집 계열(`rdfp_*`) launch
+- [docs/collect/수집_계층_얹기_절차서.md](docs/collect/수집_계층_얹기_절차서.md) — **수집 계층 얹기 절차서**
+- [src/rdfp/launch/README.md](src/rdfp/launch/README.md) — 수집 계열 launch 레퍼런스
   + YAML ↔ 인자 대응표.
 - [src/rdfp/rdfp/recorder/README.md](src/rdfp/rdfp/recorder/README.md) — ROS 비의존
   `FFMpegMp4Recorder` 코어 (두 ROS 어댑터 노드는 패키지 README 에서 다룸).
 - [CLAUDE.md](CLAUDE.md) — Claude Code 가 읽는 빌드/아키텍처/주의사항 요약.
 
-서브시스템별 사용 설명서 (한국어):
+서브시스템별 사용 설명서 (한국어) — 폴더는 코드 계층을 따른다:
 
-- [docs/recorder/](docs/recorder/) — `ffmpeg_mp4_recorder_guide.md`,
-  `image_recorder_node_guide.md`, `rdfp_image_recorder_node_guide.md`.
-- [docs/session/](docs/session/) — `session_control_guide.md` (노드 · CLI ·
-  `SessionControlClient` 통합 가이드).
-- [docs/moveit/](docs/moveit/), [docs/camera/](docs/camera/),
-  [docs/replay/](docs/replay/), [docs/teleop/](docs/teleop/) — 각 서브시스템 가이드.
-- [docs/rosbag2/](docs/rosbag2/) — 데이터셋 후처리기 CLI 설명서, 설계서, 검증
-  절차, 운영 방안, 샘플 yaml.
+- [docs/control/](docs/control/) — 제어 계층: MoveIt 클라이언트 · 그리퍼 · 카메라 노드 · scene 계약 (진입점 `README.md`).
+- [docs/collect/](docs/collect/) — 수집 계층: `수집_계층_얹기_절차서.md`, `session_control_guide.md`, 레코더,
+  `rosbag_cli_user_guide.md` · `dataset_postproc_user_guide.md` · `dataset_ingest_design.md`, 재생,
+  그리고 전 과정을 잇는 `학습_데이터_전_과정_지도.md`.
+- [docs/learning/](docs/learning/) — 학습 데이터: `결정_기록.md`(왜) · `학습_샘플_사양.md`(무엇) · `저장_형식.md` ·
+  `미구현_목록.md` · `열린_결정.md`.
+- [docs/backends/](docs/backends/) — Isaac(`isaac_bringup_runbook.md` 에 전 과정 명령) · 펑션베이 · Gazebo · 실기.
+- [docs/twin/](docs/twin/), [docs/teleop/](docs/teleop/) — REST 게이트웨이 · MCP, 텔레오퍼레이션.
+- [docs/archive/](docs/archive/) — 이력 (갱신하지 않는다).
 
 ## 라이선스
 

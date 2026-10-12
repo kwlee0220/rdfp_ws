@@ -2,7 +2,7 @@
 
 > 📖 teleop 문서 진입점: [README.md](README.md) — 하려는 일부터 문서를 고른다.
 
-rdfp 로봇(`rdfp_panda_mock` / `rdfp_panda_jgpc_mock` 등)은 **입력 장치를 직접
+rdfp 로봇(`panda_mock` / `panda_mock_jgpc` 등)은 **입력 장치를 직접
 알지 않는다.** 키보드든, 게임패드든, 별도 시스템의 리더 암이든, 정해진 토픽에
 정해진 형식의 메시지를 지속적으로 발행하기만 하면 로봇이 움직인다.
 
@@ -235,7 +235,7 @@ rdfp 쪽 기동:
 
 ```bash
 # follower 스택
-ros2 launch rdfp rdfp_panda_jgpc_mock.launch.py
+ros2 launch robot_control panda_mock_jgpc.launch.py
 
 # 미러링 체인 — leader pose 발행자를 띄우지 않는다
 ros2 launch rdfp teleop_mirror.launch.py
@@ -260,5 +260,5 @@ ros2 service call /teleop_retarget/clutch std_srvs/srv/SetBool "{data: true}"
 
 - [leader_follower_mirroring_design.md](leader_follower_mirroring_design.md) — 경로 B 의 설계 배경과 retarget 수식
 - [joystick_setup.md](joystick_setup.md) — 게임패드 연결
-- [../moveit/servo_client_programmers_guide.md](../moveit/servo_client_programmers_guide.md) — servo 서비스/상태
-- [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) — 같은 제약이 재생 경로에도 적용된다 (§3-1, §3-4-2, §3-4-3)
+- [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — servo 서비스/상태
+- [../replay/replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md) — 같은 제약이 재생 경로에도 적용된다 (§3-1, §3-4-2, §3-4-3)

@@ -2,8 +2,8 @@
 
 > 📖 teleop 문서 진입점: [README.md](README.md) — 하려는 일부터 문서를 고른다.
 
-OMY-L100 리더 암을 사람이 움직이면 rdfp 팔로워 로봇(`rdfp_panda_jgpc_mock` /
-`rdfp_panda_mock`)이 그 동작을 따라 하게 만드는 **운영 절차서** 다.
+OMY-L100 리더 암을 사람이 움직이면 rdfp 팔로워 로봇(`panda_mock_jgpc` /
+`panda_mock`)이 그 동작을 따라 하게 만드는 **운영 절차서** 다.
 
 - 계약(토픽·QoS·stamp 규약): [external_input_adapters.md](external_input_adapters.md)
 - 설계 배경(retarget 수식, 클러치 원리): [leader_follower_mirroring_design.md](leader_follower_mirroring_design.md)
@@ -89,10 +89,36 @@ ros2 daemon stop                                                    # 캐시 갱
 
 ## 3. 실행 절차
 
+### 터미널 0 — OMY-L100 컨테이너 (리더 쪽, 세 창)
+
+리더 암은 ROBOTIS Docker 컨테이너 안에서 돈다 (Jazzy + `rmw_zenoh`). 컨테이너 구성은
+[omy_l100_docker_setup.md](omy_l100_docker_setup.md) 를 본다. **세 창 모두 컨테이너 안이다.**
+
+```bash
+# 0-1 zenoh 라우터 (미들웨어)
+cd $HOME/development/ros/omy100_ws/open_manipulator/docker
+./container.sh start && ./container.sh enter
+ros2 run rmw_zenoh_cpp rmw_zenohd
+
+# 0-2 리더 bringup
+./container.sh enter
+ros2 launch open_manipulator_bringup omy_l100_leader_ai.launch.py port_name:=/dev/ttyUSB0
+
+# 0-3 동작 확인
+./container.sh enter
+ros2 node list
+ros2 control list_controllers -c /leader/controller_manager
+timeout 3 ros2 topic echo /leader/joint_states sensor_msgs/msg/JointState
+```
+
+`/leader/joint_states` 가 흐르면 리더 쪽은 끝이다. 호스트로 넘기는 것은 터미널 2 의 브릿지다.
+
 ### 터미널 1 — 팔로워 스택
 
 ```bash
-ros2 launch rdfp rdfp_panda_jgpc_mock.launch.py
+ros2 launch robot_control panda_mock_jgpc.launch.py
+# 수집까지 하려면 다른 터미널에서:
+#   ros2 launch rdfp rdfp_collect.launch.py backend:=mock_jgpc
 ```
 
 컨트롤러 타입을 확인한다.
@@ -199,7 +225,7 @@ ros2 service call /teleop_retarget/clutch std_srvs/srv/SetBool "{data: true}"
 #  → success=True, message='engaged'
 ```
 
-`rdfp_panda_jgpc_mock.launch.py` 에는 `servo_auto_start_node` 가 포함되어 있지
+`panda_mock_jgpc.launch.py` 에는 `servo_auto_start_node` 가 포함되어 있지
 않으므로 **`start_servo` 는 수동 호출해야 한다.** 빠뜨리면 servo 가 모든 twist 를
 경고 없이 버린다.
 
@@ -395,7 +421,7 @@ ros2 bag play data/ee_pose_bag -l --remap /leader/ee_pose_states:=/leader/ee_pos
 
 **`-r` 로 배속을 올리지 않는다.** 속도는 stamp 기준으로 계산되어 배속과 무관한데
 재생 지속시간만 짧아지므로, 총 이동량이 오히려 반비례로 줄어든다. 상세는
-[../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) §3-4-1.
+[../replay/replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md) §3-4-1.
 
 bag 은 3일 전 stamp 를 그대로 내보내므로 실제 브릿지와 달리 restamp 되지 않는다.
 `ee_twist_publisher` 가 출력 stamp 를 발행 시각으로 갈아끼우므로 servo 까지는
@@ -403,11 +429,11 @@ bag 은 3일 전 stamp 를 그대로 내보내므로 실제 브릿지와 달리 
 
 ---
 
-## 7. JTC 스택(`rdfp_panda_mock`)과의 차이
+## 7. JTC 스택(`panda_mock`)과의 차이
 
 절차는 동일하고 **servo 출력 토픽만 다르다.**
 
-| | `rdfp_panda_jgpc_mock` | `rdfp_panda_mock` |
+| | `panda_mock_jgpc` | `panda_mock` |
 |---|---|---|
 | arm 컨트롤러 | `JointGroupPositionController` | `JointTrajectoryController` |
 | servo 출력 | `/panda_arm_controller/commands`<br>(`Float64MultiArray`) | `/panda_arm_controller/joint_trajectory`<br>(`JointTrajectory`) |
@@ -422,6 +448,6 @@ bag 은 3일 전 stamp 를 그대로 내보내므로 실제 브릿지와 달리 
 
 - [external_input_adapters.md](external_input_adapters.md) — 어댑터 계약 (토픽·stamp·주기)
 - [leader_follower_mirroring_design.md](leader_follower_mirroring_design.md) — retarget 설계와 안전장치
-- [../moveit/servo_client_programmers_guide.md](../moveit/servo_client_programmers_guide.md) — servo 서비스·상태 코드
-- [../replay/replay_mock_stack_guide.md](../replay/replay_mock_stack_guide.md) — 같은 제약이 재생 경로에도 적용된다
+- [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — servo 서비스·상태 코드
+- [../replay/replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md) — 같은 제약이 재생 경로에도 적용된다
 - [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — 런치 인벤토리

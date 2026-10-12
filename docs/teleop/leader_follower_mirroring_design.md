@@ -1,6 +1,8 @@
 # Leader-Follower 이기종 로봇 동작 미러링 설계안
 
 > 📖 teleop 문서 진입점: [README.md](README.md) — 하려는 일부터 문서를 고른다.
+>
+> **상태: 현행 — 설계 근거.** §8 로드맵의 1~4 는 구현됐다(`teleop_mirror.launch.py` · `teleop_retarget` · `ee_twist_node`, 운영 절차는 [omy_leader_teleop_guide.md](omy_leader_teleop_guide.md)). 5(PoseTracking C++ 노드로 승격)는 미착수다.
 
 leader 로봇을 사람이 직접 움직이고, follower 로봇이 그 동작을 실시간으로
 따라 하게(mirroring) 만드는 teleoperation 시스템의 설계안이다.
@@ -143,7 +145,7 @@ pose 를 그대로 넘기면 안 되고, "상대 변위" 매핑** 을 쓴다. �
   `/servo_node/delta_twist_cmds` 경로를 이미 검증했다. **retarget 노드 하나만
   새로 쓰면 되는 구성** 이다.
 - 장시간 정밀 미러링이 필요해지면 (b) 로 승격한다. 폐루프/드리프트 논리는
-  [../replay/replay_approaches.md](../replay/replay_approaches.md)
+  [../replay/replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md)
   참고.
 
 ## 4. 50Hz 기준 설계 확정값
@@ -170,7 +172,7 @@ leader `/tf` 가 50Hz(주기 20ms)로 확인되었다. 사람 팔 동작의 유�
    직접 구현해야 한다. 다만 **Humble 의 `servo_node` 는 pose 를 받지 못하므로**
    pose tracking 을 쓰려면 C++ 노드를 새로 작성해야 한다 — 사실상 twist 방식에서
    직접 구현하는 쪽이 가깝다
-   ([replay_approaches.md](../replay/replay_approaches.md)
+   ([replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md)
    방법 A).
 5. **Servo 내장 보호 활용** — 특이점/관절한계 스케일다운, 충돌 체크.
 
@@ -243,7 +245,7 @@ leader 의 EE 속도(twist)를 구해 그대로 `/delta_twist_cmds` 에 흘리�
 1차 프로토타입 (a) 안의 twist 스트리밍은 실용적으로 허용된다. 이때도 twist 는
 retarget 된 target_pose 를 차분해 만들므로 클러치/스케일은 유지된다.
 자세한 폐루프/개루프 논의는
-[../replay/replay_approaches.md](../replay/replay_approaches.md)
+[../replay/replay_mock_stack_guide.md](../collect/replay_mock_stack_guide.md)
 를 참고한다.
 
 ### 9.1 그렇다면 `/tf → twist` 로 바로 만들면 안 되나? (자주 되묻게 되는 질문)
@@ -313,6 +315,6 @@ ee_twist_node` 3노드를 하나로 합치는 것은 합리적이다. 단 그 �
   TwistStamped (`ee_twist_node`). `source:=ee_pose` 로 재사용.
 - `src/rdfp/rdfp/teleop/teleop_keyboard.py` — `/servo_node/delta_twist_cmds`
   경로의 기존 검증 사례.
-- `docs/moveit/servo_client_programmers_guide.md` — Servo 클라이언트 사용법.
+- `docs/moveit/servo_client_user_guide.md` — Servo 클라이언트 사용법.
 - `docs/replay/replay_approaches.md` — 폐루프/개루프,
   드리프트, pose tracking 배경 설명.

@@ -102,29 +102,51 @@ flowchart LR
 | 입력 | 팔 제어 (관절 위치) | `/target_joint_cmds` | `sensor_msgs/JointState` |
 | 입력 | 그리퍼 제어 | `/gripper_cmds` | `rdfp_msgs/GripperCommand` (`goal` — 심볼) |
 | **출력** | 팔·그리퍼 관절 상태 | `/joint_states` | `sensor_msgs/JointState` |
-| 출력 | 엔드이펙터 자세 | `/ee_pose` | `geometry_msgs/PoseStamped` |
+| 출력 | 엔드이펙터 자세 (그리퍼 파지 중심, 아래 TCP 계약) | `/ee_pose` | `geometry_msgs/PoseStamped` |
 | 출력 | 그리퍼 상태 | `/gripper_states` | `rdfp_msgs/GripperState` (`width`/`stalled`/`at_goal`) |
 | 출력 | 카메라 RGB | `/camera/image_raw` | `sensor_msgs/Image` |
 | **제어** | 에피소드 경계 | `/session` | `rdfp_msgs/SessionCommand` (TRANSIENT_LOCAL) |
 
 > **위 표는 런타임에 보이는 절대 이름이다. 노드 코드는 상대 이름으로 선언한다** —
-> `'/joint_states'` 가 아니라 `'joint_states'` 다. 그래야 백엔드 경계에서 remap 이
-> 통하고, 로봇별 네임스페이스가 나중에 자동으로 붙는다. 채널을 새로 만들거나 이름을
-> 바꿀 때의 규칙(단수/복수, remap 을 쓸 곳, 파라미터로 받아야 하는 예외)은
-> [topic_naming_contract.md](topic_naming_contract.md) 가 정본이다.
+> `'/joint_states'` 가 아니라 `'joint_states'` 다. 그래야 백엔드 경계에서 remap 이 통하고, 로봇별 네임스페이스가 나중에 자동으로 붙는다. 채널을 새로 만들거나 이름을 바꿀 때의 규칙(단수/복수, remap 을 쓸 곳, 파라미터로 받아야 하는 예외)은 [topic_naming_contract.md](topic_naming_contract.md) 가 정본이다.
 
-`/session` 만 성격이 다르다 — 로봇을 움직이는 명령이 아니라 **데이터 수집 구간을
-선언**하는 신호이며, 에피소드 생성기와 저장기가 함께 본다.
+`/session` 만 성격이 다르다 — 로봇을 움직이는 명령이 아니라 **데이터 수집 구간을 선언**하는 신호이며, 에피소드 생성기와 저장기가 함께 본다.
 
-**그래서 세션은 시스템에 하나다.** 로봇이 둘 이상이면 그것은 **공동 작업으로 하나의
-학습 데이터를 만든다**는 뜻이지 각자 수집한다는 뜻이 아니다 — 나누면 한쪽의
-`stop_episode` 가 다른 쪽 에피소드를 잘라 공동 작업이 하나의 시연으로 안 묶인다.
-**서로 다른 학습 작업은 `ROS_DOMAIN_ID` 를 나눠서** 한다. 이 결정 때문에 `/session`
-은 로봇별 네임스페이스에 들어가지 않는다
-([topic_naming_contract.md](topic_naming_contract.md) §2.5).
+**그래서 세션은 시스템에 하나다.** 로봇이 둘 이상이면 그것은 **공동 작업으로 하나의 학습 데이터를 만든다**는 뜻이지 각자 수집한다는 뜻이 아니다 — 나누면 한쪽의 `stop_episode` 가 다른 쪽 에피소드를 잘라 공동 작업이 하나의 시연으로 안 묶인다.
+**서로 다른 학습 작업은 `ROS_DOMAIN_ID` 를 나눠서** 한다. 이 결정 때문에 `/session` 은 로봇별 네임스페이스에 들어가지 않는다 ([topic_naming_contract.md](topic_naming_contract.md) §2.5).
 
-> **`/session` 의 QoS 는 `TRANSIENT_LOCAL` 이다.** 늦게 뜬 녹화기도 현재 상태를 보게
-> 하기 위한 것이며, 구독자와 `ros2 topic echo` 모두 QoS 를 맞춰야 한다.
+> **`/session` 의 QoS 는 `TRANSIENT_LOCAL` 이다.** 늦게 뜬 녹화기도 현재 상태를 보게 하기 위한 것이며, 구독자와 `ros2 topic echo` 모두 QoS 를 맞춰야 한다.
+
+#### `/ee_pose` 의 TCP 계약 `설계안` (2026-09-14)
+
+**소비자는 `/ee_pose` 를 어떻게 계산하는지 알 필요가 없다.** 순기구학, URDF, TCP 변환 상수는 로봇 환경(백엔드 스택) 내부의 사정이다. 계약은 그 값이 **무엇을 뜻하고 어떤 성질을 보장하는가**만 정한다. 스택마다 TCP 의 이름은 달라도 되며, 정본은 백엔드 프로파일의 `frames.ee` 다(launch 의 `ee_pose` 노드와 트윈의 `move_linear` 기본 프레임이 같은 값을 읽는다).
+
+| 항목 | 계약 |
+|---|---|
+| 원점 | 그리퍼 파지 중심 (두 손가락 안쪽면 사이) |
+| 축 | z 는 접근 방향. 손가락 개폐 방향에 대응하는 축을 하나로 정한다 (규약 미정) |
+| 기준 프레임 · 표현 | `header.frame_id` = `panda_link0`, m, 쿼터니언 xyzw |
+| 시각 | `header.stamp` 는 그 자세가 성립한 시각이며 같은 스택의 다른 관측 채널과 같은 시계다 |
+| 새 값의 주기 | 명시한다. 발행 주기와 구분한다 |
+| 연속성 | 새 값이 없으면 이전 값을 반복 발행하지 않는다 |
+
+현재 준수 현황은 다음과 같다.
+
+| 항목 | isaac | functionbay |
+|---|---|---|
+| 원점 | ✗ `panda_hand` — 손 장착면이며 파지 중심은 약 0.1 m 앞 | ○ `grasp_center` |
+| 축 | z ○ · 개폐 축 규약 미정 | z ○ · 개폐 축 규약 미정 |
+| 새 값의 주기 | ✗ 발행 50 Hz, 새 값 약 18 Hz (TF 경유, mock 실측) | ✗ 같다 |
+| 연속성 | 미확인 | ✗ 시뮬레이터 재시작으로 시계가 되감기면 같은 값을 계속 발행한다 |
+
+> ⚠️ isaac 에 `frames.ee` 를 넣으려면 `robot-twin-client` 의 `to_arm_command()` 가 곱하는
+> 45° 를 함께 정리해야 한다 — 그대로 넣으면 90° 이중 회전이 된다.
+
+teleop 의 목표 EE 자세는 같은 TCP 정의로 로봇 환경이 발행한다(`target_ee_pose`,
+[topic_naming_contract.md](topic_naming_contract.md) §2.3). MoveIt 생성 데이터의 데카르트 명령은
+채널을 따로 발행하지 않고, 관절 명령과 기구학 모델 스냅샷으로 같은 TCP 정의에 따라 다시 계산한다.
+학습 데이터 쪽 설계(책임 분담 · 명령 후보 · 적합성 시험과 그 결과):
+[archive/learning/학습_데이터의_좌표_공간_비교.md](archive/learning/학습_데이터의_좌표_공간_비교.md) §5.6~§5.8 (보관본 — 데카르트 단계는 보류, [learning/열린_결정.md](learning/열린_결정.md) §2).
 
 ### 2.2 action 과 observation 을 함께 남긴다 `현행`
 
@@ -160,13 +182,25 @@ imitation learning 데이터의 핵심은 **(관측, 행동) 쌍**이다. 그래
 구분된다. 이 구분이 사라지면 학습 데이터로서의 가치가 크게 떨어지므로, 녹화 목록에서
 두 토픽을 함께 유지한다 ([config/recording_topics.list](../config/recording_topics.list)).
 
+> **재검토 → 방향 결정 (2026-09-13 → 2026-09-17)** — mock(JTC)에서 MoveIt 으로 움직인 구간은 `/target_joint_cmds` 가
+> 비고, 펑션베이는 teleop 과 트윈의 명령이 중력 보상 오프셋만큼 다르다. 대안·평가·권고:
+> [learning/결정_기록.md](learning/결정_기록.md) (원문은 archive/learning/학습_데이터_수집_설계.md).
+> MoveIt 으로만 데이터를 생성하는 경우의 설계는
+> [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) §2 (명령 체인 L0~L4).
+>
+> **MoveIt 생성 데이터의 팔 action 은 계획 수준(관절-계획)으로 하기로 했다.** 실행 궤적 · 연산 이벤트로 녹화하고
+> export 가 연산 사이 공백을 규칙으로 채우며, 학습은 ACT 형식이다(잠정 주기 영상 10 · 행동 10 · 관측 50 Hz).
+> 샘플 구조: [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) §4. 위 표의 `/target_joint_cmds` 는
+> 계속 녹화하는 비교 기준이며, 코드는 아직 바뀌지 않았다. 데이터 출처는 당분간 트윈만 다룬다(teleop 제외).
+> 결정 사항 전체: [learning/결정_기록.md](learning/결정_기록.md).
+
 ### 2.3 계약은 두 겹이다 `현행 + 설계안`
 
 경계가 하나가 아니라는 점을 구분해야 논의가 엉키지 않는다.
 
 | 경계 | 계약 내용 | 정의된 곳 |
 |---|---|---|
-| **로봇 환경 ↔ MoveIt/컨트롤러** | `panda_arm_controller` / `panda_hand_controller` 액션, 관절 이름, TF 트리, `robot_description` | [simulation/multi_simulator_backend_design.md](simulation/multi_simulator_backend_design.md) §5 |
+| **로봇 환경 ↔ MoveIt/컨트롤러** | `panda_arm_controller` / `panda_hand_controller` 액션, 관절 이름, TF 트리, `robot_description` | [backends/README.md](backends/README.md) 「백엔드 비교」 (계약 원문은 archive/isaac/multi_simulator_backend_design.md §5) |
 | **에피소드 생성기 ↔ 로봇 환경** | 2.1 의 토픽 표 | 이 문서 |
 
 아래(백엔드 계약)는 **Panda 이름을 그대로 고정**하기로 이미 결정되어 있다. MoveIt 의
@@ -237,7 +271,7 @@ flowchart LR
 
 **팔 컨트롤러가 두 갈래**라는 점이 이 스택의 특징이다.
 
-| | JTC (`panda_mock`) | JGPC (`panda_jgpc_mock`) |
+| | JTC (`panda_mock`) | JGPC (`panda_mock_jgpc`) |
 |---|---|---|
 | 컨트롤러 | `JointTrajectoryController` | `JointGroupPositionController` |
 | 명령 토픽 | `/panda_arm_controller/joint_trajectory` | `/panda_arm_controller/commands` |
@@ -245,11 +279,11 @@ flowchart LR
 | 폐루프 | 예 | **아니오** — 정상 반환이 도달을 보장하지 않는다 |
 
 `create_move_group_client()` 가 이 차이를 흡수하므로 상위 코드는 분기하지 않는다.
-자세한 것은 [moveit/MoveGroupClient_UserGuide.md](moveit/MoveGroupClient_UserGuide.md).
+자세한 것은 [moveit/move_group_client_user_guide.md](control/move_group_client_user_guide.md).
 
 ### 3.3 다른 환경으로 교체할 때 `설계안`
 
-**백엔드 계약의 정본은 [simulation/multi_simulator_backend_design.md](simulation/multi_simulator_backend_design.md) §5 다** —
+**백엔드 계약의 정본은 [backends/README.md](backends/README.md) 와 백엔드 프로파일(`config/backends/*.yaml`) 이다** (계약 원문: archive/isaac/multi_simulator_backend_design.md §5) —
 반드시 제공해야 하는 것(관절 상태·컨트롤러 액션·TF·`robot_description`), 보장 조건,
 카메라 토픽 일원화가 거기 있다. 여기서는 **데이터 수집 관점에서만** 세 가지를 덧붙인다.
 
@@ -258,7 +292,7 @@ flowchart LR
 2. **주기를 유지한다.** 실효 10 Hz 미만이면 재생이 계단식이 된다.
 3. **`/joint_states` 에 그리퍼 관절을 포함한다.** 팔만 있으면 파지 시점을 복원할 수 없다.
 
-Gazebo 브링업 절차는 [simulation/gazebo_bringup_guide.md](simulation/gazebo_bringup_guide.md),
+Gazebo 브링업 절차는 [simulation/gazebo_bringup_guide.md](backends/gazebo_bringup_guide.md),
 입력 어댑터 규약은 [teleop/external_input_adapters.md](teleop/external_input_adapters.md).
 
 ---
@@ -281,7 +315,7 @@ stateDiagram-v2
 ```
 
 에피소드 분할은 **`IN_EPISODE → IN_SESSION` 전이**를 기준으로 한다
-([session/session_control_guide.md](session/session_control_guide.md)).
+([session/session_control_guide.md](collect/session_control_guide.md)).
 
 ### 4.2 키보드 teleop `현행`
 
@@ -308,7 +342,7 @@ flowchart LR
   공유하지 않는다. UDP 릴레이로 넘어온다.
 - 클러치는 앵커를 다시 잡는 장치다. 데드맨으로 쓰려면 `pedal_timeout` 을 켜야 한다.
 - **그리퍼 경로가 아직 없다** — 리더 트리거를 쓰는 설계는
-  [teleop/leader_gripper_mapping_design.md](teleop/leader_gripper_mapping_design.md).
+  [teleop/leader_gripper_mapping_design.md](archive/leader_gripper_mapping_design.md).
 
 ### 4.4 LLM 기반 제어 (robot twin) `현행 (부분)`
 
@@ -338,7 +372,7 @@ flowchart LR
 **주변 물체의 위치 정보는 아직 없다.** pick-and-place 를 LLM 이 수행하려면 "캔이 어디
 있는가"가 필요한데, 현재 트윈은 로봇 자신의 상태만 노출한다 — 9장의 미결 항목이다.
 
-상세는 [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md).
+상세는 [robot_twin/robot_twin_user_guide.md](twin/robot_twin_user_guide.md).
 
 ### 4.5 세 구현 비교
 
@@ -621,12 +655,15 @@ rdfp           session / recorder / dataset / rosbag / teleop + rdfp_ launch
 | leader-follower teleop (팔) | 현행 |
 | leader-follower **그리퍼** | 설계안 |
 | robot twin (상태 변수 + 연산) | 현행 |
-| robot twin **주변 물체 정보** | 미구현 |
+| robot twin 주변 물체 정보 (`scene_objects` 변수 · `reset_scene` · `fixtures`) | 현행 |
 | rosbag2 MCAP 수집 | 현행 |
 | import (DB + MP4) | 현행 |
 | 재생 (토픽 / 이미지 / GUI) | 현행 |
-| **데이터셋 export (LeRobot v3)** | **미구현** |
-| 표준 토픽 이름 (구현 중립) | 설계안 |
+| 데이터셋 export (에피소드별 `.npz` + `metadata.json`, ACT chunk 미리 계산 — LeRobot 형식은 쓰지 않는다) | 현행 (2026-09-19) |
+| 실행 궤적 · 연산 이벤트 채널 (R1 · R2, `motion/*`) | 현행 (2026-09-18) |
+| 학습 (`rdfp-train`, `ACTPolicy`) | 현행 — 코드 완성, 첫 학습 실행 대기 |
+| 추론 배치 (P1~P3) | 미구현 |
+| 표준 토픽 이름 — 1단계 정규 이름 | 현행 (2026-09-01 적용). 2단계 로봇별 네임스페이스는 미구현 |
 
 ---
 
@@ -634,11 +671,11 @@ rdfp           session / recorder / dataset / rosbag / teleop + rdfp_ launch
 
 | # | 항목 | 내용 |
 |---|---|---|
-| 1 | **export 설계** | LeRobot v3 스키마 ↔ 5.4 테이블 매핑. 프레임 정렬 기준과 영상 참조 규약 |
-| 2 | **물체 위치 정보** | LLM 제어(4.4)의 전제. 시뮬레이터는 ground truth 가 있고 실기는 인식이 필요하다 — 두 경로의 인터페이스를 하나로 정의해야 한다 |
+| ~~1~~ | ~~export 설계~~ | **닫힘 (2026-09-19)** — [learning/저장_형식.md](learning/저장_형식.md). 학습 데이터 쪽 열린 결정은 [learning/열린_결정.md](learning/열린_결정.md) 가 갖는다 |
+| ~~2~~ | ~~물체 위치 정보~~ | **닫힘 (2026-09-01)** — 인터페이스는 `/scene/objects` · `/scene/reset` 계약([control/scene_objects_guide.md](control/scene_objects_guide.md)). 실기의 인식 노드는 실기 과제로 남는다([backends/franka_panda_bringup_prep.md](backends/franka_panda_bringup_prep.md) §6) |
 | 3 | 토픽 이름 중립화 | 2.3. 두 번째 로봇 환경을 붙이는 시점에 착수 |
 | 4 | 경계 테스트 | 7.4-2. 저장/관리기의 ROS 비의존을 CI 로 고정 |
-| 5 | 관절 이름 저장 | 5.4 의 함정. 스키마를 바꿀지, 재생 측 보완을 유지할지 |
+| ~~5~~ | ~~관절 이름 저장~~ | **닫힘 (2026-09-18)** — `joint_states.joint_names TEXT[]`. 이름 없는 행은 export 가 거부한다 |
 
 ---
 
@@ -654,7 +691,7 @@ rdfp           session / recorder / dataset / rosbag / teleop + rdfp_ launch
 
 | 서브시스템 | 문서 |
 |---|---|
-| 로봇 환경 | [../src/robot_control/launch/README.md](../src/robot_control/launch/README.md) (제어 계열), [../src/rdfp/launch/README.md](../src/rdfp/launch/README.md) (수집 계열), [moveit/README.md](moveit/README.md) |
-| 에피소드 생성기 | [teleop/README.md](teleop/README.md), [robot_twin/robot_twin_user_guide.md](robot_twin/robot_twin_user_guide.md), [session/session_control_guide.md](session/session_control_guide.md) |
-| 저장/관리기 | [rosbag2/데이터셋 후처리기 설계서.md](rosbag2/데이터셋%20후처리기%20설계서.md), [replay/](replay/) |
-| 설계 근거 | [robot_twin/robot_twin_design.md](robot_twin/robot_twin_design.md), [teleop/leader_follower_mirroring_design.md](teleop/leader_follower_mirroring_design.md) |
+| 로봇 환경 | [../src/robot_control/launch/README.md](../src/robot_control/launch/README.md) (제어 계열), [../src/rdfp/launch/README.md](../src/rdfp/launch/README.md) (수집 계열), [control/README.md](control/README.md) |
+| 에피소드 생성기 | [teleop/README.md](teleop/README.md), [robot_twin/robot_twin_user_guide.md](twin/robot_twin_user_guide.md), [session/session_control_guide.md](collect/session_control_guide.md) |
+| 저장/관리기 | [rosbag2/dataset_ingest_design.md](collect/dataset_ingest_design.md), [replay/](collect/) |
+| 설계 근거 | [robot_twin/robot_twin_design.md](twin/robot_twin_design.md), [teleop/leader_follower_mirroring_design.md](teleop/leader_follower_mirroring_design.md) |
