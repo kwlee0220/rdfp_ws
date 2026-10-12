@@ -85,7 +85,7 @@ HOLD_SEC = 3.0             # 들어올린 뒤 이만큼 버티는지 본다
 
 # **여기 있는 폭은 전부 `GripperState.width`(개구 폭, m)다 — 관절값이 아니다.**
 # Panda 는 개구 폭이 손가락 관절값의 2배이므로, 관절값 기준으로 잡은 옛 임계값을
-# 그대로 쓰면 판정이 뒤집힌다 (`docs/gripper/GripperNode_Design.md`).
+# 그대로 쓰면 판정이 뒤집힌다 (`docs/control/gripper_node_design.md`).
 OPEN_WIDTH = 0.07          # `open` 목표에 도달했을 때의 개구 폭
 # 물린 폭이 이 범위 밖이면 파지가 아니다. 0 에 가까우면 놓친 것이고, 열림에
 # 가까우면 닫히지 않은 것이다. 블록 한 변이 0.05 이므로 그 언저리가 정상이다.

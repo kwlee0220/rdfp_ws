@@ -37,7 +37,7 @@
 #
 # `sim_control` 확장도 기본 비활성이라 `--enable` 로 켠다. 그것이 `/scene/reset` 이
 # 쓰는 `simulation_interfaces` 서비스를 연다
-# (docs/scene/isaac_scene_reset.md).
+# (docs/backends/isaac/isaac_scene_reset.md).
 #
 #
 # ── 2. 도메인 ────────────────────────────────────────────────────────────────
@@ -48,9 +48,9 @@
 #
 # ── 3. 관련 문서 ─────────────────────────────────────────────────────────────
 #
-#   docs/simulation/isaac_bringup_runbook.md    **기동 절차 전체** (스크립트 목록·확인·정리)
-#   docs/simulation/isaac_backend_skeleton.md   Phase 0~10, 배포 구성, 6.0 재검증 결과
-#   docs/scene/isaac_scene_reset.md             /scene/reset 경로와 선행 조건
+#   docs/backends/isaac/isaac_bringup_runbook.md    **기동 절차 전체** (스크립트 목록·확인·정리)
+#   docs/backends/isaac/isaac_backend.md   Phase 0~10, 배포 구성, 6.0 재검증 결과
+#   docs/backends/isaac/isaac_scene_reset.md             /scene/reset 경로와 선행 조건
 set -euo pipefail
 
 ISAAC_ROOT="${ISAAC_ROOT:-$HOME/isaacsim}"
@@ -84,6 +84,37 @@ isaac_env=(
     LD_LIBRARY_PATH="$ISAAC_ROS/lib"
     RDFP_WORKSPACE="$WORKSPACE"
 )
+
+# **이미 떠 있으면 막는다** (2026-09-20). 둘이 뜨면 같은 도메인에서 `/clock` 과 `/tf` 를
+# 각각 발행해, 먼저 뜬 쪽의 **큰 시계가 TF 버퍼를 채워** 새 쪽 데이터가
+# `TF_OLD_DATA` 로 버려진다 — 갓 띄운 스택에서 씬 물체 프레임에 경고가 쏟아지는 것이
+# 그 증상이다(시각이 십여 초로 **작다**). 실측에서 1124초 대 17초였다.
+# `run_collect_isaac.sh --shutdown rdfp` 가 시뮬레이터를 **일부러 남기므로** 그 뒤에
+# 습관적으로 이 스크립트를 다시 치면 바로 이 상황이 된다.
+#
+# argv 앞 두 원소만 본다 — 명령줄에 경로를 '언급만' 하는 프로세스를 잡지 않으려는 것이다.
+_running_isaac() {
+    local pid a i
+    for pid in /proc/[0-9]*; do
+        pid="${pid#/proc/}"
+        [[ "$pid" == "$$" ]] && continue
+        i=0
+        while IFS= read -r -d '' a; do
+            [[ "$a" == *"/sim_side/headless_bringup.py" || "$a" == *"/isaac-sim.sh" ]] \
+                && { echo "$pid"; break; }
+            i=$((i + 1)); [[ "$i" -ge 3 ]] && break
+        done < "/proc/$pid/cmdline" 2>/dev/null
+    done
+}
+
+existing="$(_running_isaac || true)"
+if [[ -n "$existing" ]]; then
+    echo "[isaac] 이미 떠 있다: $(echo "$existing" | tr '\n' ' ')" >&2
+    echo "[isaac] 둘이 뜨면 /clock·/tf 를 각각 발행해 TF_OLD_DATA 가 쏟아진다." >&2
+    echo "[isaac] 정리하고 다시 띄운다:  ./scripts/kill_stack.sh" >&2
+    echo "[isaac] 일부러 두 개를 띄우려면 ROS_DOMAIN_ID 를 다르게 준다." >&2
+    exit 1
+fi
 
 echo "[isaac] root=$ISAAC_ROOT  domain=$DOMAIN  workspace=$WORKSPACE"
 echo "[isaac] 관절상태=/isaac_joint_states  짝=panda_isaac.launch.py"

@@ -31,7 +31,7 @@ peg 이 그리퍼 안에서 밀려 올라가 있으면 완전 삽입에 **손가
 (x +188 mm, z −3900 m 까지 가속. 재현 4/4). 그리퍼 `effort` 로는 안 잡히고 물체 TF 를
 봐야 보인다. 펑션베이는 `/scene/reset` 이 없어 복구는 시뮬레이터 재시작뿐이다.
 
-배경: `docs/simulation/functionbay_gravity_compensation.md`
+배경: `docs/backends/functionbay/펑션베이_중력_보상.md`
 """
 from __future__ import annotations
 

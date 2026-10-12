@@ -27,7 +27,7 @@
 # 수집 노드(session_control · image_recorder · target_joint_cmds_publisher)는 뜨지
 # 않는다. 세션/에피소드와 녹화까지 필요하면 수집 계열을 쓴다:
 #
-#   ros2 launch rdfp rdfp_panda_functionbay.launch.py
+#   ./scripts/run_rdfp_panda_functionbay.sh   # 수집 계층 (다른 터미널)
 #
 # 사용 예 — 전체 인자는 `--show-args` 로 본다.
 #

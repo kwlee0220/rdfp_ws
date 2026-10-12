@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isaac 백엔드 **Phase 0 수용 기준**을 한 번에 검사한다.
 
-``docs/simulation/isaac_backend_skeleton.md`` §2 Phase 0 의 5개 기준을 그대로 검사한다.
+``docs/backends/isaac/isaac_backend.md`` §2 Phase 0 의 5개 기준을 그대로 검사한다.
 
     1. /clock 이 흐르고 배속이 1.0 근처인가
     2. /joint_states 주파수와 **관절 이름이 URDF 와 일치**하는가

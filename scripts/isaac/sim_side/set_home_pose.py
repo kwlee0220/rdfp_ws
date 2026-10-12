@@ -36,7 +36,10 @@ _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/r
 _DEFAULT_LOG_DIR = "//wsl.localhost/Ubuntu-22.04/tmp" if _IS_WINDOWS else "/tmp"
 WORKSPACE = _os.environ.get("RDFP_WORKSPACE") or _DEFAULT_WORKSPACE
 LOG_DIR = _os.environ.get("RDFP_LOG_DIR") or _DEFAULT_LOG_DIR
-SCENE_JSON = WORKSPACE + "/src/robot_control/config/isaac_scene.json"
+# **설치본을 읽는다 — `src/` 가 아니다** (2026-09-21). ROS 쪽 scene 노드와 트윈이 설치본을
+# 읽으므로 여기만 `src/` 면 `colcon build` 를 잊었을 때 스테이지와 둘이 갈라진다
+# (scripts/run_robot_twin.sh 의 config_dir 주석). 고쳤으면 빌드해야 반영된다.
+SCENE_JSON = WORKSPACE + "/install/robot_control/share/robot_control/config/isaac_scene.json"
 LOG_PATH = LOG_DIR + "/isaac_set_home_pose.log"
 
 # 그리퍼는 열어 둔다. 닫힌 채로 시작하면 조 사이에 물체가 낀 상태로 출발할 수 있다.

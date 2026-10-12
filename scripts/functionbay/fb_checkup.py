@@ -6,7 +6,7 @@
 
 능동 확인(중력 처짐·dead time·시정수·추종 성능·그리퍼)은 ``fb_hold.py`` /
 ``fb_raw.py`` / ``fb_probe.py`` + ``fb_move.py`` 가 맡는다. 절차는
-``docs/simulation/functionbay_checklist.md`` 를 본다.
+``docs/backends/functionbay/펑션베이_인수_체크리스트.md`` 를 본다.
 
     ./fb_checkup.py                       # 기본 30초 관측
     ./fb_checkup.py 60                    # 관측 시간 지정

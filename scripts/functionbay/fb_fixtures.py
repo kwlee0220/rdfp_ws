@@ -6,7 +6,7 @@
 
 `/scene/objects` 에는 **움직이는 물체만** 실린다. 구멍·트레이는 시뮬레이터가
 `static="true"` 라 TF 로도 안 내보내므로, 값은 백엔드 프로파일이 가리키는 고정물
-정의 파일에서 온다 (`docs/gripper/…` 아님 — `scene.fixtures_file`).
+정의 파일에서 온다 (`docs/control/…` 아님 — `scene.fixtures_file`).
 """
 from __future__ import annotations
 

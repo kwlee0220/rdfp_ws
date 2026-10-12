@@ -1,6 +1,6 @@
-# rdfp Docker (panda mock / replay mock / replay GUI)
+# rdfp Docker (gazebo / replay mock / replay GUI)
 
-`run_panda_mock.sh` / `run_replay_mock.sh` / `replay_gui` 를 컨테이너로 실행하기
+`run_gazebo.sh` / `run_replay_mock.sh` / `replay_gui` 를 컨테이너로 실행하기
 위한 구성이다. **apt ROS 2 Humble 만 사용**하므로, 호스트에서 겪던 소스 빌드
 moveit(ws_moveit2)과 apt base 라이브러리 간 ABI 충돌이 발생하지 않는다.
 
@@ -9,9 +9,7 @@ moveit(ws_moveit2)과 apt base 라이브러리 간 ABI 충돌이 발생하지 �
 | 이미지 | 역할 | 실행 명령 |
 |---|---|---|
 | `rdfp-base` | ROS+moveit+rdfp 빌드 (공유 베이스) | — |
-| `rdfp-panda-mock` | 풀 앱 mock 스택 (+camera/recorder) | `ros2 launch rdfp rdfp_panda_mock.launch.py` |
-| `rdfp-panda-jgpc-mock` | JGPC(forward command) mock 스택 (+camera) | `ros2 launch robot_control panda_jgpc_mock.launch.py` |
-| `rdfp-gazebo` | Gazebo(Fortress) 백엔드 풀 앱 스택 | `ros2 launch rdfp rdfp_panda_gazebo.launch.py` |
+| `rdfp-gazebo` | Gazebo(Fortress) 백엔드 **제어 스택** | `ros2 launch robot_control panda_gazebo.launch.py` |
 | `rdfp-replay-mock` | replay 스택 | `ros2 launch rdfp replay_panda_mock.launch.py` |
 | `rdfp-replay-gui` | Tk 재생 GUI (+DB/MP4 재생) | `ros2 run rdfp replay_gui` |
 
@@ -28,14 +26,23 @@ moveit(ws_moveit2)과 apt base 라이브러리 간 ABI 충돌이 발생하지 �
 
 ```
 rdfp-base                  ← ROS/moveit/colcon build/entrypoint (무거운 것 전부)
-├── rdfp-panda-mock        → CMD: ros2 launch rdfp rdfp_panda_mock.launch.py
-├── rdfp-panda-jgpc-mock   → CMD: ros2 launch robot_control panda_jgpc_mock.launch.py
-├── rdfp-gazebo            → +ros_gz/ign_ros2_control, CMD: ros2 launch rdfp rdfp_panda_gazebo.launch.py
+├── rdfp-gazebo            → +ros_gz/ign_ros2_control, CMD: ros2 launch robot_control panda_gazebo.launch.py
 ├── rdfp-replay-mock       → CMD: ros2 launch rdfp replay_panda_mock.launch.py
 └── rdfp-replay-gui        → CMD: ros2 run rdfp replay_gui   (+Tk/pip 만 추가)
 ```
 
-`panda-mock` / `replay-mock` 의 Dockerfile 은 사실상 `FROM rdfp-base` + `CMD`
+> **mock 스택 이미지 둘(`rdfp-panda-mock` · `rdfp-panda-mock-jgpc`)은 2026-09-13 에
+> 없앴다.** 두 이미지가 실행하던 `rdfp_panda_mock` · `rdfp_panda_mock_jgpc` 런치를
+> 삭제했기 때문이다. 그 조합은 이제 **런치 둘**(`panda_mock` + `rdfp_collect`)이라
+> 컨테이너 하나의 `CMD` 로는 담기지 않는다 — 담으려고 둘을 include 하는 런치를 만들면
+> 그것이 곧 지운 번들이다. mock 스택은 로컬에서 터미널 두 개로 띄운다:
+>
+> ```bash
+> ros2 launch robot_control panda_mock.launch.py
+> ros2 launch rdfp rdfp_collect.launch.py
+> ```
+
+`replay-mock` 의 Dockerfile 은 사실상 `FROM rdfp-base` + `CMD`
 두 줄뿐이다. 이렇게 나눈 이유:
 
 - **빌드 비용 1회** — apt 설치·colcon 빌드를 이미지마다 반복하지 않는다.
@@ -47,14 +54,13 @@ rdfp-base                  ← ROS/moveit/colcon build/entrypoint (무거운 것
 - **확장 용이** — 새 변형은 `FROM rdfp-base` + `CMD` 두 줄이면 된다.
 
 단, 앱 이미지는 `rdfp-base:latest` 태그를 참조하므로 base 가 먼저 빌드돼 있어야
-한다(`build.sh` 가 base→panda-mock→panda-jgpc-mock→gazebo→replay-mock→replay-gui
-순서를 강제).
+한다(`build.sh` 가 base→gazebo→replay-mock→replay-gui 순서를 강제).
 
 ## 빌드
 
 ```bash
 cd ~/development/ros/rdfp_ws
-./docker/build.sh    # base → panda-mock → panda-jgpc-mock → gazebo → replay-mock → replay-gui
+./docker/build.sh    # base → gazebo → replay-mock → replay-gui
 ```
 
 - 빌드 컨텍스트는 워크스페이스 루트이며, `.dockerignore` 로 `src/` 만 포함된다
@@ -67,23 +73,19 @@ cd ~/development/ros/rdfp_ws
 각 스크립트가 `xhost +local:docker`, `DISPLAY`, `/tmp/.X11-unix` 마운트를
 자동 처리한다.
 
-### panda mock 풀 앱 스택
+### panda mock 스택 — 컨테이너 이미지가 없다
+
+`rdfp-panda-mock` · `rdfp-panda-mock-jgpc` 이미지는 2026-09-13 에 없앴다 (위 §이미지
+아키텍처의 주 참조). 로컬에서 터미널 두 개로 띄운다.
 
 ```bash
-./docker/run_panda_mock.sh
-# 웹캠 없이:            ./docker/run_panda_mock.sh enable_camera_node:=false
-# 녹화 출력 경로 지정:  RDFP_REC_DIR=/data/rec ./docker/run_panda_mock.sh
-```
+# JTC
+ros2 launch robot_control panda_mock.launch.py
+ros2 launch rdfp rdfp_collect.launch.py
 
-camera 노드(웹캠)와 image_recorder 를 포함한다. 스크립트가 호스트의 `/dev/video*`
-를 자동 패스스루하고, 녹화 출력 디렉터리(기본 `/tmp/recordings`)를 볼륨 마운트한다.
-웹캠이 없으면 `enable_camera_node:=false` 로 카메라를 끈다.
-
-### panda JGPC mock 스택
-
-```bash
-./docker/run_panda_jgpc_mock.sh
-# 웹캠 없이: ./docker/run_panda_jgpc_mock.sh enable_camera_node:=false
+# JGPC — arm 명령 채널만 바꾼다
+ros2 launch robot_control panda_mock_jgpc.launch.py
+ros2 launch rdfp rdfp_collect.launch.py arm_cmd_source:=float64_multi_array
 ```
 
 `panda_arm_controller` 의 **타입만** `position_controllers/JointGroupPositionController`
@@ -94,7 +96,7 @@ camera 노드(웹캠)와 image_recorder 를 포함한다. 스크립트가 호스
   배열 순서가 컨트롤러 `joints` 파라미터 순서와 일치해야 함**) 를 받는다.
 - `moveit_simple_controller_manager` 가 `FollowJointTrajectory`/`GripperCommand` 만
   다루므로 **move_group 의 arm plan & execute 가 동작하지 않는다.** 계획 자체는 정상이다.
-  다만 `create_move_group_client(node)` 가 이 스택을 감지해 `MoveGroupJgpcClient` 를
+  다만 `create_move_group_client(node, backend='mock_jgpc')` 가 `MoveGroupJgpcClient` 를
   돌려주므로, 호출부는 평소대로 `move_to_named_target()` / `follow_trajectory()` 를
   쓰면 된다 (내부에서 계획 후 command 스트리밍으로 실행). 단 **open loop** 라
   정상 반환이 목표 도달을 뜻하지 않는다.
@@ -153,7 +155,7 @@ ROS_DOMAIN_ID=42 ./docker/run_replay_gui.sh
 
 # 셸 전체에 적용(이후 실행되는 모든 컨테이너에 반영)
 export ROS_DOMAIN_ID=42
-./docker/run_panda_mock.sh
+./docker/run_replay_mock.sh
 ```
 
 통신하는 **모든** 주체(두 컨테이너 + 호스트에서 띄우는 GUI/노드)가 같은 값이어야
@@ -218,11 +220,11 @@ GPU=1 ./docker/run_replay_mock.sh
 | 파일 | 역할 |
 |---|---|
 | `Dockerfile.base` | 공유 베이스(ROS+moveit+rdfp 빌드) |
-| `Dockerfile.panda_mock` / `.panda_jgpc_mock` / `.replay_mock` / `.replay_gui` | 각 스택 이미지(base 상속, CMD 만 교체) |
+| `Dockerfile.replay_mock` / `.replay_gui` | 각 스택 이미지(base 상속, CMD 만 교체) |
 | `Dockerfile.gazebo` | base + `ros_gz`/`ign_ros2_control`, gazebo 스택 |
 | `entrypoint.sh` | ROS + rdfp 오버레이 소싱(ws_moveit2 미사용 = apt-only) |
-| `build.sh` | 이미지 6개 순차 빌드 |
-| `run_panda_mock.sh` / `run_panda_jgpc_mock.sh` / `run_gazebo.sh` / `run_replay_mock.sh` / `run_replay_gui.sh` | X11 + `--network host` + 도메인/RMW 설정 실행 |
+| `build.sh` | 이미지 4개 순차 빌드 |
+| `run_gazebo.sh` / `run_replay_mock.sh` / `run_replay_gui.sh` | X11 + `--network host` + 도메인/RMW 설정 실행 |
 
 > run 스크립트는 인자 없이 실행하면 기본 launch/명령을, launch 인자만 주면
 > (`enable_rviz:=true` 등) 기본 명령 뒤에 붙여서, `ros2 …` 로 시작하는 전체

@@ -35,9 +35,22 @@
 #   백엔드별 scene 상태 노드가 2 Hz 로 발행한다. **학습 입력(observation)이 아니라**
 #   자동 라벨링(place 성공 판정)·오프라인 큐레이션·pose estimator 학습 라벨용이다.
 #   관측에 넣을지는 export 단계의 별도 결정이다
-#   (docs/rosbag2/scene_objects_observation_decision.md).
+#   (docs/learning/scene_objects_observation_decision.md).
 #   `/session` 과 같은 TRANSIENT_LOCAL 토픽이므로 rosbag2 가 발행자 QoS 에 맞춰 붙는다.
 /scene/objects
+
+# 팔 동작 연산의 실행 궤적과 결과 (학습 레이블의 원천)
+#   /motion/trajectory : 연산마다 한 건. 컨트롤러로 **실제로 보낸** 궤적(L2)이고
+#     `header.stamp` 는 발행 시각이 아니라 **궤적의 0초가 시작된 시각(t₀)** 이다.
+#     계획 궤적(/display_planned_path)이 아니다 — 데카르트는 속도 배율 때문에
+#     둘의 시간이 다르다(배율 0.1 에서 10배).
+#   /motion/event      : 연산마다 한 건. 어떤 연산이었고 **어떻게 끝났는지**와
+#     궤적 기준 중단 시각. `operation_id` 로 위 궤적과 짝짓는다.
+#   **둘 다 있어야 관절-계획 레이블을 만들 수 있다** — 궤적만으로는 연산이 중간에
+#   멈췄는지 알 수 없어, 중단된 연산 뒤의 레이블이 팔이 가지 않은 자리를 가리킨다.
+#   주기 토픽이 아니라 이벤트라 건수가 적다.
+/motion/trajectory
+/motion/event
 
 # Camera 관련 토픽
 /camera/image_raw

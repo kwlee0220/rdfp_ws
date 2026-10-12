@@ -7,10 +7,10 @@ launch 는 `panda_isaac.launch.py`, 시뮬레이터는 `run_isaac_sim.sh` 다.
 
 ros2_control 없이 토픽만으로 잇던 옛 경로(bridge)는 **삭제했다.** 고유하게 덮는
 것이 없었기 때문이다 — `MoveGroupJgpcClient`·`TrajectoryStreamer` 는
-`panda_jgpc_mock` 이, `arm_command_format='joint_state'` 와 `servo_command_bridge` 는
+`panda_mock_jgpc` 이, `arm_command_format='joint_state'` 와 `servo_command_bridge` 는
 펑션베이가 덮는다. 반면 방식이 둘이면 **launch 와 어긋났을 때 에러 없이 관절 상태가
 오지 않는** 함정이 생기고, 팔 실행이 개루프라 "성공을 반환했는데 도달하지 않음"이
-원리적으로 가능했다. 경위: `docs/simulation/isaac_backend_skeleton.md` §0 D1″.
+원리적으로 가능했다. 경위: `docs/backends/isaac/isaac_backend.md` §0 D1″.
 """
 from __future__ import annotations
 
@@ -47,8 +47,8 @@ def mode_banner() -> str:
 def create_arm_client(node: Node):
     """MoveGroup 클라이언트를 만든다.
 
-    `mode='auto'` 로 두지 않는다 — 자동 판별은 토픽 그래프 조회라 DDS 디스커버리가
-    앉기 전에 부르면 오판한다. 어느 스택인지 이미 알고 있으므로 못박는다.
+    어느 스택인지 이미 알고 있으므로 모드를 못박는다. (런타임 자동 판별은 없앴다 —
+    토픽 그래프 조회라 DDS 디스커버리가 앉기 전에 부르면 오판했다.)
     """
     from robot_control.moveit.move_group_factory import create_move_group_client
     return create_move_group_client(node, mode='jtc')

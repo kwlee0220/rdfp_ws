@@ -154,7 +154,7 @@ def check_content(node: Phase4Checker) -> bool:
         if stddev < CONTENT_MIN_STDDEV:
             print('       → 화면이 평평하다. 조명이 없어 검거나, 환경광이 세서 날아갔다')
         print('       → setup_scene.py 의 DISTANT_LIGHT_INTENSITY / '
-              'DOME_LIGHT_INTENSITY 를 본다')
+              'FILL_LIGHT_INTENSITY / DOME_LIGHT_INTENSITY 를 본다')
     return ok
 
 

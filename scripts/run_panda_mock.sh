@@ -7,7 +7,7 @@
 # 수집 노드(session_control · image_recorder · target_joint_cmds_publisher)는
 # 뜨지 않는다. 세션/에피소드 연산까지 필요하면 수집 계열을 쓴다:
 #
-#   ros2 launch rdfp rdfp_panda_mock.launch.py
+#   ros2 launch rdfp rdfp_collect.launch.py   # 수집 계층 (다른 터미널)
 #
 # 이 launch 에는 **설정 파일을 바꿔 끼우는 인자가 없다** (config_file 없음).
 # 카메라 기본값은 설치본의 robot_control/config/image_pipeline.yaml 에서 오므로,

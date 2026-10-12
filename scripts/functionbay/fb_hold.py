@@ -59,6 +59,8 @@ def main():
     msg = JointState()
     msg.name = list(ARM)
     msg.position = target
+    # velocity 를 비우면 시뮬레이터 가 JointState 를 못 풀어 명령을 버린다 (2026-09-14).
+    msg.velocity = [0.0] * len(target)
 
     started = time.time()
     next_sample = 0.0

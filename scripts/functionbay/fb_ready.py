@@ -36,7 +36,7 @@
     ./fb_ready.py --keep-grasp # 그리퍼를 열지 않는다 (파지 유지 실험 전용)
 
 `--keep-grasp` 는 **파지 상태에서 팔을 움직이는 것이 실험의 목적일 때만** 쓴다 (예: 파지가
-팔 이동 중에 유지되는지 보는 체크리스트 §E 항목). 그 밖에는 쓰지 않는다.
+팔 이동 중에 유지되는지 보는 체크리스트 B-16). 그 밖에는 쓰지 않는다.
 
 다른 스크립트에서는 이렇게 쓴다.
 
@@ -75,6 +75,30 @@ LIMITS = {
 DEFAULT_RAMP_SEC = 5.0
 # 목표에 도달한 뒤에도 계속 명령해 정착시킨다. 놓으면 중력으로 다시 처진다.
 DEFAULT_SETTLE_SEC = 4.0
+
+# **중력 보상을 직접 얹는다.** 이 모듈은 `/input/panda_joint` 로 직접 발행하므로
+# `TrajectoryStreamer` 를 거치지 않는다 — 그쪽에만 보상이 들어 있어서, 여기서 옮긴
+# `ready` 자세는 joint4 가 −9.7 mrad 처진 채로 섰다. `goto_ready()` 는 모든 팔
+# 스크립트의 공통 진입점이라, 그 어긋난 자세가 B-8·B-9 측정의 출발점이 됐다
+# (2026-09-17 확인). 클라이언트를 쓰지 않는 것은 의도다 — MoveIt 계획 없이 관절공간
+# 램프만 하는 것이 이 모듈의 역할이고, 보상은 오프셋 한 번으로 끝나기 때문이다.
+#
+# 로드는 모듈 임포트 시 **한 번만** 한다. 램프 루프가 50 Hz 라 매번 URDF 를 파싱하면
+# 주기를 못 지킨다. 키가 없는 백엔드(mock·Isaac)에서는 `None` 이라 그대로 발행된다.
+try:
+    from robot_control.gravity import load_gravity_compensator
+
+    GRAVITY = load_gravity_compensator('functionbay')
+except Exception as exc:                                   # noqa: BLE001
+    print(f'[ready] 중력 보상을 로드하지 못했다 ({exc}) — 보상 없이 발행한다')
+    GRAVITY = None
+
+
+def compensated(positions: list[float]) -> list[float]:
+    """보상기가 있으면 `q − τ_g/Kp` 를, 없으면 입력을 그대로 돌려준다."""
+    if GRAVITY is None:
+        return positions
+    return GRAVITY.compensate(positions)
 # 이 값을 넘는 관절 변화가 있으면 경고한다. 물체를 쓸고 갈 수 있는 크기다.
 LARGE_MOVE_RAD = 1.0
 
@@ -116,8 +140,10 @@ def goto_ready(node, cur: dict[str, float], pub, ramp_sec: float = DEFAULT_RAMP_
                open_gripper: bool = True) -> Optional[list[float]]:
     """**그리퍼를 열고** `ready` 까지 관절공간 직선으로 램프한 뒤 정착시킨다.
 
-    돌려주는 값은 관절별 정착 오차(실제 − `ready`)다. 중력 처짐이 있으므로 0 이
-    아닌 것이 정상이며, 기준선은 `ready` 자세에서 joint4 −0.0097 rad 다.
+    돌려주는 값은 관절별 정착 오차(실제 − `ready`)다. **중력 보상을 얹어 발행하므로
+    0 근처여야 한다** (2026-09-17 부터). 보상 없이 발행하던 때의 기준선은 joint4
+    −0.0097 rad 였고, 지금 그 값이 다시 보이면 보상이 걸리지 않은 것이다 —
+    `GRAVITY` 로드 실패 메시지를 먼저 확인한다.
 
     `open_gripper=False` 는 **파지 상태에서 팔을 움직이는 것이 실험의 목적일 때만** 쓴다.
     그 밖에는 접촉을 남긴 채 팔을 옮기게 되어 오진과 씬 파손을 부른다 (모듈 docstring).
@@ -139,6 +165,8 @@ def goto_ready(node, cur: dict[str, float], pub, ramp_sec: float = DEFAULT_RAMP_
 
     msg = JointState()
     msg.name = list(ARM)
+    # velocity 를 비우면 시뮬레이터가 JointState 를 못 풀어 명령을 버린다 (2026-09-14).
+    msg.velocity = [0.0] * len(ARM)
 
     started = time.time()
     next_publish = started
@@ -148,13 +176,16 @@ def goto_ready(node, cur: dict[str, float], pub, ramp_sec: float = DEFAULT_RAMP_
             break
         if time.time() >= next_publish:
             alpha = min(elapsed / ramp_sec, 1.0) if ramp_sec > 0 else 1.0
-            msg.position = [start[i] + deltas[i] * alpha for i in range(7)]
+            # **램프 구간에도 보상한다** — 정착 구간에만 얹으면 이동 중 처짐이 남아
+            # 손끝이 말린다 (`TrajectoryStreamer._apply_gravity` 와 같은 이유).
+            msg.position = compensated(
+                [start[i] + deltas[i] * alpha for i in range(7)])
             msg.header.stamp = node.get_clock().now().to_msg()
             pub.publish(msg)
             next_publish += COMMAND_PERIOD_SEC
         rclpy.spin_once(node, timeout_sec=0.002)
 
-    msg.position = list(READY)
+    msg.position = compensated(list(READY))
     deadline = time.time() + settle_sec
     next_publish = time.time()
     while rclpy.ok() and time.time() < deadline:
@@ -168,8 +199,10 @@ def goto_ready(node, cur: dict[str, float], pub, ramp_sec: float = DEFAULT_RAMP_
     errors = [final[i] - READY[i] for i in range(7)]
     if verbose:
         worst = max(range(7), key=lambda i: abs(errors[i]))
+        hint = ('중력 보상을 얹으므로 0 근처가 정상'
+                if GRAVITY is not None else '보상 없이 발행 중 — 중력 처짐이 남는다')
         print(f'[ready] 도착. 최대 정착 오차 {ARM[worst]} {errors[worst]:+.4f} rad '
-              f'(중력 처짐이라 0 이 아닌 것이 정상)')
+              f'({hint})')
     return errors
 
 

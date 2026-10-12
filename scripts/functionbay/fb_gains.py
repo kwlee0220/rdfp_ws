@@ -21,7 +21,7 @@
 **활성 씬은 `Database/SolverConfig/SolverConfig.json` 이 알려 준다** (`MsFile`). 그래서
 이 스크립트는 어느 씬이 떠 있는지까지 자동으로 판단한다 — 팔을 움직이지 않는다.
 
-배경: `docs/simulation/functionbay_gravity_compensation.md` §4.3
+배경: `docs/backends/functionbay/펑션베이_중력_보상.md` §4.3
 """
 from __future__ import annotations
 
@@ -32,7 +32,9 @@ import os
 import re
 import sys
 
-DEFAULT_DATABASE = '/mnt/d/MMR-Build_260907/MMR_Database'
+# **지금 쓰는 빌드**를 가리킨다 — 새 빌드를 받으면 여기를 바꾸거나 `FB_MMR_DATABASE` 를 둔다.
+# 옛 빌드를 가리키면 그 빌드의 `SolverConfig.json` 으로 씬을 판별해 조용히 틀린다. `fb_wait_chart` 도 이 값을 쓴다.
+DEFAULT_DATABASE = '/mnt/d/MMR-Build_260929/MMR_Database'
 BACKEND = 'functionbay'
 # 2026-09-11 실측. 새 빌드에서 달라지면 이 표와 비교해 드러낸다.
 KNOWN = {

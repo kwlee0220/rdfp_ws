@@ -6,7 +6,7 @@
 
 **단일 스레드 + 동기 메서드만 쓴다.** 별도 executor 스레드를 두면 동일 Node 를
 두 곳에서 spin 하게 되어 `wait set index ... out of bounds` 로 깨진다
-(MoveGroupClient_UserGuide §14.2).
+(move_group_client_user_guide §14.2).
 
     ./fb_move.py named   extended      50.0 /tmp/start.json   # ready 에서 시작해 이동
     ./fb_move.py restore /tmp/start.json none                 # 저장한 자세로 복귀

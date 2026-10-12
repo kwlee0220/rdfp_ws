@@ -5,7 +5,7 @@
 (`motion.gravity_compensation`)이 처짐을 스트리밍 단계에서 없애므로 지점별 계수가
 필요 없어졌다. 이 도구는 **중력 보상이 꺼진 상태의 처짐을 재는 계측기**로 남긴다 —
 벤더가 A-1 을 반영했는지 판별할 때나 `scale` 을 정할 때 쓴다
-(`docs/simulation/functionbay_gravity_compensation.md` §5).
+(`docs/backends/functionbay/펑션베이_중력_보상.md` §5).
 
 보상이 켜진 채로 돌리면 처짐이 0 에 가깝게 나온다 — 그것이 정상이다.
 

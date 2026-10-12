@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# 펑션베이 시뮬레이터 백엔드 + **수집 계층**까지 함께 띄운다.
+# 펑션베이 시뮬레이터 백엔드 위에 **수집 계층만** 얹는다.
 #
-# 제어 계층(run_panda_functionbay.sh 가 띄우는 것) 전부에 더해:
-#   session_control / target_joint_cmds_publisher / rdfp_image_viewer /
-#   image_recorder
+#   session_control / target_joint_cmds_publisher / rdfp_image_viewer / 레코더
+#
+# **제어 계층을 먼저 띄운다** — `./scripts/run_panda_functionbay.sh`. 묶음 launch
+# `rdfp_panda_functionbay` 은 2026-09-13 에 삭제했다.
+#
+# `backend:=functionbay` 한 인자가 arm 명령 채널과 **압축 카메라 배선**을 프로파일에서
+# 가져온다 — `camera.source: compressed` 이므로 레코더가 `input_format=mjpeg` 로
+# `/camera_image/compressed` 를 직접 구독한다 (raw 로 되살릴 필요가 없다).
 #
 # **시뮬레이터(Unity + ros_tcp_endpoint)가 먼저 떠 있어야 한다.** 도메인/RMW 도
 # 맞춘다 — 자세한 전제는 run_panda_functionbay.sh 의 주석을 본다.
@@ -16,13 +21,13 @@
 #   · 그 전까지는 실측값에 맞춰 쓴다               ← 아래 예의 image_recorder_fps
 #
 # 기본값을 목표값으로 둔 이유는 소스가 맞춰지는 순간 바로 정합하기 위해서다.
-# 자세한 근거는 rdfp_panda_functionbay.launch.py 의 docstring 에 있다.
+# **해상도·FPS 는 백엔드 프로파일이 준다** (640x480 / 5) — 손으로 넘길 필요가 없고,
+# 소스가 맞춰지기 전까지만 아래처럼 fps 를 덮는다.
 #
 # 사용 예 — 전체 인자는 `--show-args` 로 본다.
 #
 #   ./scripts/run_rdfp_panda_functionbay.sh image_recorder_fps:=10   # 현재 소스에 맞춤
-#   ./scripts/run_rdfp_panda_functionbay.sh image_recorder_fps:=10
-#   ./scripts/run_rdfp_panda_functionbay.sh enable_image_recorder_node:=false
+#   ./scripts/run_rdfp_panda_functionbay.sh enable_image_recorder:=false
 #   ./scripts/run_rdfp_panda_functionbay.sh --show-args
 
-ros2 launch rdfp rdfp_panda_functionbay.launch.py "$@"
+ros2 launch rdfp rdfp_collect.launch.py backend:=functionbay "$@"

@@ -23,7 +23,7 @@
 사라진다. 그때 말림이 수 mm 로 돌아온다. 반대로 부호가 뒤집히거나 벤더가 A-1 을
 반영했는데 우리 보상을 안 끄면 **오차가 반대로 커진다**(이중 보정).
 
-배경·수치: `docs/simulation/functionbay_gravity_compensation.md`
+배경·수치: `docs/backends/functionbay/펑션베이_중력_보상.md`
 """
 from __future__ import annotations
 

@@ -114,6 +114,8 @@ def main() -> None:
 
     msg = JointState()
     msg.name = list(ARM)
+    # velocity 를 비우면 시뮬레이터가 JointState 를 못 풀어 명령을 버린다 (2026-09-14).
+    msg.velocity = [0.0] * len(ARM)
     results: list[dict[str, float]] = []
     discarded = 0
     for k in range(count):

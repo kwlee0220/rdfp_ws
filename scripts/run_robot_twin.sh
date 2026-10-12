@@ -4,6 +4,7 @@
 #
 #   ./scripts/run_robot_twin.sh                        # mock 스택   (:8801)
 #   ./scripts/run_robot_twin.sh --isaac                # Isaac 스택  (:8802)
+#   ./scripts/run_robot_twin.sh --functionbay          # 펑션베이     (:8803)
 #   ./scripts/run_robot_twin.sh --isaac --log-level debug   # 나머지 인자는 그대로 전달된다
 #   RDFP_TWIN_CONFIG=<path> ./scripts/run_robot_twin.sh     # 임의의 설정 파일
 #
@@ -53,9 +54,22 @@
 set -euo pipefail
 
 # 워크스페이스 루트는 **스크립트 위치**에서 구한다. RDFP_HOME 에 의존하면 rdfp_env 를
-# 켜지 않은 셸에서 빈 값이 앞에 붙어 '/src/robot_twin/...' 로 조용히 깨진다.
+# 켜지 않은 셸에서 빈 값이 앞에 붙어 '/install/robot_twin/...' 로 조용히 깨진다.
 ws_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-config_dir="$ws_root/src/robot_twin/config"
+# **설치본(`install/`)에서 읽는다 — `src/` 가 아니다** (2026-09-21).
+#
+# 트윈의 `reset_scene` 레시피와 scene 노드의 `isaac_scene.json` 은 같은 장면을 두 곳에
+# 적은 것이라 **같은 시점의 값**이어야 한다. scene 노드는 ROS 관례대로 설치본을 읽는데
+# 트윈만 `src/` 를 읽고 있어서, `src/` 를 고치고 `colcon build` 를 안 하면 둘이 갈라졌다.
+# 실제로 실린더 반지름(0.025 → 0.03)과 탁자 높이(0.4 → 0.3)를 바꾼 뒤 수집이
+# `'cylinder_a': dimensions [0.06, 0.03] != [0.06, 0.025]` 로 매 회 거부됐다.
+# **반지름이 바뀌어 치수 검사에 걸린 것은 운이었다** — 탁자 높이만 바뀌었다면 scene
+# 노드는 위치를 검사하지 않으므로 물체를 10 cm 틀린 높이에 놓고 조용히 수집했을 것이다.
+#
+# 대가: **설정을 고치면 `colcon build` 를 해야 반영된다.** 다른 ROS 설정과 같은 규칙이고,
+# 잊으면 세 주체(트윈 · scene 노드 · Isaac 스테이지)가 **똑같이 옛 값**을 보므로 갈라지지는
+# 않는다 — "고쳤는데 안 바뀐다"로 드러난다.
+config_dir="$ws_root/install/robot_twin/share/robot_twin/config"
 
 backend=""
 args=()
@@ -63,13 +77,16 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --isaac) backend="robot_twin_panda_isaac"; shift ;;
         --mock)  backend="robot_twin_panda01"; shift ;;
+        # 펑션베이는 포트도 트윈 이름도 다르다 (:8803 / panda_functionbay). MCP 서버의
+        # 기본값(:8801 / panda01)과 어긋나므로 클라이언트 쪽에도 인자를 줘야 한다.
+        --functionbay|--fb) backend="robot_twin_panda_functionbay"; shift ;;
         # 나머지는 트윈에 그대로 넘긴다 (`--log-level` 등). `--config` 를 직접 주는 것도
         # 막지 않는다 — 그때는 아래 기본 `--config` 뒤에 붙어 argparse 가 뒤를 택한다.
         *) args+=("$1"); shift ;;
     esac
 done
 
-# 우선순위: RDFP_TWIN_CONFIG > --isaac/--mock > 기본(mock). 환경변수를 위에 두는 것은
+# 우선순위: RDFP_TWIN_CONFIG > --isaac/--mock/--functionbay > 기본(mock). 환경변수를 위에 두는 것은
 # 임의의 파일을 쓰려는 쪽이 더 구체적인 요구이기 때문이다.
 if [[ -n "${RDFP_TWIN_CONFIG:-}" ]]; then
     config="$RDFP_TWIN_CONFIG"
@@ -79,7 +96,12 @@ fi
 
 if [[ ! -f "$config" ]]; then
     echo "twin config not found: $config" >&2
-    echo "shipped: $(cd "$config_dir" && ls robot_twin_*.yaml | tr '\n' ' ')" >&2
+    if [[ -d "$config_dir" ]]; then
+        echo "shipped: $(cd "$config_dir" && ls robot_twin_*.yaml | tr '\n' ' ')" >&2
+    else
+        # 설치본을 읽으므로 빌드 전에는 디렉터리 자체가 없다.
+        echo "install tree missing: $config_dir — run 'colcon build' first" >&2
+    fi
     exit 2
 fi
 

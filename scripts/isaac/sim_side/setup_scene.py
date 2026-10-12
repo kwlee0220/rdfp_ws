@@ -33,7 +33,10 @@ _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/r
 _DEFAULT_LOG_DIR = "//wsl.localhost/Ubuntu-22.04/tmp" if _IS_WINDOWS else "/tmp"
 WORKSPACE = _os.environ.get("RDFP_WORKSPACE") or _DEFAULT_WORKSPACE
 LOG_DIR = _os.environ.get("RDFP_LOG_DIR") or _DEFAULT_LOG_DIR
-SCENE_JSON = WORKSPACE + "/src/robot_control/config/isaac_scene.json"
+# **설치본을 읽는다 — `src/` 가 아니다** (2026-09-21). ROS 쪽 scene 노드와 트윈이 설치본을
+# 읽으므로 여기만 `src/` 면 `colcon build` 를 잊었을 때 스테이지와 둘이 갈라진다
+# (scripts/run_robot_twin.sh 의 config_dir 주석). 고쳤으면 빌드해야 반영된다.
+SCENE_JSON = WORKSPACE + "/install/robot_control/share/robot_control/config/isaac_scene.json"
 LOG_PATH = LOG_DIR + "/isaac_setup_scene.log"
 
 _LOG_LINES = []
@@ -104,6 +107,21 @@ DISTANT_LIGHT_INTENSITY = 1500.0
 # 둔다 — 이 값이 곧 배경 밝기다.
 DOME_LIGHT_INTENSITY = 60.0
 
+# **그림자를 옅게 하는 두 값** (2026-09-20). 그 전에는 주광 하나 + 돔 60 이라
+# 밝은 탁자면 180 대 그림자 안쪽 25 로 **7:1** 이었고, 팔 그림자가 작업 영역을
+# 가로질러 **같은 블럭이 놓인 자리에 따라 전혀 다르게 보였다** — 학습에 그대로
+# 들어가는 잡음이다.
+#
+# ⚠️ **돔을 올려서 해결하면 안 된다** — 돔은 배경도 함께 칠하므로 그림자를 올린
+# 만큼 배경이 날아간다(위 주석의 1000 실패가 그것이다). 평행광은 표면만 비추므로
+# **채움용 평행광을 반대편에서 하나 더** 넣는다. 주광 대비 약하게 둬야 깊이감이
+# 남는다 — 같은 세기로 주면 그림자가 사라져 물체가 배경에서 안 떨어진다.
+FILL_LIGHT_INTENSITY = 500.0
+FILL_LIGHT_ROTATION = (-30.0, 0.0, -135.0)     # 주광(+45°)의 반대 방위
+# 평행광의 **각지름**(도). 기본 0.53 은 태양이라 그림자 경계가 칼같다. 올리면
+# 반그림자가 생겨 경계가 부드러워진다 — 안쪽 밝기는 이것으로 안 바뀐다.
+LIGHT_ANGLE_DEG = 8.0
+
 
 def _make_light(stage, root_prim: str) -> list:
     """씬 조명을 만든다. **없으면 카메라가 새까만 이미지를 낸다.**
@@ -126,13 +144,29 @@ def _make_light(stage, root_prim: str) -> list:
     key_path = f"{root_prim}/key_light"
     key = UsdLux.DistantLight.Define(stage, key_path)
     key.CreateIntensityAttr(DISTANT_LIGHT_INTENSITY)
+    key.CreateAngleAttr(LIGHT_ANGLE_DEG)
     # 위에서 비스듬히 — 물체에 그림자가 져야 깊이가 보인다.
     UsdGeom.Xformable(key.GetPrim()).AddRotateXYZOp().Set(Gf.Vec3f(-45.0, 0.0, 45.0))
+
+    paths = [key_path]
+
+    # 반대편에서 약하게 — 그림자 **안쪽**을 들어올린다. 돔과 달리 배경은 안 칠한다.
+    # **0 이면 아예 만들지 않는다** — 광원 수가 렌더 비용을 정하므로, 끄는 것과
+    # 세기 0 으로 두는 것은 다르다.
+    if FILL_LIGHT_INTENSITY > 0.0:
+        fill_key_path = f"{root_prim}/fill_light"
+        fill_key = UsdLux.DistantLight.Define(stage, fill_key_path)
+        fill_key.CreateIntensityAttr(FILL_LIGHT_INTENSITY)
+        fill_key.CreateAngleAttr(LIGHT_ANGLE_DEG)
+        UsdGeom.Xformable(fill_key.GetPrim()).AddRotateXYZOp().Set(
+            Gf.Vec3f(*FILL_LIGHT_ROTATION))
+        paths.append(fill_key_path)
 
     fill_path = f"{root_prim}/dome_light"
     fill = UsdLux.DomeLight.Define(stage, fill_path)
     fill.CreateIntensityAttr(DOME_LIGHT_INTENSITY)
-    return [key_path, fill_path]
+    paths.append(fill_path)
+    return paths
 
 
 def _make_object(stage, root_prim: str, spec: dict) -> str:
@@ -303,8 +337,9 @@ def main() -> None:
              f"res={camera_spec['resolution']} fps={camera_spec['fps']} "
              f"pos={camera_spec['position']}")
 
-    _log(f"[scene] lights: distant {DISTANT_LIGHT_INTENSITY} + dome {DOME_LIGHT_INTENSITY} "
-         f"- dome paints the background, so keep it low")
+    _log(f"[scene] lights: key {DISTANT_LIGHT_INTENSITY} + fill {FILL_LIGHT_INTENSITY} "
+         f"+ dome {DOME_LIGHT_INTENSITY}, angle {LIGHT_ANGLE_DEG} deg "
+         f"- dome paints the background, so lift shadows with the fill instead")
     _log(f"[scene] done - {len(config['objects'])} object(s) under {root_prim}")
     _log("[scene] next: rerun setup_graph.py with PHASE=3 so TF is published")
     _log("[scene] next: run tune_grasp.py so the fingers can actually hold a block")

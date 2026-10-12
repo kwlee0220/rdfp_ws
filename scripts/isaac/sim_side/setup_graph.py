@@ -71,7 +71,10 @@ _DEFAULT_WORKSPACE = ("//wsl.localhost/Ubuntu-22.04/home/kwlee/development/ros/r
 _DEFAULT_LOG_DIR = "//wsl.localhost/Ubuntu-22.04/tmp" if _IS_WINDOWS else "/tmp"
 WORKSPACE = _os.environ.get("RDFP_WORKSPACE") or _DEFAULT_WORKSPACE
 LOG_DIR = _os.environ.get("RDFP_LOG_DIR") or _DEFAULT_LOG_DIR
-SCENE_JSON = WORKSPACE + "/src/robot_control/config/isaac_scene.json"
+# **설치본을 읽는다 — `src/` 가 아니다** (2026-09-21). ROS 쪽 scene 노드와 트윈이 설치본을
+# 읽으므로 여기만 `src/` 면 `colcon build` 를 잊었을 때 스테이지와 둘이 갈라진다
+# (scripts/run_robot_twin.sh 의 config_dir 주석). 고쳤으면 빌드해야 반영된다.
+SCENE_JSON = WORKSPACE + "/install/robot_control/share/robot_control/config/isaac_scene.json"
 LOG_PATH = LOG_DIR + "/isaac_setup_graph.log"
 
 
@@ -88,7 +91,7 @@ LOG_PATH = LOG_DIR + "/isaac_setup_graph.log"
 # 이 경로로 넘긴다. Script Editor 에서 직접 실행할 때는 아래 기본값이 쓰인다.
 PHASE = int(_os.environ.get("ISAAC_PHASE", "4"))
 
-# ROS 쪽 계약. docs/simulation/isaac_backend_skeleton.md §3 토픽 계약표와 일치해야 한다.
+# ROS 쪽 계약. docs/backends/isaac/isaac_backend.md §3 토픽 계약표와 일치해야 한다.
 ROS_DOMAIN_ID = 31
 CLOCK_TOPIC = "/clock"
 # **`/joint_states` 가 아니다** — 그것은 `joint_state_broadcaster` 가 소유한다.
@@ -426,9 +429,21 @@ def _phase4_spec(robot_prim: str) -> tuple[list, list, list]:
     그 속성은 라이다·음향 센서 쪽에만 쓰이고 `UsdGeom.Camera` 에는 배선돼 있지 않다.
     다음 버전에서 실제로 끊기면 그때 다시 본다.
 
-    **`frameSkipCount` 로 주파수를 낮춘다.** 렌더 틱은 60 Hz 인데 5 Hz 만 필요하므로
-    11 을 건너뛴다. 60 Hz 로 렌더한 뒤 버리는 것이 아니라 **렌더 자체를 건너뛰므로**
-    GPU 부담이 그만큼 준다 — VRAM 이 빠듯한 호스트에서 특히 중요하다.
+    **`frameSkipCount` 로 주파수를 낮춘다.** 렌더 틱은 60 Hz 인데 10 Hz 만 필요하므로
+    5 를 건너뛴다 (2026-09-17 전까지는 5 Hz 로 11 을 건너뛰었다). 60 Hz 로 렌더한 뒤
+    버리는 것이 아니라 **렌더 자체를 건너뛰므로** GPU 부담이 그만큼 준다 — VRAM 이 빠듯한 호스트에서 특히 중요하다.
+
+    ⚠️ **설정 10 Hz 가 실측 10 Hz 를 뜻하지 않는다 — 실측은 2~3 Hz 이고 고르지도
+    않다** (2026-09-20, RTX 4000 SFF Ada). 간격의 **최솟값은 0.083 s(≈12 Hz)로 설정을
+    지키는데 최댓값이 1.7~4.5 s** 라, 제대로 내다가 몇 초씩 멎는 모양이다. 같은 때
+    `/clock` 배속은 0.945 로 정상이었으므로 **물리가 아니라 렌더가 멎는 것**이다.
+    조명 탓이 아니다 — 채움광·각지름을 켜고 끄며 네 번 쟀는데 **같은 설정끼리의 산포
+    (2.05 vs 3.05 Hz)가 설정 간 차이보다 컸다.** 고아 노드가 남아 있으면 1.1 Hz 까지
+    떨어지므로 **재기 전에 `kill_stack.sh` 로 정리한다.**
+
+    수집은 이 상태로도 성립한다 — frame clock(E1)이 고정 격자가 아니라 **실제 stamp**
+    를 쓰기 때문이다. 다만 **샘플이 설정의 1/4 로 성기다**(22 에피소드에 2369 장).
+    원인은 아직 모른다.
     """
     import json
 
@@ -437,7 +452,7 @@ def _phase4_spec(robot_prim: str) -> tuple[list, list, list]:
 
     width, height = camera["resolution"]
     fps = float(camera["fps"])
-    # 렌더 틱(60 Hz) 대비 몇 개를 건너뛸지. 5 Hz -> 11.
+    # 렌더 틱(60 Hz) 대비 몇 개를 건너뛸지. 10 Hz -> 5, 5 Hz -> 11.
     frame_skip = max(int(round(RENDER_HZ / fps)) - 1, 0)
 
     nodes = [

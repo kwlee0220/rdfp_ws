@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isaac 백엔드 **Phase 1 수용 기준**(팔 관절 명령)을 검사한다.
 
-``docs/simulation/isaac_backend_skeleton.md`` §2 Phase 1 의 항목을 잰다.
+``docs/backends/isaac/isaac_backend.md`` §2 Phase 1 의 항목을 잰다.
 
     0. 재생 상태    — Isaac 이 Play 중인가 (아니면 뒤 검사가 전부 엉뚱하게 실패한다)
     1. 명령 경로    — 팔 명령 토픽에 구독자가 있는가 (방식마다 토픽이 다르다)

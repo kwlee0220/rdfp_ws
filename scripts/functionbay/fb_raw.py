@@ -85,6 +85,9 @@ def main():
 
     msg = JointState()
     msg.name = list(ARM) if use_name else []
+    # velocity 를 비우면 시뮬레이터가 JointState 를 못 풀어 명령을 버린다 (2026-09-14).
+    # name 을 비우는 시험에서도 velocity 는 채운다 — 시험 대상은 name 하나다.
+    msg.velocity = [0.0] * len(ARM)
 
     print(f'delta={delta} rad, name={"채움" if use_name else "비움"}')
     print(f'{"관절":>14} {"방향":>5} {"이전":>9} {"목표":>9} {"이후":>9} {"이동률":>7}  판정')

@@ -53,6 +53,8 @@ def _arm_command(node, name, position) -> JointState:
     msg = JointState()
     msg.name = list(name)
     msg.position = list(position)
+    # velocity 를 비우면 시뮬레이터 가 JointState 를 못 풀어 명령을 버린다 (2026-09-14).
+    msg.velocity = [0.0] * len(msg.position)
     msg.header.stamp = node.get_clock().now().to_msg()
     return msg
 

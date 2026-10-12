@@ -18,7 +18,7 @@
 
 ⚠️ **`grasp_center` 는 손끝이 아니라 파지 중심이다** — 실제 손끝은 약 40 mm 아래다.
 그것을 모르고 파지 높이를 정했다가 손끝이 탁자를 파고든 적이 있다 (2026-09-09).
-아래 상수의 근거와 파지 높이 산정법은 `docs/gripper/grasp_center_frame.md` 를 본다.
+아래 상수의 근거와 파지 높이 산정법은 `docs/backends/functionbay/grasp_center_frame.md` 를 본다.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ FINGERTIP_CLEARANCE = 0.010
 # 접근 단계에서 물체 위에 두는 높이 (grasp_center 기준).
 APPROACH_Z = 0.120
 # **처짐 보정은 여기서 하지 않는다** — 백엔드의 중력 보상이 스트리밍 경로에서 이미
-# 처리한다 (`motion.gravity_compensation`, docs/simulation/functionbay_gravity_compensation.md).
+# 처리한다 (`motion.gravity_compensation`, docs/backends/functionbay/펑션베이_중력_보상.md).
 #
 # 2026-09-11 이전에는 지점별 처짐 캘리브레이션(`motion.sag_calibration_file`)을 여기서
 # 얹었다. 중력 보상과 **함께 쓰면 이중 보정**이 되므로 뺐다. 되살리려면 그 문서 §6.1 을

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Gazebo(Fortress) 스택 컨테이너 실행 (X11 forwarding).
 #
-#   기본: ros2 launch rdfp rdfp_panda_gazebo.launch.py (풀 앱 gazebo)
+#   기본: ros2 launch robot_control panda_gazebo.launch.py (제어 스택)
+#   수집 계층은 같은 ROS_DOMAIN_ID 로 rdfp_collect 를 따로 띄운다.
 #   추가 launch 인자는 그대로 뒤에 붙는다:
 #     ./docker/run_gazebo.sh enable_rviz:=true simulate_camera:=true
-#   백엔드만(앱 노드 없이) 띄우려면 전체 명령을 넘긴다:
-#     ./docker/run_gazebo.sh ros2 launch rdfp panda_gazebo.launch.py
+#   수집 계층까지 쓰려면 같은 ROS_DOMAIN_ID 로 rdfp_collect 를 따로 띄운다:
+#     ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
+#         camera_resolution:=640x480 enable_image_viewer:=false
 #
 # 환경변수(선택):
 #   ROS_DOMAIN_ID   기본 31 (호스트/다른 컨테이너와 통신하려면 동일하게)
@@ -33,9 +35,9 @@ fi
 
 # 첫 인자가 실행 파일이 아니면(= launch 인자만 준 경우) 기본 launch 뒤에 붙인다.
 if [[ $# -gt 0 && "$1" != ros2 && "$1" != /* && "$1" != bash ]]; then
-  set -- ros2 launch rdfp rdfp_panda_gazebo.launch.py "$@"
+  set -- ros2 launch robot_control panda_gazebo.launch.py "$@"
 elif [[ $# -eq 0 ]]; then
-  set -- ros2 launch rdfp rdfp_panda_gazebo.launch.py
+  set -- ros2 launch robot_control panda_gazebo.launch.py
 fi
 
 exec docker run --rm -it \
