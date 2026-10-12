@@ -5,9 +5,6 @@
 ROS2 토픽의 `sensor_msgs/Image` 스트림을 MP4 파일로 녹화하는 ROS2 노드.
 녹화 엔진은 `rdfp.recorder.FFMpegMp4Recorder` 를 재사용하며, 본 모듈은
 ROS2 인터페이스 ↔ recorder 간 얇은 어댑터 역할을 수행한다.
-
-구현 단계별 상세는 `docs/image_recorder_node_srs.md` 와
-`docs/image_recorder_node_dev_plan.md` 를 참고한다.
 """
 
 from __future__ import annotations
@@ -154,7 +151,7 @@ class ImageRecorderNode(Node):
         반드시 일치시켜야 한다.
         """
         # 출력 관련
-        self.declare_parameter("output_dir", "/tmp/recordings")
+        self.declare_parameter("output_dir", "/data/rdfp/recordings")
         self.declare_parameter("session_prefix", _DEFAULT_SESSION_PREFIX)
 
         # Recorder 핵심 설정

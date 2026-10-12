@@ -47,6 +47,7 @@ setup(
             'import = rdfp.dataset.import_cmd:main',
             'replay = rdfp.dataset.replay_cmd:main',
             'stats = rdfp.dataset.stats_cmd:main',
+            'export = rdfp.dataset.export_cmd:main',
             'list = rdfp.dataset.list_cmd:main',
             'init-db = rdfp.dataset.init_db_cmd:main',
             'replay_gui = rdfp.dataset.replay_gui_cmd:main',

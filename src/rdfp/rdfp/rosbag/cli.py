@@ -95,7 +95,51 @@ def _build_parser() -> argparse.ArgumentParser:
     cl.add_argument('--yes', action='store_true',
                     help='non-interactive confirmation (required in non-TTY)')
 
+    le = sub.add_parser('list-episodes',
+                        help='list episodes detected in the bags, oldest first')
+    _add_rosbag_dir_arg(le)
+    _add_selection_args(le)
+    le.add_argument('--format', choices=['text', 'json'], default='text')
+
+    ex = sub.add_parser('export', help='ingest selected episodes into the database')
+    _add_rosbag_dir_arg(ex)
+    _add_selection_args(ex)
+    ex.add_argument('--only-new', action='store_true',
+                    help='skip episodes already present in the database')
+    ex.add_argument('--dry-run', action='store_true',
+                    help='print the selection and exit without writing')
+
+    dl = sub.add_parser('delete', help='remove selected episodes from the bags (destructive)')
+    _add_rosbag_dir_arg(dl)
+    _add_selection_args(dl)
+    dl.add_argument('--exported', action='store_true',
+                    help='restrict to episodes already present in the database')
+    dl.add_argument('--yes', action='store_true',
+                    help='non-interactive confirmation (required in non-TTY)')
+    dl.add_argument('--dry-run', action='store_true',
+                    help='print the selection and exit without deleting')
+
     return p
+
+
+def _add_selection_args(parser: argparse.ArgumentParser) -> None:
+    """에피소드 선택 인자 — 세 서브커맨드가 같은 문법을 쓴다.
+
+    시간은 **rosbag 이 기록한 시각(log time)** 기준이다. `header.stamp` 는 발행자
+    시계라 경과시간이 섞이는 회차가 있어 사람이 아는 시각과 어긋날 수 있다.
+    """
+    parser.add_argument('--dates', nargs='*', metavar='YYYY-MM-DD',
+                        help='날짜 폴더 선행 필터')
+    parser.add_argument('--task', help='이 task_label 만')
+    parser.add_argument('--since', metavar='TIME',
+                        help="시작 시각 (로컬, 'YYYY-MM-DD HH:MM[:SS]')")
+    parser.add_argument('--until', metavar='TIME', help='종료 시각 (같은 형식)')
+    parser.add_argument('--episodes', metavar='SPEC',
+                        help="목록 순번 (예: '3-7,9'). **순번은 안정적이지 않다** — "
+                             '스크립트에는 --start-ns 를 쓴다')
+    parser.add_argument('--start-ns', type=int, action='append', metavar='NS',
+                        help='에피소드 자연키(start_ns). 여러 번 줄 수 있다')
+    parser.add_argument('--config', help='dataset 설정 YAML — DB 적재 여부 확인·적재에 쓴다')
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,8 +151,15 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list_topics(args)
     if command == 'clear':
         return _cmd_clear(args)
+    if command == 'list-episodes':
+        return _cmd_list_episodes(args)
+    if command == 'export':
+        return _cmd_export(args)
+    if command == 'delete':
+        return _cmd_delete(args)
     if command is None:
-        logging.error('no subcommand given (expected: list-topics | clear)')
+        logging.error('no subcommand given (expected: list-topics | list-episodes | '
+                      'export | delete | clear)')
         return 2
     logging.error('unknown command: %r', command)
     return 2
@@ -347,6 +398,215 @@ def _cmd_clear(args: argparse.Namespace) -> int:
         f'{"y" if len(targets) == 1 else "ies"}'
     )
     return 0 if deleted == len(targets) else 1
+
+
+# --- 에피소드 서브커맨드 ------------------------------------------------------
+
+
+def _parse_time(text: str) -> int:
+    """`'YYYY-MM-DD HH:MM[:SS]'` 를 epoch ns 로 바꾼다 (로컬 시간대)."""
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return int(datetime.strptime(text, fmt).timestamp() * 1_000_000_000)
+        except ValueError:
+            continue
+    raise ValueError(f"cannot parse time: {text!r} (expected 'YYYY-MM-DD HH:MM[:SS]')")
+
+
+def _fmt_time(ns: int) -> str:
+    return datetime.fromtimestamp(ns / 1e9).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _dataset_config(config_path: str | None):
+    """설정 YAML 을 읽는다. 없거나 실패하면 `None`.
+
+    실패를 오류로 올리지 않는 이유는, 적재 여부 확인이 **선택 기능**이기 때문이다 —
+    설정을 못 읽으면 그 열이 '확인 못 함'(`?`) 이 되고 목록 자체는 계속 나온다.
+    """
+    if not config_path:
+        return None
+    try:
+        from rdfp.dataset.cli_common import load_dataset_or_fail
+
+        return load_dataset_or_fail(config_path)
+    except Exception as e:          # noqa: BLE001 — 설정/환경 문제는 '확인 못 함' 이다
+        logging.warning('cannot read dataset settings from %s: %s', config_path, e)
+        return None
+
+
+def _resolve_bag_dir(args: argparse.Namespace, cfg) -> Path | None:
+    """bag 루트를 정한다 — **인자 > 설정 > 환경변수** 순이다.
+
+    설정이 환경변수를 이기는 이유: `--config` 는 이 실행을 위해 사람이 명시한 파일이고,
+    `RDFP_ROSBAG_DIR` 은 셸에 남아 있는 주변값이다. 환경변수가 이기면 **설정이 가리키는
+    DB 에 다른 bag 을 적재**할 수 있다.
+    """
+    if args.rosbag_dir:
+        return Path(args.rosbag_dir)
+    if cfg is not None and getattr(cfg, 'rosbag_dir', None):
+        return Path(cfg.rosbag_dir)
+    return _resolve_rosbag_dir(args)
+
+
+def _gather(args: argparse.Namespace) -> tuple[list, list] | None:
+    """`(전체 목록, 선택된 목록)`. 사용자 오류면 `None` 을 돌려준다."""
+    from .episode_ops import build_views, load_episodes, lookup_exported, parse_index_spec, select
+
+    cfg = _dataset_config(getattr(args, 'config', None))
+    rosbag_dir = _resolve_bag_dir(args, cfg)
+    if rosbag_dir is None:
+        return None
+    try:
+        episodes = load_episodes(rosbag_dir, dates=getattr(args, 'dates', None) or None)
+    except FileNotFoundError as e:
+        logging.error('%s', e)
+        return None
+    if not episodes:
+        logging.warning('no episodes found under %s', rosbag_dir)
+
+    exported = None
+    if cfg is not None and episodes:
+        try:
+            exported = lookup_exported(episodes, cfg.db)
+        except Exception as e:      # noqa: BLE001 — DB 접속 실패는 '확인 못 함' 이다
+            logging.warning('cannot check export status: %s', e)
+    views = build_views(episodes, exported)
+
+    try:
+        since = _parse_time(args.since) if getattr(args, 'since', None) else None
+        until = _parse_time(args.until) if getattr(args, 'until', None) else None
+        picked = select(views, since_ns=since, until_ns=until,
+                        task=getattr(args, 'task', None),
+                        only_exported=bool(getattr(args, 'exported', False)),
+                        only_new=bool(getattr(args, 'only_new', False)))
+        if getattr(args, 'episodes', None):
+            chosen = {v.index for v in parse_index_spec(args.episodes, views)}
+            picked = [v for v in picked if v.index in chosen]
+        if getattr(args, 'start_ns', None):
+            wanted = set(args.start_ns)
+            picked = [v for v in picked if v.start_ns in wanted]
+    except ValueError as e:
+        logging.error('%s', e)
+        return None
+    return views, picked
+
+
+def _print_episodes(views: list, *, fmt: str = 'text') -> None:
+    from .episode_ops import EXPORT_UNKNOWN, EXPORT_YES
+
+    if fmt == 'json':
+        import json
+
+        print(json.dumps([{
+            'index': v.index,
+            'start_ns': v.start_ns,
+            'log_start_ns': v.bag.log_start_ns,
+            'log_stop_ns': v.bag.log_stop_ns,
+            'duration_sec': round(v.bag.duration_ns / 1e9, 3),
+            'task_label': v.bag.task_label,
+            'success': v.bag.episode.success,
+            'exported': v.exported,
+            'session': v.bag.session_name,
+        } for v in views], ensure_ascii=False, indent=2))
+        return
+
+    if not views:
+        print('(no episodes)')
+        return
+    mark = {EXPORT_YES: 'yes', EXPORT_UNKNOWN: '?'}
+    w_task = max([len(v.bag.task_label) for v in views] + [4])
+    w_sess = max([len(v.bag.session_name) for v in views] + [7])
+    print(f"{'#':>4}  {'recorded (log time)':<19}  {'dur':>7}  {'task':<{w_task}}  "
+          f"{'result':<7}  {'export':<6}  {'session':<{w_sess}}  start_ns")
+    for v in views:
+        success = v.bag.episode.success
+        result = 'success' if success is True else ('failure' if success is False else '-')
+        print(f'{v.index:>4}  {_fmt_time(v.bag.log_start_ns):<19}  '
+              f'{v.bag.duration_ns / 1e9:>6.1f}s  {v.bag.task_label:<{w_task}}  '
+              f'{result:<7}  {mark.get(v.exported, "-"):<6}  '
+              f'{v.bag.session_name:<{w_sess}}  {v.start_ns}')
+    print(f'\n{len(views)} episode(s)')
+
+
+def _cmd_list_episodes(args: argparse.Namespace) -> int:
+    """`list-episodes`: bag 의 에피소드를 기록 시각 순으로 낸다."""
+    got = _gather(args)
+    if got is None:
+        return 2
+    _all, picked = got
+    _print_episodes(picked, fmt=args.format)
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    """`export`: 선택된 에피소드만 DB·MP4 로 적재한다.
+
+    적재 자체는 `import` 와 **같은 파이프라인**을 탄다 — 선택 결과를 자연키 목록으로
+    바꿔 `episode_filter.start_ns_in` 에 실어 넘긴다.
+    """
+    if not getattr(args, 'config', None):
+        logging.error('--config is required for export (database and mp4 output)')
+        return 2
+    got = _gather(args)
+    if got is None:
+        return 2
+    _all, picked = got
+    if not picked:
+        logging.warning('no episode selected; nothing to export')
+        return 0
+
+    _print_episodes(picked)
+    if args.dry_run:
+        logging.info('dry-run: nothing was written')
+        return 0
+
+    from rdfp.dataset.import_cmd import cmd_import
+
+    ns = argparse.Namespace(start_ns_in=[v.start_ns for v in picked])
+    return cmd_import(ns, args.config)
+
+
+def _cmd_delete(args: argparse.Namespace) -> int:
+    """`delete`: 선택된 에피소드를 bag 에서 제거한다 (split 재작성)."""
+    got = _gather(args)
+    if got is None:
+        return 2
+    _all, picked = got
+    if not picked:
+        logging.warning('no episode selected; nothing to delete')
+        return 0
+
+    _print_episodes(picked)
+    if args.dry_run:
+        logging.info('dry-run: nothing was deleted')
+        return 0
+    if not _confirm_delete(len(picked), args.yes):
+        logging.info('aborted')
+        return 1
+
+    from .episode_ops import delete_episodes
+
+    rosbag_dir = _resolve_bag_dir(args, _dataset_config(getattr(args, 'config', None)))
+    try:
+        reports, gone = delete_episodes(rosbag_dir, picked)
+    except RuntimeError as e:
+        logging.error('delete verification failed: %s', e)
+        return 1
+    for r in reports:
+        logging.info('%s: removed %d message(s), kept %d', r.split_path, r.removed, r.kept)
+    logging.info('deleted %d episode(s)', len(gone))
+    return 0
+
+
+def _confirm_delete(count: int, yes: bool) -> bool:
+    """삭제 확인. 비대화형에서는 `--yes` 가 필수다 (`clear` 와 같은 규칙)."""
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        logging.error('refusing to delete without --yes in a non-interactive shell')
+        return False
+    reply = input(f'delete {count} episode(s) from the bags? [y/N] ').strip().lower()
+    return reply in ('y', 'yes')
 
 
 def add_common_args(parser):

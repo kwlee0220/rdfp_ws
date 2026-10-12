@@ -6,7 +6,7 @@
 (`twin_backend`)는 **진입점으로만 쓰이므로** 여기서 끌어올리지 않는다 — 끌어올리면
 클라이언트 하나 쓰려는 호출자가 노드 구현까지 import 하게 된다.
 
-계약과 사용법: `docs/session/session_control_guide.md`
+계약과 사용법: `docs/collect/session_control_guide.md`
 """
 
 from __future__ import annotations

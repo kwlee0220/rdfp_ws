@@ -58,7 +58,7 @@ class KeyMapping:
     # '=' 는 벌어진 간격(open), '-' 는 줄어든 간격(close) 의미로 매핑한다.
     # '\\' 는 grasp — close 와 **판정이 다르다**. close 는 목표 자세 도달로,
     # grasp 는 `stalled`(물체에 막혀 더 안 닫힘)로 성공을 판정한다. 물건을 집을
-    # 때는 grasp 를 써야 `at_goal` 이 제대로 선다 (docs/gripper/GripperNode_Design.md).
+    # 때는 grasp 를 써야 `at_goal` 이 제대로 선다 (docs/control/gripper_node_design.md).
     gripper_open: str = "="
     gripper_close: str = "-"
     gripper_grasp: str = "\\"

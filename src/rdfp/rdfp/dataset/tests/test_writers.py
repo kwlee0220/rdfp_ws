@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from rdfp.dataset.db.writers.joint_state import JointStateWriter
 from rdfp.dataset.db.writers.pose_stamped import PoseStampedWriter
 from rdfp.dataset.db.writers.twist_stamped import TwistStampedWriter
@@ -70,12 +72,27 @@ def test_joint_state_row_values_handles_empty_arrays() -> None:
     w = JointStateWriter(conn=_FakeConn(), topic_id=2)
     msg = SimpleNamespace(
         header=_header(1, 2),
+        name=['j1', 'j2'],
         position=[0.5, 1.5],
         velocity=[],
         effort=[],
     )
     row = w.row_values(1, msg)
-    assert row == (1, 2, 1, 2, [0.5, 1.5], [], [])
+    assert row == (1, 2, 1, 2, ['j1', 'j2'], [0.5, 1.5], [], [])
+
+
+def test_joint_state_row_values_keeps_missing_names_empty() -> None:
+    """**발행자가 `name` 을 안 채우는 경우가 실제로 있다** (2026-09-18).
+
+    `target_joint_cmds_publisher` 는 컨트롤러 `joints` 파라미터 조회가 시간 초과되면
+    빈 이름으로 발행한다. 적재는 **사실대로 비워 두고**, 순서로 때우지 않는다 —
+    그래야 export 가 그 에피소드를 걸러낼 수 있다.
+    """
+    w = JointStateWriter(conn=_FakeConn(), topic_id=2)
+    msg = SimpleNamespace(header=_header(1, 2), name=[],
+                          position=[0.5, 1.5], velocity=[], effort=[])
+
+    assert w.row_values(1, msg) == (1, 2, 1, 2, [], [0.5, 1.5], [], [])
 
 
 def test_batch_flush_at_threshold() -> None:
@@ -164,7 +181,7 @@ def test_gripper_command_row_values() -> None:
 
     conn = _FakeConn()
     w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
-    w.append(3, SimpleNamespace(header=_header(100, 500), label='open'))
+    w.append(3, SimpleNamespace(header=_header(100, 500), goal='open'))
     assert len(conn.executed) == 1
     sql, params = conn.executed[0]
     assert 'INSERT INTO gripper_cmds' in sql
@@ -173,11 +190,44 @@ def test_gripper_command_row_values() -> None:
     assert params[0] == (3, 11, 100, 500, 'open')
 
 
-def test_gripper_command_without_label_is_stored_empty() -> None:
-    """라벨이 없는 구형 bag 도 적재는 멈추지 않는다.
+def test_gripper_command_field_name_matches_the_real_message() -> None:
+    """⚠️ **스텁만으로는 필드 이름이 틀린 것을 못 잡는다.**
 
-    **숫자를 되살려 추측하지 않는다** — 빈 라벨을 그대로 남긴다. 무엇을 의도했는지
-    모르는 것이 사실이고, 그 사실이 데이터에 드러나야 한다.
+    2026-09-19 실 수집까지 이 writer 는 `getattr(msg, 'label', '')` 를 읽고 있었고
+    (필드는 `goal` 이다) **`getattr` 의 기본값 때문에 예외가 안 났다.** 위 시험도
+    스텁에 `label` 을 넣어 같은 오류를 공유했다 — 구현과 시험이 같은 추론을 쓰면
+    단위 시험이 못 잡는다. 그래서 **실제 메시지 타입**에 대고 박는다.
+    """
+    pytest.importorskip('rdfp_msgs')
+    from rdfp_msgs.msg import GripperCommand
+    from rdfp.dataset.db.writers.gripper_command import GripperCommandWriter
+
+    assert 'goal' in GripperCommand.get_fields_and_field_types()
+
+    msg = GripperCommand()
+    msg.header.stamp.sec, msg.header.stamp.nanosec = 100, 500
+    msg.goal = 'close'
+    conn = _FakeConn()
+    GripperCommandWriter(conn=conn, batch_size=1, topic_id=11).append(3, msg)
+    assert conn.executed[0][1][0] == (3, 11, 100, 500, 'close')
+
+
+def test_gripper_command_falls_back_to_legacy_label() -> None:
+    """필드 이름이 `label` 이던 구형 bag 도 읽는다."""
+    from rdfp.dataset.db.writers.gripper_command import GripperCommandWriter
+
+    conn = _FakeConn()
+    w = GripperCommandWriter(conn=conn, batch_size=1, topic_id=11)
+    w.append(3, SimpleNamespace(header=_header(100, 500), label='grasp'))
+    assert conn.executed[0][1][0] == (3, 11, 100, 500, 'grasp')
+
+
+def test_gripper_command_without_any_symbol_is_stored_empty() -> None:
+    """심볼이 없는 메시지도 적재는 멈추지 않는다.
+
+    **숫자를 되살려 추측하지 않는다** — 빈 값을 그대로 남긴다. 무엇을 의도했는지
+    모르는 것이 사실이고, 그 사실이 데이터에 드러나야 한다 (export 의 one-hot 이
+    전부 0 이 되어 드러낸다).
     """
     from rdfp.dataset.db.writers.gripper_command import GripperCommandWriter
 

@@ -2,7 +2,7 @@
 
 """`SessionControlNode` 상태 머신 테스트.
 
-명세는 [docs/session/session_control_guide.md](../../../../../docs/session/session_control_guide.md)
+명세는 [docs/collect/session_control_guide.md](../../../../../docs/collect/session_control_guide.md)
 §2.1 「서비스별 허용 상태」 표다. 그 표를 그대로 파라미터화해서 **표와 코드가
 갈라지면 실패**하도록 만든다.
 

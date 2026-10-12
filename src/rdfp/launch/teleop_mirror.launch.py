@@ -1,7 +1,7 @@
 """Leader-follower 동작 미러링 파이프라인 런치.
 
 follower Panda + MoveIt2 스택 (예: ``panda_mock.launch.py`` /
-``rdfp_panda_mock.launch.py``) 이 **이미 실행 중** 이라는 전제 하에, 미러링
+``panda_mock.launch.py``) 이 **이미 실행 중** 이라는 전제 하에, 미러링
 체인 2개 노드만 추가로 기동한다. 설계 문서:
 docs/teleop/leader_follower_mirroring_design.md
 
@@ -17,7 +17,7 @@ docs/teleop/leader_follower_mirroring_design.md
 ---------
 
 모든 argument 의 기본값은 ``<rdfp share>/config/teleop_mirror.yaml`` 에서 온다.
-``rdfp_panda_mock.launch.py`` 와 같은 방식이다.
+``rdfp_collect.launch.py`` 와 같은 방식이다.
 
 .. code-block:: bash
 
@@ -512,7 +512,7 @@ def _build_actions(context: LaunchContext) -> list:
 def generate_launch_description() -> LaunchDescription:
     # `config_file` 만 declaration 시점에 노출하고, 그 값에 의존하는 YAML 로딩과
     # 나머지 argument / 노드 생성은 `OpaqueFunction` 안에서 수행한다.
-    # rdfp_panda_mock.launch.py 와 같은 구조다.
+    # rdfp_collect.launch.py 와 같은 구조다.
     config_file_arg = DeclareLaunchArgument(
         "config_file",
         default_value=_default_config_path(),

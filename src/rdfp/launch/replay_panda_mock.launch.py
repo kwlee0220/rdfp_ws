@@ -1,12 +1,12 @@
 """데이터셋 재생(replay) 전용 Panda + MoveIt2 런치.
 
-:mod:`rdfp_panda_mock.launch` 와 유사한 스택을 띄우되, **재생 시 데이터셋에서
+``panda_mock`` + 수집 계층과 유사한 스택을 띄우되, **재생 시 데이터셋에서
 이미 제공되는 정보** 를 생성하는 노드들은 제외한다.
 
 재생 도구(예: ``ros2 bag play`` / 커스텀 dataset player) 가 다음 토픽들을
 퍼블리시한다는 전제 하에 구성된다.
 
-- ``/joint_states`` — :mod:`rdfp_panda_mock.launch` 의 ``joint_state_broadcaster``
+- ``/joint_states`` — ``panda_mock.launch`` 의 ``joint_state_broadcaster``
   를 통해 실시간 관측값을 사용한다 (대체하지 않는다).
 - ``/ee_pose`` — 데이터셋에서 재생되므로 ``ee_pose_publisher`` 를 띄우지 않는다.
 - 이미지 (``/camera/...``) — 데이터셋에서 재생되므로 ``camera`` 노드를 띄우지
@@ -35,7 +35,7 @@ arm 을 구동하는 노드 조합을 ``replay_arm_path`` argument 로 고른다
     전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지 않는다.
     servo 의 ``command_in_type: unitless`` 를 보정하기 위해 게인 기본값이
     ``linear 2.5`` / ``angular 1.25`` 로 설정되어 있다. 근거와 대안 비교는
-    ``docs/replay/replay_approaches.md`` 참고.
+    ``docs/collect/replay_mock_stack_guide.md`` 참고.
 
 ``target_joint_cmds``
     ``/target_joint_cmds`` (sensor_msgs/JointState) → ``target_joint_cmds_executor``
@@ -43,9 +43,9 @@ arm 을 구동하는 노드 조합을 ``replay_arm_path`` argument 로 고른다
     재생하므로 **위치 폐루프** 이며 여유자유도(팔꿈치 형상)까지 원본과 일치한다.
     재현 충실도는 이쪽이 가장 높다.
 
-    DB 의 ``joint_states`` 테이블은 joint 이름을 저장하지 않으므로 재생된
-    JointState 의 ``name`` 은 비어 있다. executor 에 ``joint_names`` 파라미터로
-    panda_joint1~7 을 넘겨 폴백하게 한다.
+    DB 의 ``joint_states`` 는 2026-09-18 부터 joint 이름을 저장하므로 재생된
+    JointState 에 대개 ``name`` 이 있다. 옛 적재분이나 이름이 빈 행을 위해
+    executor 에 ``joint_names`` 파라미터로 panda_joint1~7 을 넘겨 폴백하게 한다.
 
 ``none``
     arm 구동 노드를 띄우지 않는다. ``MoveGroupClient.follow_trajectory`` 처럼
@@ -76,7 +76,7 @@ spawner 가 종료되면 상위 노드들을 일괄 spawn 한다.
 설정 파일
 ---------
 
-**전용** YAML 을 쓴다 — ``rdfp_panda_mock.launch`` 와 공유하지 않는다.
+**전용** YAML 을 쓴다 — 다른 launch 와 공유하지 않는다.
 
 - 기본 경로: ``<rdfp share>/config/replay_panda_mock.yaml``
 - ``config_file:=<path>`` launch argument 로 다른 YAML 을 지정할 수 있다.
@@ -84,7 +84,7 @@ spawner 가 종료되면 상위 노드들을 일괄 spawn 한다.
   (예: ``config_file:=$HOME/my.yaml`` — 쉘이 먼저 확장한 절대경로가 전달된다).
 - CLI 에서 ``arg:=value`` 로 개별 argument 를 덮어쓰는 것은 그대로 동작한다.
 
-과거에는 ``panda_robot.yaml`` 을 공유했는데, 본 런치가 기동하지 않는 노드
+과거에는 ``panda_robot.yaml``(2026-09-13 삭제)을 공유했는데, 본 런치가 기동하지 않는 노드
 (camera / ee_pose_publisher / image_recorder / session_control) 의 키가 절반을
 넘어 **고쳐도 아무 일이 일어나지 않으면서 경고도 없었다.** 전용 파일에는 실제로
 소비자가 있는 키만 두어, 없는 블록이 곧 "그 노드를 안 띄운다"는 뜻이 되도록 했다.
@@ -134,7 +134,7 @@ from robot_control.launch_helpers.common import (
 # YAML 설정 파일의 기본 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
 #
-# panda_robot.yaml 과 **별도 파일**이다. 본 런치는 camera / ee_pose_publisher /
+# 전용 파일이다. 본 런치는 camera / ee_pose_publisher /
 # session_control / image_recorder / target_joint_cmds_publisher 를 기동하지 않으므로
 # 공유 파일을 쓰면 값이 조용히 무시되는 키가 절반을 넘었다.
 DEFAULT_CONFIG_RELPATH = os.path.join("config", "replay_panda_mock.yaml")
@@ -145,8 +145,9 @@ _ARM_PATH_EE_TWIST = "ee_twist"
 _ARM_PATH_NONE = "none"
 _ARM_PATHS = (_ARM_PATH_TARGET_JOINT_CMDS, _ARM_PATH_EE_TWIST, _ARM_PATH_NONE)
 
-# JointState 명령에 name 이 비어 있을 때 사용할 joint 이름. DB 의 joint_states
-# 테이블은 이름을 저장하지 않으므로 DB 재생 경로에서는 항상 이 값이 쓰인다.
+# JointState 명령에 name 이 비어 있을 때 사용할 joint 이름. DB 의 joint_states 는
+# 2026-09-18 부터 이름을 저장하므로 그 뒤 적재분은 메시지의 name 이 쓰이고, 이 값은
+# 옛 적재분이나 발행자가 이름을 못 채운 행에만 쓰인다.
 _PANDA_ARM_JOINT_NAMES = [
     "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
     "panda_joint5", "panda_joint6", "panda_joint7",
@@ -184,7 +185,7 @@ def _declare_arguments(config: dict[str, Any]) -> list[DeclareLaunchArgument]:
     여기서 선언한 argument 이름만 일치시키면 그대로 동작한다.
 
     **실제로 소비자가 있는 argument 만 선언한다.** 과거에는
-    ``rdfp_panda_mock.launch`` 에서 통째로 복사한 camera / image_recorder /
+    옛 ``rdfp_panda_mock.launch`` 에서 통째로 복사한 camera / image_recorder /
     publish_rate argument 13개가 함께 선언되어 있었는데, 본 런치가 그 노드들을
     기동하지 않으므로 값이 조용히 무시되었다 (경고도 없었다).
     """
@@ -409,7 +410,7 @@ def _build_actions(context: LaunchContext) -> list:
     #
     # 주의: 속도 명령 기반이라 **개루프** 다. 적분 드리프트가 누적되고 시작 pose 가
     # 다르면 전체가 오프셋되며, EE twist 는 6-DOF 라 7-DOF 여유자유도가 재현되지
-    # 않는다. 자세한 근거는 docs/replay/replay_approaches.md 참고.
+    # 않는다. 자세한 근거는 docs/collect/replay_mock_stack_guide.md 참고.
     # 정확한 재현이 목적이면 target_joint_cmds 경로를 쓴다.
     #
     # servo 는 `start_servo` 서비스 호출 전까지 입력을 무시하므로, 호출 주체가 없는

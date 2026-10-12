@@ -29,6 +29,7 @@ from .episode.detector import Episode
 from .exceptions import PostProcError
 from .run_log import RunLog
 from .media.frame_router import FrameRouter
+from .media.recorder_registry import RecorderRegistrar
 
 
 _logger = logging.getLogger(__name__)
@@ -193,6 +194,13 @@ def _process_episode_inner(cfg: DatasetConfig, episode: Episode, split_paths: li
             for w in writers.values():
                 w.flush()
             mp4_files = router.finalize_episode()
+            # **레코더 mp4 등록은 커밋 직전에, 같은 트랜잭션 안에서 한다** (I4).
+            # 메시지 적재가 롤백되면 영상 등록도 함께 되돌아가야 한다 — 따로
+            # 커밋하면 에피소드 없는 `image_streams` 행이 남는다.
+            registrar = (RecorderRegistrar(conn, cfg.recordings_dir)
+                         if cfg.recordings_dir else None)
+            if registrar is not None:
+                registrar.register(episode_id, episode.start_ns)
             conn.commit()
         except Exception:
             for w in writers.values():
@@ -208,6 +216,11 @@ def _process_episode_inner(cfg: DatasetConfig, episode: Episode, split_paths: li
         # 결과에 포함시킨다 (message-writer 경로가 아니라 위 루프에서 누락됨).
         for table, n in router.consume_inserted_count().items():
             inserted[table] = inserted.get(table, 0) + n
+        # 레코더 등록분도 요약에 넣는다 — 빼먹으면 DB 에는 행이 있는데 요약은
+        # 0 으로 보고한다 (FrameRouter 에서 실제로 겪은 함정과 같다).
+        if registrar is not None:
+            for table, n in registrar.consume_inserted_count().items():
+                inserted[table] = inserted.get(table, 0) + n
 
     return {
         'status': 'done',

@@ -27,9 +27,9 @@ hint sheet, not a spec.
   `rdfp_image_recorder`) are documented in the package-level README.
 
 Detailed user/dev guides live under the workspace `docs/` tree (not in the
-package), e.g. [docs/recorder/](../../docs/recorder/),
-[docs/session/](../../docs/session/),
-[docs/rosbag2/](../../docs/rosbag2/).
+package) — [docs/collect/](../../docs/collect/) (세션 · 레코더 · 적재 · 재생),
+[docs/control/](../../docs/control/) (카메라 · MoveIt · 그리퍼 · scene),
+[docs/learning/](../../docs/learning/) (학습 데이터 결정 · 사양). 색인은 [docs/INDEX.md](../../docs/INDEX.md).
 
 ## Adding a console script
 
@@ -53,7 +53,7 @@ The `data_files` list installs three globs into `share/rdfp/`:
 | Source glob | Installed to | Purpose |
 |---|---|---|
 | `launch/*.py` | `share/rdfp/launch/` | launch entry points (helpers live in `robot_control`) |
-| `config/*` | `share/rdfp/config/` | YAML / RViz configs (`image_pipeline.yaml`, `panda_robot.yaml`, `replay_panda_mock.yaml`, `teleop_mirror.yaml`, `panda.rviz`) |
+| `config/*` | `share/rdfp/config/` | YAML configs (`replay_panda_mock.yaml`, `teleop_mirror.yaml`) — `image_pipeline.yaml` · `panda.rviz` 는 `robot_control` 소유다 |
 | `rdfp/dataset/sql/*.sql` | `share/rdfp/dataset/sql/` | DB schema bootstrap scripts used by `init-db` |
 
 If you add a new top-level config directory or a new SQL file location, extend
@@ -84,12 +84,15 @@ backed by `FFMpegMp4Recorder` but with different control surfaces:
 - `image_recorder_node` (`rdfp.recorder.image_recorder_node`) — external
   start/stop services (`/image_recorder/start_session`,
   `/image_recorder/stop_session`); single recording per service call. Used by
-  `rdfp_panda_mock.launch.py`.
+  `rdfp_collect.launch.py`.
 - `rdfp_image_recorder` (`rdfp.recorder.rdfp_image_recorder_node`) —
   subscribes `/session` (`SessionCommand`) and **auto-records IN_EPISODE
   windows**, timestamp-based segmentation via a `pending_image_queue`. Also
-  emits a per-frame `.jsonl` sidecar and per-prefix `metadata.json`. Used by
-  `rdfp_advanced.launch.py`.
+  emits a per-frame `.jsonl` sidecar and a **per-episode** `metadata.json`
+  (에피소드 키 · topic · codec · fps; 2026-09-18 이전에는 prefix 당 한 파일이라
+  에피소드마다 덮어썼다). Used by
+  `rdfp_collect.launch.py` (its **only** recorder — `enable_image_recorder` gates it).
+  `image_recorder_node` has no launch since 2026-09-13; run it by hand.
 
 Both names show up across the codebase — match the launch file to the right
 node when reviewing changes.
@@ -140,7 +143,7 @@ so they must never run together; the launch enforces this in `_build_actions`
 and raises `RuntimeError` on an unknown value. The `ee_twist` path additionally
 needs `servo_auto_start_node` because `moveit_servo` ignores input until
 `start_servo` is called. Full structure / usage / pitfalls:
-[docs/replay/replay_mock_stack_guide.md](../../docs/replay/replay_mock_stack_guide.md).
+[docs/collect/replay_mock_stack_guide.md](../../docs/collect/replay_mock_stack_guide.md).
 
 ## Tests live next to source
 

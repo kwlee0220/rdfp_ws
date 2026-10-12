@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 from typing import Iterator
@@ -224,7 +225,11 @@ def test_session_subscription_ignores_the_node_namespace(tmp_path):
         ])
         try:
             assert n._session_sub.topic_name == '/session'
-            assert n._image_sub.topic_name.startswith('/abc/'), '이미지는 로봇별로 갈린다'
+            # 구독은 발행자 타입을 안 뒤에 걸리므로(`_subscribe_image`) 여기서는
+            # 아직 `None` 이다 — 이름이 네임스페이스를 타는지는 해석 결과로 본다.
+            assert n._image_sub is None, '발행자가 없으면 아직 구독하지 않는다'
+            assert n.resolve_topic_name(n._image_topic).startswith('/abc/'), (
+                '이미지는 로봇별로 갈린다')
         finally:
             n.destroy_node()
 
@@ -260,7 +265,11 @@ def test_prefix_separates_files_in_one_directory(tmp_path):
         ])
         try:
             assert n._build_output_path().split('/')[-1].startswith('wrist_')
-            assert n._build_metadata_path().endswith('wrist_metadata.json')
+            meta = n._build_metadata_path().split('/')[-1]
+            assert meta.startswith('wrist_') and meta.endswith('_metadata.json')
+            # **에피소드마다 다른 이름이어야 한다** — prefix 당 한 파일이던 때는
+            # 에피소드마다 덮어써서 마지막 것만 남았다.
+            assert meta != 'wrist_metadata.json'
         finally:
             n.destroy_node()
 
@@ -314,3 +323,84 @@ def test_output_path_stays_inside_the_output_dir(tmp_path):
                 assert os.path.realpath(path).startswith(os.path.realpath(str(tmp_path)))
         finally:
             n.destroy_node()
+
+
+# ---------- R5: 에피소드별 metadata ----------
+#
+# 적재(I4)는 mp4 하나하나를 그 에피소드 행에 붙여야 한다. 그러려면 출력만 보고
+# **어느 에피소드의 어떤 영상인지** 알 수 있어야 한다 — 좌표 공간 문서 권고 12.
+# 예전에는 metadata 가 prefix 당 한 파일이라 **에피소드마다 덮어썼고**, 세션이
+# 끝나면 마지막 것만 남아 앞 영상들은 붙일 근거가 없었다.
+
+def _read_metadata(node) -> dict:
+    with open(node._build_metadata_path(), encoding='utf-8') as fp:
+        return json.load(fp)
+
+
+def _record_one(node, *, start_sec: int, stop_sec: int, frames=(0,)) -> dict:
+    """에피소드 하나를 녹화하고 metadata 를 돌려준다."""
+    node._on_session(_session('IN_EPISODE', start_sec))
+    for sec in frames:
+        node._on_image(_image(sec))
+    node._on_session(_session('IN_SESSION', stop_sec))
+    return _read_metadata(node)
+
+
+def test_metadata_carries_the_episode_key(node) -> None:
+    """**핵심.** `/session` 시작 stamp 가 곧 적재의 에피소드 키다.
+
+    파일 이름의 벽시계와 다르다 — sim time 스택에서는 둘이 아예 무관하다.
+    """
+    meta = _record_one(node, start_sec=100, stop_sec=110, frames=(101, 102))
+
+    assert meta['episode_key'] == {'sec': 100, 'nanosec': 0}
+
+
+def test_metadata_names_its_own_files(node) -> None:
+    """적재가 이름 규칙을 다시 조립하지 않게 한다."""
+    meta = _record_one(node, start_sec=100, stop_sec=110, frames=(101,))
+
+    assert meta['mp4'].endswith('.mp4')
+    assert meta['sidecar'].endswith('.jsonl')
+    assert meta['mp4'][:-4] == meta['sidecar'][:-6], '같은 묶음이면 어간이 같다'
+
+
+def test_metadata_carries_topic_codec_and_fps(node) -> None:
+    """`image_streams` 가 그대로 받는 값들이다."""
+    meta = _record_one(node, start_sec=100, stop_sec=110, frames=(101,))
+
+    assert meta['topic'] == 'camera/image_raw'
+    assert meta['codec'] == 'libx264', 'ffmpeg 이 **실제로 고른** 코덱이다'
+    assert meta['fps'] == 10
+    assert (meta['width'], meta['height']) == (WIDTH, HEIGHT)
+    assert meta['input_format'] == 'rawvideo'
+
+
+def test_metadata_is_not_overwritten_between_episodes(node) -> None:
+    """**이것이 R5 의 이유다** — 덮어쓰면 앞 에피소드의 영상을 붙일 근거가 없다."""
+    node._on_session(_session('IN_EPISODE', 100))
+    node._on_image(_image(101))
+    node._on_session(_session('IN_SESSION', 110))
+    first_path = node._build_metadata_path()
+    first = _read_metadata(node)
+
+    node._start_ts_str = ''          # 다음 에피소드는 새 타임스탬프를 받는다
+    node._on_session(_session('IN_EPISODE', 200))
+    node._on_image(_image(201))
+    node._on_session(_session('IN_SESSION', 210))
+    second = _read_metadata(node)
+
+    assert node._build_metadata_path() != first_path, '파일이 달라야 한다'
+    assert os.path.exists(first_path), '앞 에피소드의 metadata 가 남아 있어야 한다'
+    assert first['episode_key']['sec'] == 100
+    assert second['episode_key']['sec'] == 200
+
+
+def test_metadata_frame_stamps_are_not_the_episode_key(node) -> None:
+    """`start_ts` 는 **첫 프레임**이다 — 에피소드 시작보다 늦을 수 있다."""
+    meta = _record_one(node, start_sec=100, stop_sec=110, frames=(103, 104))
+
+    assert meta['episode_key']['sec'] == 100
+    assert meta['start_ts']['sec'] == 103
+    assert meta['end_ts']['sec'] == 104
+    assert meta['nframe'] == 2

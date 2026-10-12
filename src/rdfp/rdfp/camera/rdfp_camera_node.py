@@ -63,7 +63,7 @@ class RdfpCameraNode(Node):
 
     ``camera_node`` 와 갈리는 축이 이것이다. 구현은 같은 ``OpenCvCamera`` 를 쓰므로
     갈리는 것은 **세션 결합**과 **끊김을 누가 복구하는가** 둘뿐이다.
-    선택 표: ``docs/camera/README.md``.
+    선택 표: ``docs/control/README.md``.
 
     ``session`` 토픽의 state 값에 따라 동작이 결정된다:
 

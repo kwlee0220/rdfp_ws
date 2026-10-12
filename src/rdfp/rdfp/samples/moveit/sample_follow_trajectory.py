@@ -11,7 +11,7 @@ def main():
 
     try:
         # 컨트롤러(JTC/JGPC)를 자동 판별해 알맞은 구현을 생성한다.
-        with create_move_group_client(node) as client:
+        with create_move_group_client(node, backend='mock') as client:
             # 클라이언트가 준비될 때까지 대기한다.
             client.wait_until_ready()
 

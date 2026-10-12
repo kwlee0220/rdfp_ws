@@ -29,6 +29,7 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     'twist_stampeds':  ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
                         'twist'],
     'joint_states':    ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
+                        'joint_names',
                         'position', 'velocity', 'effort'],
     'joint_jogs':      ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
                         'joint_names', 'displacements', 'velocities', 'duration'],
@@ -41,6 +42,14 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
                         'goal', 'width', 'stalled', 'at_goal'],
     'scene_objects':   ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
                         'frame_id', 'objects'],
+    # 팔 동작 연산의 실행 궤적(L2)과 결과. 둘은 `operation_id` 로 짝지어 쓰며, 그 값이
+    # 없으면 학습의 관절-계획 레이블을 만들 수 없다.
+    'motion_trajectories': ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
+                            'operation_id', 'velocity_scaling', 'time_scaling',
+                            'joint_names', 'points', 'duration_sec'],
+    'motion_events':   ['id', 'episode_id', 'topic_id', 'stamp_sec', 'stamp_nanosec',
+                        'operation_id', 'operation', 'result', 'truncated_at_sec',
+                        'target_kind'],
     'image_frames':    ['id', 'episode_id', 'topic_id', 'frame_index',
                         'stamp_sec', 'stamp_nanosec'],
     'image_streams':   ['id', 'episode_id', 'topic_id', 'mp4_path', 'codec',

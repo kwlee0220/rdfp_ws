@@ -66,10 +66,19 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
     스캔 → 에피소드 감지 → 에피소드 단위 트랜잭션 삽입 + MP4 인코딩까지
     수행한다.
     """
-    del args   # 현재 import 서브커맨드는 추가 인자가 없다.
     cfg = load_dataset_or_fail(config_path)
     if cfg is None:
         return 2
+
+    # `rosbag export` 가 선택 결과를 자연키로 실어 보낸다. **인자가 설정을 이긴다** —
+    # 적재 경로를 둘로 만들지 않기 위해 이 함수 하나만 쓴다.
+    start_ns_in = list(getattr(args, 'start_ns_in', None) or [])
+    if start_ns_in:
+        cfg = cfg.model_copy(update={
+            'episode_filter': cfg.episode_filter.model_copy(
+                update={'start_ns_in': start_ns_in}),
+        })
+        _logger.info('episode selection: %d key(s) from the caller', len(start_ns_in))
 
     # ROS / 무거운 ingest 의존은 본 함수 진입 시점에만 로드한다 (cli.py 의
     # ROS-free 서브커맨드들이 sensor_msgs 없이도 동작하도록).

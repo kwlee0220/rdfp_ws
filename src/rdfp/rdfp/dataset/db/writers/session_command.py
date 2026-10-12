@@ -13,8 +13,7 @@ from typing import Any, Optional
 import psycopg
 from psycopg.types.json import Jsonb
 
-
-NS_PER_SEC = 1_000_000_000
+from rdfp.dataset.episode_key import split_ns
 
 
 class SessionWriter:
@@ -47,8 +46,8 @@ class SessionWriter:
         UNIQUE(start_sec, start_nanosec) 제약 위반 시 `psycopg.errors.UniqueViolation`
         이 발생한다. 상위(pipeline) 에서 on_existing_episode 정책에 따라 처리한다.
         """
-        start_sec, start_nanosec = _split_ns(start_ns)
-        stop_sec, stop_nanosec = _split_ns(stop_ns)
+        start_sec, start_nanosec = split_ns(start_ns)
+        stop_sec, stop_nanosec = split_ns(stop_ns)
         sql = """
             INSERT INTO sessions
                 (start_sec, start_nanosec, stop_sec, stop_nanosec,
@@ -68,7 +67,7 @@ class SessionWriter:
 
     def find_existing(self, start_ns: int) -> int | None:
         """동일 `(start_sec, start_nanosec)` 에피소드의 `id` 를 조회한다."""
-        start_sec, start_nanosec = _split_ns(start_ns)
+        start_sec, start_nanosec = split_ns(start_ns)
         sql = 'SELECT id FROM sessions WHERE start_sec = %s AND start_nanosec = %s'
         with self._conn.cursor() as cur:
             cur.execute(sql, (start_sec, start_nanosec))
@@ -82,11 +81,6 @@ class SessionWriter:
         """
         with self._conn.cursor() as cur:
             cur.execute('DELETE FROM sessions WHERE id = %s', (episode_id,))
-
-
-def _split_ns(ns: int) -> tuple[int, int]:
-    """epoch ns 를 `(sec, nanosec)` 로 분할한다 (음수 입력은 고려하지 않음)."""
-    return ns // NS_PER_SEC, ns % NS_PER_SEC
 
 
 __all__ = ['SessionWriter']

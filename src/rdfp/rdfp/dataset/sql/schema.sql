@@ -65,7 +65,9 @@ CREATE INDEX IF NOT EXISTS idx_twist_stampeds_topic    ON twist_stampeds (topic_
 CREATE INDEX IF NOT EXISTS idx_twist_stampeds_stamp_ts ON twist_stampeds (stamp_ts);
 
 
--- /joint_states → sensor_msgs/msg/JointState
+-- /joint_states · /target_joint_cmds → sensor_msgs/msg/JointState
+-- **두 토픽이 같은 테이블에 들어가고 `topic_id` 로만 갈린다** — 하나는 관측(실제 도달값),
+-- 하나는 action(컨트롤러로 나간 명령값)이다. export 가 토픽 등록부로 둘을 가른다.
 CREATE TABLE IF NOT EXISTS joint_states (
     id              BIGSERIAL           PRIMARY KEY,
     episode_id      BIGINT              NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -76,9 +78,22 @@ CREATE TABLE IF NOT EXISTS joint_states (
                         (to_timestamp(stamp_sec::double precision
                                       + stamp_nanosec::double precision / 1e9))
                         STORED,
+    -- 배열의 관절 순서. **순서 규약만으로는 부족하다** — 토픽마다 레이아웃이 다르고
+    -- (관측은 손가락 관절을 포함하지만 명령은 팔 7축뿐이다), 차원별 이름을 요구하는
+    -- export 형식도 있다. rosbag 은 적재 뒤 지우므로 **이름을 버리면 되살릴 수 없다**
+    -- (좌표 공간 문서 권고 4).
+    --
+    -- ⚠️ **빈 배열이 정상인 경우가 있다.** `target_joint_cmds_publisher` 는 컨트롤러의
+    -- `joints` 파라미터 조회가 시간 초과되면 빈 `name` 으로 발행한다. 그때는 배열
+    -- 순서만 남으므로 export 가 그 에피소드를 걸러낼 수 있도록 **사실대로 비워 둔다.**
+    joint_names     TEXT[]              NOT NULL DEFAULT '{}',
     position        DOUBLE PRECISION[]  NOT NULL,
     velocity        DOUBLE PRECISION[]  NOT NULL,
-    effort          DOUBLE PRECISION[]  NOT NULL
+    effort          DOUBLE PRECISION[]  NOT NULL,
+    -- 이름이 있으면 위치 배열과 길이가 같아야 한다. 어긋나면 어느 칸이 어느 관절인지
+    -- 알 수 없는데, 값의 범위가 비슷해 **데이터를 열어봐도 안 드러난다.**
+    CHECK (array_length(joint_names, 1) IS NULL
+           OR array_length(joint_names, 1) = array_length(position, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_joint_states_episode  ON joint_states (episode_id);
 CREATE INDEX IF NOT EXISTS idx_joint_states_topic    ON joint_states (topic_id);
@@ -206,6 +221,126 @@ CREATE TABLE IF NOT EXISTS pose_stampeds (
 CREATE INDEX IF NOT EXISTS idx_pose_stampeds_episode  ON pose_stampeds (episode_id);
 CREATE INDEX IF NOT EXISTS idx_pose_stampeds_topic    ON pose_stampeds (topic_id);
 CREATE INDEX IF NOT EXISTS idx_pose_stampeds_stamp_ts ON pose_stampeds (stamp_ts);
+
+
+-- /motion/trajectory → rdfp_msgs/msg/MotionTrajectory
+-- 팔 동작 연산 하나를 실행할 때 **컨트롤러로 보낸 궤적**(L2). 학습 데이터의 관절-계획
+-- 레이블이 여기서 나온다 (docs/collect/R1_실행_궤적_채널_구현_설계.md).
+--
+-- **주기 토픽이 아니라 이벤트다** — 연산마다 한 행이고, 궤적 전체가 그 한 행에 들어간다.
+-- 그래서 다른 테이블과 달리 행 수가 에피소드 길이가 아니라 **연산 수**를 따른다.
+--
+-- ⚠️ `stamp_*` 는 발행 시각이 아니라 **궤적의 0초가 시작된 시각(t₀)** 이다. export 는
+-- `t₀ + points[i].t` 로 각 경유점의 절대 시각을 만든다. 그 값이 틀리면 레이블 전체가
+-- 통째로 밀리므로, 적재는 이 stamp 를 다른 테이블과 같은 방식으로 다루면 안 된다.
+--
+-- **경유점을 jsonb 로 둔다** — scene_objects 와 같은 이유다. 경유점마다 관절 수만큼의
+-- 배열이 셋(위치·속도·가속도) 붙고, 속도·가속도는 계획 방식에 따라 비어 있을 수 있어
+-- 고정 컬럼으로 정규화되지 않는다. 원소 형태는
+--   {"t": float, "positions": [...], "velocities": [...], "accelerations": [...]}
+-- 이고 `t` 는 궤적 시작으로부터의 **경과 초**(time_from_start)다.
+CREATE TABLE IF NOT EXISTS motion_trajectories (
+    id              BIGSERIAL     PRIMARY KEY,
+    episode_id      BIGINT        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    topic_id        BIGINT        NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
+    stamp_sec       INTEGER       NOT NULL,
+    stamp_nanosec   BIGINT        NOT NULL,
+    stamp_ts        TIMESTAMPTZ   GENERATED ALWAYS AS
+                        (to_timestamp(stamp_sec::double precision
+                                      + stamp_nanosec::double precision / 1e9))
+                        STORED,
+    -- 같은 연산의 motion_events 행과 짝짓는 값. **FK 를 걸지 않는다** — 계획 단계에서
+    -- 실패한 연산은 이벤트만 있고 궤적이 없으며(그것이 'failed' 의 정의다), 반대로
+    -- 이벤트 발행에 실패하면 궤적만 남는다. 어느 쪽도 적재를 막아서는 안 된다.
+    operation_id    TEXT          NOT NULL,
+    -- 계획에 적용한 속도 배율과 스트리밍 재생 배율. **아래 points 의 t 에는 이미
+    -- 반영돼 있다** — 다시 곱하면 안 되고, 어떤 조건으로 만든 궤적인지 알기 위한 값이다.
+    velocity_scaling DOUBLE PRECISION NOT NULL,
+    time_scaling     DOUBLE PRECISION NOT NULL,
+    -- 경유점 배열의 관절 순서. 배열만 있고 이름이 없으면 어느 관절인지 알 수 없다.
+    joint_names     TEXT[]        NOT NULL,
+    -- 경유점. **보간 전 · 중력 보상 전** 값이다 (펑션베이 오프셋이 섞이면 백엔드를
+    -- 섞을 수 없다).
+    points          JSONB         NOT NULL,
+    point_count     INTEGER       GENERATED ALWAYS AS (jsonb_array_length(points)) STORED,
+    -- 궤적 길이(초) = 마지막 경유점의 t. 연산 이벤트의 중단 시각을 이 안으로 자르는
+    -- 기준이며, 레이블 규칙이 "정상 종료 뒤에는 끝점 유지" 라 자주 조회된다.
+    -- GENERATED 로 두어 points 와 어긋날 수 없게 한다. 빈 궤적이면 NULL 이다.
+    duration_sec    DOUBLE PRECISION GENERATED ALWAYS AS
+                        ((points -> -1 ->> 't')::double precision) STORED,
+    CHECK (jsonb_typeof(points) = 'array')
+);
+CREATE INDEX IF NOT EXISTS idx_motion_trajectories_episode ON motion_trajectories (episode_id);
+CREATE INDEX IF NOT EXISTS idx_motion_trajectories_topic   ON motion_trajectories (topic_id);
+CREATE INDEX IF NOT EXISTS idx_motion_trajectories_stamp_ts ON motion_trajectories (stamp_ts);
+-- 두 채널을 잇는 유일한 끈이라 조인이 이 값으로만 일어난다.
+CREATE INDEX IF NOT EXISTS idx_motion_trajectories_op ON motion_trajectories (episode_id, operation_id);
+
+
+-- /motion/event → rdfp_msgs/msg/MotionEvent
+-- 팔 동작 연산 하나가 **끝났다**. 위 궤적과 `operation_id` 로 짝지어 쓴다 — 그쪽이
+-- "무엇을 보냈나", 이쪽이 "어떤 연산이었고 어떻게 끝났나" 다
+-- (docs/collect/R2_연산_이벤트_채널_구현_설계.md).
+--
+-- **왜 필요한가** — 궤적은 *끝까지 갔을 때의 모습*이라, 연산이 중간에 멈췄는지도 언제
+-- 멈췄는지도 모른다. 그 정보가 없으면 중단된 연산 뒤의 레이블이 **팔이 가지 않은 자리**를
+-- 가리킨다.
+--
+-- ⚠️ `stamp_*` 는 **레이블 구간의 끝이 아니다.** 결과를 받은 시각이라 컨트롤러의 goal
+-- tolerance 확인과 팔의 물리 지연(isaac 실측 120 ms)이 들어 있다. 구간 끝은 짝 궤적의
+-- `stamp_ts + truncated_at_sec` 으로 계산한다. 이 값은 에피소드 창을 거르는 용도다.
+CREATE TABLE IF NOT EXISTS motion_events (
+    id              BIGSERIAL     PRIMARY KEY,
+    episode_id      BIGINT        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    topic_id        BIGINT        NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
+    stamp_sec       INTEGER       NOT NULL,
+    stamp_nanosec   BIGINT        NOT NULL,
+    stamp_ts        TIMESTAMPTZ   GENERATED ALWAYS AS
+                        (to_timestamp(stamp_sec::double precision
+                                      + stamp_nanosec::double precision / 1e9))
+                        STORED,
+    operation_id    TEXT          NOT NULL,
+    -- 이동 방식: 'named_target' | 'joints' | 'cartesian'.
+    -- 트윈 REST 이름(move_linear 등)이 **아니다** — 같은 지점을 관절 공간으로 갔는지
+    -- 직선으로 갔는지가 재실행 가능성을 가르므로 그쪽을 남긴다.
+    operation       TEXT          NOT NULL,
+    -- 'succeeded' | 'aborted' | 'failed'. 기준은 **궤적을 컨트롤러로 넘기려 했는가** 다.
+    -- goal 거부와 시작 상태 허용 오차 위반은 'failed' 가 아니라 'aborted' 다 —
+    -- 그 시점엔 궤적이 이미 나갔다. **'failed' 만 짝 궤적이 없고, 그 불변식이 적재
+    -- 검증의 고아 판정이 기대는 유일한 근거다.**
+    --
+    -- ⚠️ **어휘를 CHECK 로 걸지 않는다.** rosbag 은 적재 뒤 지우므로, 예상 못 한 값
+    -- 하나가 에피소드 트랜잭션을 통째로 되돌리면 그 데이터를 되살릴 수 없다. 어휘는
+    -- 발행부(motion_event_publisher)가 지키고, 여기서는 사실대로 담는다.
+    result          TEXT          NOT NULL,
+    -- 왜 그렇게 끝났는지. 사람이 읽는 값이고 레이블 계산에는 쓰지 않는다.
+    reason          TEXT          NOT NULL DEFAULT '',
+    -- **궤적 기준** 중단 시각(초). 정상 종료면 궤적 길이와 같고 'failed' 면 0 이다.
+    -- export 는 `L2(truncated_at_sec)` 로 중단 자세를 얻는다.
+    truncated_at_sec DOUBLE PRECISION NOT NULL,
+    -- 해석된 목표 — 클라이언트가 **실제로 겨냥한** 값이지 사용자가 준 입력이 아니다.
+    -- target_kind 가 'joints' 면 관절 배열을, 'pose' 면 position/orientation 과
+    -- target_frame 을 본다. 'failed' 여도 채운다 — 무엇을 하려다 실패했는지가 남아야 한다.
+    target_kind     TEXT          NOT NULL DEFAULT '',
+    target_joint_names  TEXT[]             NOT NULL DEFAULT '{}',
+    target_joint_values DOUBLE PRECISION[] NOT NULL DEFAULT '{}',
+    target_position     DOUBLE PRECISION[],
+    -- **ROS 규약 xyzw 순서.** 바꾸면 4개 float 에 unit norm 이라 어떤 검사도 통과하면서
+    -- '그럴듯하게 틀린 자세'가 된다 (scene_objects 와 같은 함정).
+    target_orientation  DOUBLE PRECISION[],
+    -- 위 pose 가 **어느 링크의 자세인가** (tip link 이름). 기준 좌표계가 아니다.
+    -- 펑션베이는 트윈이 EE 프레임 입력을 tip 기준으로 이미 옮긴 뒤라 사용자가 준 값과
+    -- 149 mm 다르다 — 프레임을 안 적으면 그 차이가 데이터에서 드러나지 않는다.
+    target_frame    TEXT          NOT NULL DEFAULT '',
+    CHECK (target_position IS NULL OR array_length(target_position, 1) = 3),
+    CHECK (target_orientation IS NULL OR array_length(target_orientation, 1) = 4),
+    CHECK (array_length(target_joint_names, 1) IS NOT DISTINCT FROM
+           array_length(target_joint_values, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_motion_events_episode  ON motion_events (episode_id);
+CREATE INDEX IF NOT EXISTS idx_motion_events_topic    ON motion_events (topic_id);
+CREATE INDEX IF NOT EXISTS idx_motion_events_stamp_ts ON motion_events (stamp_ts);
+CREATE INDEX IF NOT EXISTS idx_motion_events_op ON motion_events (episode_id, operation_id);
 
 
 -- /scene/objects → rdfp_msgs/msg/SceneObjects

@@ -2,8 +2,26 @@
 
 """RdfpImageRecorderNode 모듈.
 
-세션 제어 토픽(`rdfp_msgs/msg/SessionCommand`)의 상태 변경에 따라
-`sensor_msgs/Image` 스트림을 MP4 파일로 녹화하는 ROS2 노드.
+세션 제어 토픽(`rdfp_msgs/msg/SessionCommand`)의 상태 변경에 따라 이미지 스트림을
+MP4 파일로 녹화하는 ROS2 노드.
+
+입력 토픽은 `image_topic` 파라미터가 정하며(기본 ``/camera/image_raw``),
+**`sensor_msgs/Image` 와 `sensor_msgs/CompressedImage` 를 모두 받는다** — 두 타입을
+같은 이름으로 구독하고 발행자와 맞는 쪽만 연결된다. 무엇을 ffmpeg 에 넘길지는
+`input_format` 이 따로 정한다.
+
+==================== ================= ==========================================
+받은 메시지           input_format      처리
+==================== ================= ==========================================
+Image                rawvideo          ndarray 그대로
+CompressedImage      rawvideo          **내부에서 디코드** 후 ndarray
+CompressedImage      mjpeg             디코드 없이 JPEG 바이트를 ffmpeg 로
+Image                mjpeg             거부 (경고) — raw 를 JPEG 으로 넘길 수 없다
+==================== ================= ==========================================
+
+압축 토픽에서는 ``mjpeg`` 가 기본 선택지다 — 디코드 비용이 없고 결과 파일도 작다.
+``rawvideo`` 로 디코드하는 것은 픽셀이 필요한 경로(해상도 검증 등)를 압축
+토픽에서도 그대로 쓰고 싶을 때다.
 
 녹화 경계는 메시지 도착 순서가 아닌 **타임스탬프 기반**으로 판정하며,
 `pending_image_queue`를 사용하여 도착 순서 차이를 보상한다.
@@ -15,12 +33,32 @@
 * ``<base>/<prefix>_<start_ts>.mp4`` — 영상 파일
 * ``<base>/<prefix>_<start_ts>.jsonl`` — frame-level sidecar
   (각 줄: ``{"frame_index": N, "stamp": {"sec": ..., "nanosec": ...}}``)
-* ``<base>/<prefix>_metadata.json`` — recording metadata
-  (``resolution`` / ``encoding`` / ``frame_id`` / ``is_bigendian`` / ``nframe``
-  / ``start_ts`` / ``end_ts``)
+* ``<base>/<prefix>_<start_ts>_metadata.json`` — recording metadata
+
+**세 파일 모두 ``<start_ts>`` 를 공유한다** — 에피소드마다 한 벌이다. metadata 가
+prefix 당 한 파일이던 때는 **에피소드마다 덮어써서** 마지막 것만 남았다.
+
+metadata 가 담는 것:
+
+==================== =========================================================
+``episode_key``      ``/session`` IN_EPISODE 의 ``header.stamp`` — **적재가 이
+                     값으로 에피소드를 식별한다.** 파일 이름의 벽시계와 다르다
+``mp4`` ``sidecar``  같은 묶음의 파일 이름
+``topic``            어느 토픽의 영상인가
+``codec``            ffmpeg 이 **실제로 고른** 코덱
+``fps``              컨테이너 fps
+``input_format``     ``rawvideo`` / ``mjpeg``
+``resolution``       ``WxH`` 문자열. ``width`` · ``height`` 로도 둔다
+``encoding``         mjpeg 이면 압축 형식, 아니면 픽셀 포맷
+``pixel_format``     ffmpeg 에 넘긴 픽셀 포맷
+``frame_id``         첫 유효 이미지의 ``header.frame_id``
+``nframe``           총 프레임 수 (sidecar 줄 수와 같아야 한다)
+``start_ts``         **첫 프레임**의 stamp (에피소드 시작이 아니다)
+``end_ts``           마지막 프레임의 stamp
+==================== =========================================================
 
 mp4 프레임과 sidecar 라인은 1:1 로 매치된다. 자세한 사용법·파일 포맷은
-``docs/recorder/rdfp_image_recorder_node_guide.md`` 참조.
+``docs/collect/rdfp_image_recorder_node_guide.md`` 참조.
 """
 
 from __future__ import annotations
@@ -31,6 +69,7 @@ import collections
 import json
 import os
 import sys
+import time
 from datetime import datetime
 
 import numpy as np
@@ -51,6 +90,20 @@ from .exceptions import EncoderUnavailableError, RecorderStateError
 from .ffmpeg_command import INPUT_MJPEG, INPUT_RAWVIDEO
 from .ffmpeg_mp4_recorder import FFMpegMp4Recorder
 
+
+# 입력 이미지 토픽 기본값. **상대 이름이다** — 루트 네임스페이스에서는
+# `/camera/image_raw` 로 풀리고, `PushRosNamespace('/abc')` 아래에서는
+# `/abc/camera/image_raw` 가 된다. 절대(`/camera/image_raw`)로 박으면 로봇별
+# 네임스페이스를 못 타며, 그것은 `/session` 하나만 허용된 예외다
+# (`docs/topic_naming_contract.md` §2.5). 이름 자체는 저장소의 정규 이름이다
+# (`config/recording_topics.list`).
+_DEFAULT_IMAGE_TOPIC: str = 'camera/image_raw'
+
+# 이미지 토픽의 타입을 알아낼 때까지 다시 보는 주기 (초). 레코더가 카메라보다 먼저
+# 뜰 수 있으므로 한 번 보고 포기하면 안 된다.
+_TYPE_PROBE_PERIOD_SEC: float = 0.5
+# 타입을 못 찾은 채 이만큼 지나면 경고를 낸다 — 조용히 0 프레임이 되는 것을 막는다.
+_TYPE_PROBE_WARN_SEC: float = 10.0
 
 # recorder.stop() 의 타임아웃 (초). stop()이 이 시간 내에 완료되지 않으면 예외가 발생한다.
 _STOP_TIMEOUT_SEC: float = 5.0
@@ -141,6 +194,10 @@ class RdfpImageRecorderNode(Node):
         self._frame_index: int = 0       # 다음에 기록될 sidecar frame_index (0부터 시작)
         self._first_stamp_ns: Optional[int] = None  # 녹화 중 첫 프레임 stamp (나노초)
         self._last_stamp_ns: Optional[int] = None   # 녹화 중 마지막 프레임 stamp (나노초)
+        # 구독이 성립한 뒤의 **해석된** 토픽 이름과 메시지 타입 (metadata 용).
+        # 구독 전이면 파라미터 값을 그대로 쓴다.
+        self._resolved_topic: str = ''
+        self._image_type_name: str = ''
         # mjpeg 모드에서 metadata 의 encoding 으로 쓰는 압축 형식 (첫 유효 프레임에서 캡처)
         self._compressed_format: str = 'jpeg'
         # metadata 에 기록되는 Image 메시지 메타 필드 (첫 유효 이미지에서 캡처)
@@ -155,17 +212,16 @@ class RdfpImageRecorderNode(Node):
             collections.deque(maxlen=self._pending_queue_length)
         )
 
-        # 7. 이미지 토픽 구독
-        compressed = self._input_format == INPUT_MJPEG
-        self._image_sub = self.create_subscription(
-            CompressedImage if compressed else Image, 'image',
-            self._on_compressed_image if compressed else self._on_image,
-            qos_profile_sensor_data,
-        )
-        self.get_logger().info(
-            f'subscribed to image topic '
-            f'(effective name={self._image_sub.topic_name})'
-        )
+        # 7. 이미지 토픽 구독 — **발행자의 타입을 보고 하나만 건다.**
+        #
+        # 두 타입을 같은 이름으로 함께 걸 수는 없다. RMW 가 두 번째 구독을 거부하며,
+        # 그때 rclpy 가 보여 주는 말은 *"invalid allocator"* 라 원인을 안 가리킨다
+        # (진짜 메시지는 *"existing topic name ... with incompatible type"* 이다).
+        self._image_sub: Optional[Any] = None
+        self._type_probe_timer = None
+        self._probe_started_ns: int = 0
+        self._probe_warned: bool = False
+        self._subscribe_image()
 
         # 8. 세션 제어 토픽 구독 (publisher와 동일한 QoS).
         # **절대 이름이다** — 세션은 시스템에 하나이고 로봇별 네임스페이스를 타면
@@ -202,12 +258,24 @@ class RdfpImageRecorderNode(Node):
         # 녹화할 때 이 값으로 가른다.
         self.declare_parameter('file_prefix', 'session')
 
+        # 입력 이미지 토픽. **타입은 지정하지 않는다** — `sensor_msgs/Image` 와
+        # `sensor_msgs/CompressedImage` 를 같은 이름으로 함께 구독하고, 발행자와
+        # 타입이 맞는 쪽만 연결된다 (ROS 2 는 타입이 다르면 오류 없이 연결만 안 한다).
+        # 파라미터로 미리 선언하게 하면 실제와 어긋났을 때 증상이 "0 프레임" 뿐이다.
+        self.declare_parameter('image_topic', _DEFAULT_IMAGE_TOPIC)
+
         # Recorder 핵심 설정 — resolution은 필수, fps는 기본값(10) 보유
         self.declare_parameter('fps', _DEFAULT_FPS)
         self.declare_parameter('resolution', descriptor=ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter('pixel_format', 'bgr8')
-        # ``mjpeg`` 로 두면 `sensor_msgs/CompressedImage`(JPEG) 를 구독해 **디코드하지
-        # 않고** ffmpeg 에 그대로 넘긴다. 시뮬레이터가 압축 이미지를 보내는 백엔드용이다.
+        # **ffmpeg 에 무엇을 넘길 것인가**다 — 무엇을 구독할지가 아니다 (그것은
+        # 토픽의 타입이 정한다).
+        #
+        #   rawvideo : ndarray 를 넘긴다. `CompressedImage` 가 오면 **내부에서
+        #              디코드**해 같은 경로로 흘린다.
+        #   mjpeg    : JPEG 바이트를 **디코드하지 않고** 그대로 넘겨 ffmpeg 이
+        #              디코드·인코딩을 함께 하게 한다. 압축 토픽에서만 쓸 수 있고,
+        #              실측으로 내부 디코드보다 빠르며 결과 파일도 작다.
         self.declare_parameter('input_format', INPUT_RAWVIDEO)
         self.declare_parameter('encoder_mode', 'auto')
         self.declare_parameter('queue_size', 120)
@@ -238,6 +306,8 @@ class RdfpImageRecorderNode(Node):
         self._output_dir = get_parameter(self, 'output_dir', parse_stripped_str)
         self._file_prefix = _validate_file_prefix(
             get_parameter(self, 'file_prefix', parse_str))
+
+        self._image_topic = get_parameter(self, 'image_topic', parse_stripped_str)
 
         # Recorder 핵심 설정
         self._fps = get_parameter(self, 'fps', Fps).to_int()
@@ -305,23 +375,89 @@ class RdfpImageRecorderNode(Node):
         except ValueError as exc:
             raise RuntimeError(f'invalid recorder configuration: {exc}') from exc
 
+    # ---------- 이미지 구독 (타입 판별) ---------------------------------------
+
+    def _resolve_image_type(self) -> Optional[type]:
+        """이 토픽이 `Image` 인지 `CompressedImage` 인지 정한다. 모르면 ``None``.
+
+        `input_format="mjpeg"` 는 **JPEG 바이트를 그대로 흘리겠다는 선언**이므로 타입이
+        이미 정해져 있다 — 발행자를 기다리지 않는다. 그 외에는 발행자에게 물어본다.
+        """
+        if self._input_format == INPUT_MJPEG:
+            return CompressedImage
+        topic = self.resolve_topic_name(self._image_topic)
+        for info in self.get_publishers_info_by_topic(topic):
+            if info.topic_type.endswith('/CompressedImage'):
+                return CompressedImage
+            if info.topic_type.endswith('/Image'):
+                return Image
+        return None
+
+    def _subscribe_image(self) -> None:
+        """타입이 정해지면 구독하고, 아니면 타이머로 다시 본다.
+
+        **레코더가 카메라보다 먼저 뜰 수 있어** 한 번 보고 포기하면 안 된다. 못 찾는
+        동안에는 주기적으로 경고를 내 *조용한 0 프레임*이 되지 않게 한다.
+        """
+        msg_type = self._resolve_image_type()
+        if msg_type is None:
+            if self._type_probe_timer is None:
+                self._probe_started_ns = time.monotonic_ns()
+                self._type_probe_timer = self.create_timer(
+                    _TYPE_PROBE_PERIOD_SEC, self._subscribe_image)
+                self.get_logger().info(
+                    f'waiting for a publisher on {self._image_topic!r} to learn its type '
+                    f'(sensor_msgs/Image or sensor_msgs/CompressedImage)')
+            elapsed = (time.monotonic_ns() - self._probe_started_ns) / 1e9
+            if elapsed >= _TYPE_PROBE_WARN_SEC and not self._probe_warned:
+                self._probe_warned = True
+                self.get_logger().warning(
+                    f'still no publisher on {self._image_topic!r} after {elapsed:.0f}s; '
+                    f'nothing will be recorded until one appears')
+            return
+
+        if self._type_probe_timer is not None:
+            self._type_probe_timer.cancel()
+            self.destroy_timer(self._type_probe_timer)
+            self._type_probe_timer = None
+
+        compressed = msg_type is CompressedImage
+        self._image_sub = self.create_subscription(
+            msg_type, self._image_topic,
+            self._on_compressed_image if compressed else self._on_image,
+            qos_profile_sensor_data,
+        )
+        # **metadata 에는 해석된 이름과 타입을 남긴다.** 파라미터 값은 상대 이름이라
+        # 네임스페이스 아래에서는 실제 토픽과 다르고, 적재가 그것으로 `topic_id` 를
+        # 붙이면 **다른 토픽 행에 영상이 달린다** — 에러 없이 데이터만 어긋난다.
+        self._resolved_topic = self._image_sub.topic_name
+        self._image_type_name = f'sensor_msgs/msg/{msg_type.__name__}'
+        how = 'passthrough' if self._input_format == INPUT_MJPEG else 'decode'
+        self.get_logger().info(
+            f'subscribed to image topic (effective name={self._image_sub.topic_name}, '
+            f'type=sensor_msgs/{msg_type.__name__}'
+            f'{", " + how if compressed else ""}, input_format={self._input_format!r})')
+
     # ---------- Image callback ----------------------------------------------
 
     def _on_compressed_image(self, msg: CompressedImage) -> None:
-        """압축 이미지 콜백 (`input_format="mjpeg"`).
+        """압축 이미지 콜백. `input_format` 이 **패스스루냐 내부 디코드냐**를 가른다.
 
-        **디코드하지 않는다.** JPEG 바이트를 그대로 큐에 넣고 ffmpeg 이 디코드·인코딩을
-        함께 하게 한다 — 실측으로 `cv2.imdecode` 를 거치는 것보다 빠르고 결과 파일도
-        작다 (`ffmpeg_command.INPUT_MJPEG` 주석).
+        * ``mjpeg``    — JPEG 바이트를 그대로 큐에 넣고 ffmpeg 이 디코드·인코딩을 함께
+          하게 한다. 실측으로 `cv2.imdecode` 를 거치는 것보다 빠르고 결과 파일도 작다
+          (`ffmpeg_command.INPUT_MJPEG` 주석). 해상도는 검증하지 않는다 — JPEG 헤더
+          안에 있고 ffmpeg 이 읽는다.
+        * ``rawvideo`` — 여기서 디코드해 `Image` 경로와 **같은 큐·같은 검증**으로
+          흘린다. 픽셀이 필요한 경로(해상도 검증 · metadata 의 encoding)를 압축
+          토픽에서도 그대로 쓰기 위한 것이다.
 
-        해상도는 검증하지 않는다 — JPEG 헤더 안에 있고 ffmpeg 이 읽는다. 대신 **압축
-        형식**을 본다: mjpeg 입력은 JPEG 만 받는다.
+        어느 쪽이든 **압축 형식은 본다** — 이 노드가 다루는 것은 JPEG 뿐이다.
         """
         fmt = (msg.format or '').lower()
         if 'jpeg' not in fmt and 'jpg' not in fmt:
             self.get_logger().warning(
                 f'image dropped: format={msg.format!r} is not JPEG '
-                f'(input_format={INPUT_MJPEG!r} accepts JPEG only)',
+                f'(this node decodes/streams JPEG only)',
                 throttle_duration_sec=5.0,
             )
             return
@@ -336,7 +472,57 @@ class RdfpImageRecorderNode(Node):
         self._compressed_format = msg.format
 
         stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
-        self._enqueue_frame(stamp_ns, bytes(msg.data))
+
+        if self._input_format == INPUT_MJPEG:
+            self._enqueue_frame(stamp_ns, bytes(msg.data))
+            return
+
+        frame = self._decode_compressed(msg)
+        if frame is None:
+            return
+        self._enqueue_frame(stamp_ns, frame)
+
+    def _decode_compressed(self, msg: CompressedImage) -> Optional[np.ndarray]:
+        """JPEG 바이트를 `pixel_format`·`resolution` 에 맞는 ndarray 로 푼다.
+
+        실패·불일치는 **경고 한 줄과 `None`** 이다 — 예외를 올리면 콜백에서 터져 노드가
+        내려가고, 증상은 "그 노드만 조용히 무응답" 이 된다.
+
+        Returns:
+            디코드된 프레임. 형식이 어긋나거나 디코드에 실패하면 ``None``.
+        """
+        import cv2   # 지연 import — mjpeg 패스스루만 쓰는 스택에 OpenCV 를 강요하지 않는다
+
+        # `mono8` 은 1채널로 풀어야 하고, 나머지는 3채널 BGR 로 푼다.
+        mono = self._pixel_format == 'mono8'
+        flag = cv2.IMREAD_GRAYSCALE if mono else cv2.IMREAD_COLOR
+        frame = cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), flag)
+        if frame is None:
+            self.get_logger().warning('image dropped: JPEG decode failed',
+                                      throttle_duration_sec=5.0)
+            return None
+
+        height, width = frame.shape[:2]
+        if width != self._resolution.width or height != self._resolution.height:
+            self.get_logger().warning(
+                f'image dropped: decoded size={width}x{height} '
+                f'(expected {self._resolution.width}x{self._resolution.height})',
+                throttle_duration_sec=5.0,
+            )
+            return None
+
+        # ⚠️ **`cv2.imdecode` 는 BGR 로 푼다.** `rgb8` 을 요구하는 스택에서 그대로
+        # 넘기면 오류 없이 **색이 뒤바뀐 영상**이 나온다 — 원인을 찾기 어렵다.
+        if self._pixel_format == 'rgb8':
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        elif self._pixel_format not in ('bgr8', 'mono8'):
+            self.get_logger().warning(
+                f'image dropped: cannot decode JPEG into pixel_format='
+                f'{self._pixel_format!r} (supported: bgr8, rgb8, mono8)',
+                throttle_duration_sec=5.0,
+            )
+            return None
+        return frame
 
     def _on_image(self, msg: Image) -> None:
         """이미지 토픽 콜백.
@@ -345,6 +531,18 @@ class RdfpImageRecorderNode(Node):
         큐가 가득 차면 가장 오래된 프레임(victim)이 밀려나며, 녹화/비녹화
         구간에 따라 recorder에 전달하거나 drop한다 (SRS §6.3).
         """
+        # `mjpeg` 는 JPEG 바이트를 그대로 넘기는 모드라 raw 프레임을 실을 수 없다.
+        # 여기서 막지 않으면 `write_compressed(ndarray)` 가 `InvalidFrameError` 로
+        # 매 프레임 실패하며, 증상은 "0 프레임" 뿐이라 원인이 안 보인다.
+        if self._input_format == INPUT_MJPEG:
+            self.get_logger().warning(
+                f'image dropped: got sensor_msgs/Image but input_format='
+                f'{INPUT_MJPEG!r} streams JPEG bytes; '
+                f'set input_format={INPUT_RAWVIDEO!r} for a raw topic',
+                throttle_duration_sec=5.0,
+            )
+            return
+
         # encoding / 해상도 검증
         if (
             msg.encoding != self._pixel_format
@@ -614,9 +812,14 @@ class RdfpImageRecorderNode(Node):
     def _build_metadata_path(self) -> str:
         """recording metadata 파일 경로를 생성한다.
 
-        포맷: ``<output_dir>/<file_prefix>_metadata.json`` (start_ts 미포함)
+        포맷: ``<output_dir>/<file_prefix>_<start_ts>_metadata.json``
+
+        ⚠️ **start_ts 를 넣는다.** 예전에는 prefix 당 한 파일이라 **에피소드마다
+        덮어써서**, 세션이 끝나면 마지막 에피소드의 것만 남았다. 적재(I4)는 mp4
+        하나하나를 그 에피소드에 붙여야 하므로 앞 에피소드의 metadata 가 사라지면
+        그 영상은 **어느 에피소드 것인지 알 수 없다** (좌표 공간 문서 권고 12).
         """
-        filename = f'{self._file_prefix}_metadata.json'
+        filename = f'{self._file_prefix}_{self._start_ts_str}_metadata.json'
         return os.path.join(self._output_dir, filename)
 
     # ---------- Sidecar / metadata 쓰기 ------------------------------------
@@ -710,10 +913,41 @@ class RdfpImageRecorderNode(Node):
         """
         metadata_path = self._build_metadata_path()
         metadata: dict[str, Any] = {
+            # **에피소드 키** — `/session` 의 IN_EPISODE 메시지 `header.stamp` 다.
+            # 적재가 에피소드를 이 값으로 식별하므로(`sessions` 의 UNIQUE 키), 이것이
+            # 없으면 mp4 를 어느 에피소드에 붙일지 알 수 없다. **파일 이름의 시각과
+            # 다르다** — 이름은 벽시계이고 이 값은 스택 시계(sim time 이면 sim)다.
+            'episode_key': {
+                'sec': self._start_ts // 1_000_000_000,
+                'nanosec': self._start_ts % 1_000_000_000,
+            },
+            # 같은 묶음의 파일 이름. 적재가 이름 규칙을 다시 조립하지 않게 한다.
+            'mp4': f'{self._file_prefix}_{self._start_ts_str}.mp4',
+            'sidecar': f'{self._file_prefix}_{self._start_ts_str}.jsonl',
+            # 어느 토픽의 영상인가 — `image_streams` 가 topic_id 를 붙이는 근거다.
+            # **해석된 이름**이다 (네임스페이스가 붙은 실제 토픽). 구독 전이면
+            # 파라미터 값으로 떨어진다.
+            'topic': self._resolved_topic or self._image_topic,
+            # 메시지 타입 — 적재가 `topics` 행을 만들 때 쓴다. 영상은 rosbag 에
+            # 담지 않으므로 **그 행이 아직 없을 수 있다.**
+            'topic_type': self._image_type_name,
+            # ffmpeg 이 실제로 고른 코덱. 요청한 값이 아니라 **선택된 값**이다.
+            'codec': self._recorder.selected_codec,
+            # 컨테이너 fps. 프레임 stamp 와 달라도 되며(카메라가 흔들린다), 재생
+            # 쪽이 컨테이너를 읽을 때 쓰는 값이다.
+            'fps': self._fps,
+            # 무엇을 ffmpeg 에 넘겼는가 (rawvideo / mjpeg). 같은 mp4 라도 이 값에
+            # 따라 우리가 디코드했는지 여부가 갈린다.
+            'input_format': self._input_format,
             'resolution': f'{self._resolution.width}x{self._resolution.height}',
+            # 문자열을 다시 쪼개지 않게 숫자로도 둔다 — `image_streams` 는 정수를 받는다.
+            'width': self._resolution.width,
+            'height': self._resolution.height,
             # mjpeg 모드에서는 픽셀 포맷이 아니라 **압축 형식**이 실제 encoding 이다.
             'encoding': (self._compressed_format if self._input_format == INPUT_MJPEG
                          else self._pixel_format),
+            # ffmpeg 에 넘긴 픽셀 포맷. `encoding` 과 갈릴 수 있어 따로 둔다.
+            'pixel_format': self._pixel_format,
             'frame_id': self._frame_id,
             'is_bigendian': self._is_bigendian,
             'nframe': self._frame_index,

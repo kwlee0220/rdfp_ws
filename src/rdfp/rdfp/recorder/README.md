@@ -137,7 +137,9 @@ rdfp/recorder/
 > 본 문서는 ROS2 비의존인 `FFMpegMp4Recorder` 코어만 다룹니다. 두 ROS
 > 어댑터 노드(`image_recorder_node`, `rdfp_image_recorder`)의 동작·파라미터·
 > 서비스 호출은 패키지 README ([`../../README.md`](../../README.md)) 및
-> 워크스페이스 가이드([docs/recorder/](../../../../docs/recorder/))를 참고하세요.
+> 워크스페이스 가이드([docs/collect/rdfp_image_recorder_node_guide.md](../../../../docs/collect/rdfp_image_recorder_node_guide.md))를 참고하세요.
+> 이 클래스의 **상세 API · 예제 · 트러블슈팅 정본은 [docs/collect/ffmpeg_mp4_recorder_guide.md](../../../../docs/collect/ffmpeg_mp4_recorder_guide.md)** 입니다 —
+> 이 README 는 요약 · 테스트 · 샘플 실행만 다룹니다 (2026-09-21 문서 재편에서 중복을 그쪽으로 몰았습니다).
 
 ## 테스트 실행
 

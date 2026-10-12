@@ -38,6 +38,18 @@ class ImageFrameWriter(WriterBase):
         """
         sec, nsec = extract_stamp(msg)
         self._buffer.append((episode_id, self.topic_id, frame_index, sec, nsec))
+
+    def append_row(self, episode_id: int, frame_index: int, sec: int, nsec: int) -> None:
+        """메시지 없이 **stamp 값만으로** 한 행을 버퍼에 추가한다.
+
+        레코더가 남긴 sidecar(jsonl)를 적재할 때 쓴다 — 그 경로에는 ROS 메시지가
+        없고 `{"frame_index": N, "stamp": {...}}` 줄만 있다(I4). 값의 뜻은
+        :meth:`append_frame` 과 같다.
+        """
+        self._buffer.append((episode_id, self.topic_id, int(frame_index),
+                             int(sec), int(nsec)))
+        if len(self._buffer) >= self._batch_size:
+            self.flush()
         if len(self._buffer) >= self._batch_size:
             self.flush()
 

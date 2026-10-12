@@ -4,7 +4,7 @@
 # 덮어쓰기가 가능하고, `config_file:=<path>` 로 다른 YAML 을 지정할 수 있다.
 # YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
 #
-# panda_robot.yaml 과 **별도 파일**인 이유
+# (삭제된) panda_robot.yaml 과 **별도 파일**로 둔 이유
 # --------------------------------------------
 # replay 스택은 camera / ee_pose_publisher / session_control / image_recorder /
 # target_joint_cmds_publisher 를 기동하지 않는다 (해당 토픽을 재생 도구가 공급한다).
@@ -30,7 +30,7 @@ image_viewer:
 
 # --- arm 재생 경로 ---
 # 두 경로가 동시에 /panda_arm_controller/joint_trajectory 를 쓰면 명령이 충돌하므로
-# arm_path 로 **배타 선택**한다. 경로별 특성 비교: docs/replay/replay_mock_stack_guide.md
+# arm_path 로 **배타 선택**한다. 경로별 특성 비교: docs/collect/replay_mock_stack_guide.md
 replay:
   # ee_twist        : /ee_pose -> 유한 차분 -> servo   (개루프, 드리프트 있음)
   # target_joint_cmds: /target_joint_cmds -> executor  (위치 폐루프, 여유자유도 재현)

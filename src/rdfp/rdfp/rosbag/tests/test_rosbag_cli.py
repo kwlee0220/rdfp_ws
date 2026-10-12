@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from rdfp.rosbag.cli import _build_parser
+from pathlib import Path
+
+from rdfp.rosbag.cli import _build_parser, main as cli_main
+from rdfp.rosbag.tests.fixtures.make_synth_bag import (
+    PoseEventSpec, SessionEventSpec, write_synth_bag,
+)
 
 
 def test_no_subcommand_returns_2(capsys) -> None:
@@ -351,3 +356,207 @@ def test_confirm_clear_rejects_other_inputs(monkeypatch, tmp_path) -> None:
     for ans in ('YES', 'yes', 'no', 'n', '', 'yeah'):
         monkeypatch.setattr('builtins.input', lambda _prompt, a=ans: a)
         assert cli_mod._confirm_clear(tmp_path) is False, f'should reject {ans!r}'
+
+
+# ----- 에피소드 서브커맨드 ----------------------------------------------------
+
+
+def _episode_bag(root, labels=('a', 'b', 'c')):
+    """에피소드 하나당 12초, 200초 간격."""
+    base, sec = 1_757_000_000_000_000_000, 1_000_000_000
+    session, poses = [], []
+    for i, label in enumerate(labels):
+        t0 = base + i * 200 * sec
+        session += [SessionEventSpec(t0, 'IN_EPISODE', label),
+                    SessionEventSpec(t0 + 12 * sec, 'IN_SESSION', label)]
+        poses += [PoseEventSpec(t0 + k * sec) for k in range(1, 12)]
+    write_synth_bag(root, session_events=session, pose_events=poses)
+    return base, sec
+
+
+def test_cli_list_episodes(tmp_path, capsys) -> None:
+    _episode_bag(tmp_path)
+
+    rc = cli_main(['list-episodes', '--rosbag-dir', str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert '3 episode(s)' in out
+    # DB 를 보지 않았으므로 export 열은 '?' 다 — '적재 안 됨' 과 구분된다.
+    assert '?' in out
+
+
+def test_cli_list_episodes_task_filter(tmp_path, capsys) -> None:
+    _episode_bag(tmp_path, labels=('peg', 'tray', 'peg'))
+
+    rc = cli_main(['list-episodes', '--rosbag-dir', str(tmp_path), '--task', 'peg'])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert '2 episode(s)' in out
+    assert 'tray' not in out
+
+
+def test_cli_delete_dry_run_changes_nothing(tmp_path) -> None:
+    from rdfp.rosbag.episode_ops import load_episodes
+
+    _episode_bag(tmp_path)
+
+    rc = cli_main(['delete', '--rosbag-dir', str(tmp_path), '--episodes', '2', '--dry-run'])
+
+    assert rc == 0
+    assert len(load_episodes(tmp_path)) == 3
+
+
+def test_cli_delete_refuses_without_yes_in_non_tty(tmp_path) -> None:
+    """비대화형에서 확인 없이 지우지 않는다 (`clear` 와 같은 규칙)."""
+    from rdfp.rosbag.episode_ops import load_episodes
+
+    _episode_bag(tmp_path)
+
+    rc = cli_main(['delete', '--rosbag-dir', str(tmp_path), '--episodes', '2'])
+
+    assert rc == 1
+    assert len(load_episodes(tmp_path)) == 3
+
+
+def test_cli_delete_removes_selected(tmp_path) -> None:
+    from rdfp.rosbag.episode_ops import load_episodes
+
+    _episode_bag(tmp_path)
+
+    rc = cli_main(['delete', '--rosbag-dir', str(tmp_path), '--episodes', '2', '--yes'])
+
+    assert rc == 0
+    assert [e.task_label for e in load_episodes(tmp_path)] == ['a', 'c']
+
+
+def test_cli_export_requires_config(tmp_path) -> None:
+    _episode_bag(tmp_path)
+
+    rc = cli_main(['export', '--rosbag-dir', str(tmp_path)])
+
+    assert rc == 2
+
+
+def test_cli_export_passes_selection_to_import(tmp_path, monkeypatch, capsys) -> None:
+    """`export` 는 자체 적재 경로를 갖지 않고 `cmd_import` 에 자연키를 넘긴다."""
+    base, sec = _episode_bag(tmp_path)
+    seen = {}
+
+    def fake_cmd_import(args, config_path):
+        seen['keys'] = list(args.start_ns_in)
+        seen['config'] = config_path
+        return 0
+
+    import rdfp.dataset.import_cmd as import_cmd
+    monkeypatch.setattr(import_cmd, 'cmd_import', fake_cmd_import)
+
+    rc = cli_main(['export', '--rosbag-dir', str(tmp_path),
+                   '--config', 'dataset_config.yaml', '--episodes', '2-3'])
+
+    assert rc == 0
+    assert seen['keys'] == [base + 200 * sec, base + 400 * sec]
+    assert seen['config'] == 'dataset_config.yaml'
+
+
+def test_cli_export_dry_run_does_not_ingest(tmp_path, monkeypatch) -> None:
+    _episode_bag(tmp_path)
+    called = []
+
+    import rdfp.dataset.import_cmd as import_cmd
+    monkeypatch.setattr(import_cmd, 'cmd_import',
+                        lambda *a, **k: called.append(1) or 0)
+
+    rc = cli_main(['export', '--rosbag-dir', str(tmp_path),
+                   '--config', 'dataset_config.yaml', '--dry-run'])
+
+    assert rc == 0
+    assert called == []
+
+
+# ----- bag 루트 결정 순서 -----------------------------------------------------
+#
+# 실 DB 시험(2026-09-12)에서 드러난 버그의 회귀 시험이다. `_gather` 가 설정을 건너뛰고
+# 환경변수만 보던 탓에, `--config` 가 가리키는 **DB 에 다른 bag 을 적재**할 수 있었다.
+
+
+def _write_config(path, rosbag_dir) -> str:
+    path.write_text(f'rosbag_dir: {rosbag_dir}\n', encoding='utf-8')
+    return str(path)
+
+
+def test_resolve_bag_dir_priority() -> None:
+    """**인자 > 설정 > 환경변수** 순이다."""
+    import argparse
+
+    from rdfp.rosbag.cli import _resolve_bag_dir
+
+    cfg = argparse.Namespace(rosbag_dir='/from/config')
+
+    assert _resolve_bag_dir(argparse.Namespace(rosbag_dir='/from/arg'), cfg) == Path('/from/arg')
+    assert _resolve_bag_dir(argparse.Namespace(rosbag_dir=None), cfg) == Path('/from/config')
+
+
+def test_resolve_bag_dir_falls_back_to_env(monkeypatch) -> None:
+    import argparse
+
+    from rdfp.rosbag.cli import _resolve_bag_dir
+
+    monkeypatch.setenv('RDFP_ROSBAG_DIR', '/from/env')
+
+    assert _resolve_bag_dir(argparse.Namespace(rosbag_dir=None), None) == Path('/from/env')
+
+
+def test_config_rosbag_dir_beats_env(tmp_path, monkeypatch, capsys) -> None:
+    """설정이 환경변수를 이긴다 — 반대면 설정의 DB 에 엉뚱한 bag 을 적재한다."""
+    wanted = tmp_path / 'wanted'
+    stray = tmp_path / 'stray'
+    _episode_bag(wanted, labels=('peg', 'tray'))
+    _episode_bag(stray, labels=('stray_task',))
+    config = _write_config(tmp_path / 'dataset_config.yaml', wanted)
+    monkeypatch.setenv('RDFP_ROSBAG_DIR', str(stray))
+
+    rc = cli_main(['list-episodes', '--config', config])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert '2 episode(s)' in out
+    assert 'peg' in out and 'stray_task' not in out
+
+
+def test_arg_rosbag_dir_beats_config(tmp_path, monkeypatch, capsys) -> None:
+    """명시한 인자는 설정도 이긴다."""
+    wanted = tmp_path / 'wanted'
+    other = tmp_path / 'other'
+    _episode_bag(wanted, labels=('peg',))
+    _episode_bag(other, labels=('other_task', 'other_task'))
+    config = _write_config(tmp_path / 'dataset_config.yaml', other)
+    monkeypatch.delenv('RDFP_ROSBAG_DIR', raising=False)
+
+    rc = cli_main(['list-episodes', '--config', config, '--rosbag-dir', str(wanted)])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert '1 episode(s)' in out
+    assert 'other_task' not in out
+
+
+def test_export_uses_config_rosbag_dir(tmp_path, monkeypatch) -> None:
+    """`export` 도 같은 순서를 따른다 — 여기서 어긋나면 잘못된 bag 이 적재된다."""
+    wanted = tmp_path / 'wanted'
+    stray = tmp_path / 'stray'
+    base, sec = _episode_bag(wanted, labels=('peg', 'tray'))
+    _episode_bag(stray, labels=('stray_task',))
+    config = _write_config(tmp_path / 'dataset_config.yaml', wanted)
+    monkeypatch.setenv('RDFP_ROSBAG_DIR', str(stray))
+    seen = {}
+
+    import rdfp.dataset.import_cmd as import_cmd
+    monkeypatch.setattr(import_cmd, 'cmd_import',
+                        lambda args, path: seen.update(keys=list(args.start_ns_in)) or 0)
+
+    rc = cli_main(['export', '--config', config])
+
+    assert rc == 0
+    assert seen['keys'] == [base, base + 200 * sec]

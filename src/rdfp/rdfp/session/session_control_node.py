@@ -5,7 +5,7 @@
 `get_session_state`)로 제어·조회하고, 본 노드는 내부 상태 머신을 갱신한 뒤 변경된
 상태와 task_label 을 `session` 토픽으로 발행한다.
 
-계약·상태 전이·클라이언트 사용법은 `docs/session/session_control_guide.md` 에 있다.
+계약·상태 전이·클라이언트 사용법은 `docs/collect/session_control_guide.md` 에 있다.
 """
 
 from __future__ import annotations

@@ -55,3 +55,39 @@ def test_empty_task_label_treated_as_empty_string() -> None:
     # task_label 이 None 인 에피소드는 빈 문자열로 취급한다.
     eps = [_ep(0, 10, None)]
     assert _apply_episode_filters(eps, EpisodeFilter(task_labels_include=[''])) == eps
+
+
+# ----- start_ns_in — `rosbag export` 가 선택 결과를 넘기는 경로 --------------
+
+
+def test_start_ns_in_selects_only_listed_keys() -> None:
+    """자연키로 못박으면 그 에피소드만 남는다."""
+    eps = [_ep(100, 200), _ep(300, 400), _ep(500, 600)]
+    filt = EpisodeFilter(start_ns_in=[300, 500])
+
+    out = _apply_episode_filters(eps, filt)
+
+    assert [e.start_ns for e in out] == [300, 500]
+
+
+def test_start_ns_in_empty_means_no_restriction() -> None:
+    """비어 있으면 제한하지 않는다 — 기존 `import` 동작이 그대로 유지된다."""
+    eps = [_ep(100, 200), _ep(300, 400)]
+
+    out = _apply_episode_filters(eps, EpisodeFilter())
+
+    assert len(out) == 2
+
+
+def test_start_ns_in_combines_with_other_filters() -> None:
+    """자연키가 가장 강한 조건이지만 나머지 필터도 함께 적용된다.
+
+    키로 골라도 `min_duration_sec` 에 걸리면 빠진다 — 그러지 않으면 품질 기준을
+    우회하는 경로가 생긴다.
+    """
+    eps = [_ep(0, 1_000_000_000, 'peg'), _ep(10_000_000_000, 10_100_000_000, 'peg')]
+    filt = EpisodeFilter(start_ns_in=[0, 10_000_000_000], min_duration_sec=0.5)
+
+    out = _apply_episode_filters(eps, filt)
+
+    assert [e.start_ns for e in out] == [0]

@@ -21,18 +21,18 @@ from typing import Optional
 import psycopg
 
 from ..config import SESSION_TOPIC, DatasetConfig, EpisodeFilter
-from rdfp.dataset.db.registry import (
-    SESSION_COMMAND_TYPE, is_image_type, resolve_message_type,
-)
+from rdfp.dataset.db.registry import is_image_type, resolve_message_type
 from rdfp.dataset.db.writers.base import WriterBase
 from rdfp.dataset.db.writers.session_command import SessionWriter
 from rdfp.rosbag.merged_stream import merge_split_streams
-from .episode.detector import Episode, SessionEvent, detect_episodes
+from .episode.detector import Episode
 from .episode.dispatcher import AssignedMessage, DispatchEvent, assign_and_dispatch
+from .episode.from_bag import episodes_from_splits
 from .exceptions import PostProcError
 from .quality_gate import QualityGate
 from .run_log import RunLog
 from .media.frame_router import FrameRouter
+from .media.recorder_registry import RecorderRegistrar
 
 
 _logger = logging.getLogger(__name__)
@@ -142,40 +142,33 @@ def _delete_used_splits(splits: list) -> int:
 
 
 def _detect_all_episodes(splits: list) -> list[Episode]:
-    """splits 전체에서 `/session` 메시지만 뽑아 에피소드를 감지한다."""
-    session_events: list[SessionEvent] = []
-    for m in merge_split_streams(
-        (str(s.path) for s in splits),
-        topics=[SESSION_TOPIC],
-    ):
-        if m.type_name != SESSION_COMMAND_TYPE:
-            continue
-        # outcome/metadata 는 나중에 추가된 필드다. 그 이전에 기록된 bag 에는 없으므로
-        # getattr 기본값으로 받아 과거 데이터도 그대로 적재되게 한다.
-        session_events.append(SessionEvent(
-            stamp_ns=m.stamp_ns,
-            state=str(m.msg.state),
-            task_label=str(getattr(m.msg, 'task_label', '') or ''),
-            outcome=str(getattr(m.msg, 'outcome', '') or ''),
-            metadata=str(getattr(m.msg, 'metadata', '') or ''),
-        ))
-    if not session_events:
+    """splits 전체에서 `/session` 메시지만 뽑아 에피소드를 감지한다.
+
+    실제 감지는 `episode.from_bag.episodes_from_splits` 가 한다 — `rosbag` CLI 도 같은
+    함수를 쓴다. 여기서는 적재 경로가 기대하는 `Episode` 목록으로 벗겨 낸다.
+    """
+    bag_episodes = episodes_from_splits(splits)
+    if not bag_episodes:
         raise PostProcError(
             'no /session messages found within rosbag_dir; cannot detect episodes'
         )
-    return detect_episodes(session_events)
+    return [be.episode for be in bag_episodes]
 
 
 def _apply_episode_filters(
     episodes: list[Episode], filt: EpisodeFilter,
 ) -> list[Episode]:
-    """task_label / min_duration 필터를 적용한다."""
+    """task_label / min_duration / start_ns 필터를 적용한다."""
     include = set(filt.task_labels_include)
     exclude = set(filt.task_labels_exclude)
     min_dur_ns = int(filt.min_duration_sec * 1_000_000_000)
+    # 자연키로 못박은 경우 그것이 가장 강한 조건이다 — 나머지 필터도 함께 적용된다.
+    keys = set(filt.start_ns_in)
 
     out: list[Episode] = []
     for ep in episodes:
+        if keys and ep.start_ns not in keys:
+            continue
         if ep.stop_ns - ep.start_ns < min_dur_ns:
             continue
         if include and (ep.task_label or '') not in include:
@@ -251,6 +244,10 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                    summary: dict,) -> None:
     """에피소드 단위 트랜잭션으로 실제 INSERT 와 mp4 인코딩을 수행한다."""
     sess_writer = SessionWriter(conn)
+    # 레코더 출력은 **루프 밖에서 한 번만 훑는다** — 에피소드마다 디렉터리를 다시
+    # 읽으면 파일 수에 비례해 느려진다. 설정에 경로가 없으면 등록하지 않는다(I4).
+    registrar = (RecorderRegistrar(conn, cfg.recordings_dir)
+                 if cfg.recordings_dir else None)
 
     # topic → writer instance. 각 writer 가 자신의 table 속성을 갖는다.
     writers: dict[str, WriterBase] = {}
@@ -358,6 +355,9 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                 for w in writers.values():
                     w.flush()
                 mp4_files = router.finalize_episode()
+                # **레코더 mp4 등록은 커밋 직전, 같은 트랜잭션 안에서** (I4).
+                if registrar is not None:
+                    registrar.register(cur_episode_id, cur_episode_ep.start_ns)
                 conn.commit()
                 row_counts: dict[str, int] = {}
                 for w in writers.values():
@@ -373,6 +373,14 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                     summary['inserted'][table] = (
                         summary['inserted'].get(table, 0) + n
                     )
+                # 레코더 등록분도 같은 이유로 합산한다 — 빼먹으면 DB 에는 행이
+                # 있는데 요약은 0 으로 보고한다.
+                if registrar is not None:
+                    for table, n in registrar.consume_inserted_count().items():
+                        row_counts[table] = row_counts.get(table, 0) + n
+                        summary['inserted'][table] = (
+                            summary['inserted'].get(table, 0) + n
+                        )
                 summary['episodes'] += 1
                 summary['mp4_files'] += len(mp4_files)
                 _logger.info(

@@ -16,6 +16,8 @@ from .readers.gripper_command import GripperCommandReader
 from .readers.gripper_state import GripperStateReader
 from .readers.joint_jog import JointJogReader
 from .readers.joint_state import JointStateReader
+from .readers.motion_event import MotionEventReader
+from .readers.motion_trajectory import MotionTrajectoryReader
 from .readers.pose_stamped import PoseStampedReader
 from .readers.scene_objects import SceneObjectsReader
 from .readers.target_joint_states import TargetJointStatesReader
@@ -25,6 +27,8 @@ from .writers.gripper_command import GripperCommandWriter
 from .writers.gripper_state import GripperStateWriter
 from .writers.joint_jog import JointJogWriter
 from .writers.joint_state import JointStateWriter
+from .writers.motion_event import MotionEventWriter
+from .writers.motion_trajectory import MotionTrajectoryWriter
 from .writers.pose_stamped import PoseStampedWriter
 from .writers.scene_objects import SceneObjectsWriter
 from .writers.target_joint_states import TargetJointStatesWriter
@@ -75,6 +79,24 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
         writer_cls=TargetJointStatesWriter,
         reader_cls=TargetJointStatesReader,
     ),
+    # 관련 토픽: /motion/trajectory
+    #   - 팔 동작 연산마다 한 건. 컨트롤러로 **실제로 보낸** 궤적(L2)이고
+    #     `header.stamp` 는 발행 시각이 아니라 **궤적의 0초가 시작된 시각(t₀)** 이다.
+    #   - 학습 데이터의 관절-계획 레이블이 여기서 나온다. 주기 토픽이 아니라 이벤트다.
+    'rdfp_msgs/msg/MotionTrajectory': TypeBinding(
+        table='motion_trajectories',
+        writer_cls=MotionTrajectoryWriter,
+        reader_cls=MotionTrajectoryReader,
+    ),
+    # 관련 토픽: /motion/event
+    #   - 같은 연산이 **어떻게 끝났는지**. 위 궤적과 `operation_id` 로 짝짓는다.
+    #   - 궤적만으로는 중간에 멈췄는지 알 수 없어, 이것이 없으면 중단된 연산 뒤의
+    #     레이블이 팔이 가지 않은 자리를 가리킨다.
+    'rdfp_msgs/msg/MotionEvent': TypeBinding(
+        table='motion_events',
+        writer_cls=MotionEventWriter,
+        reader_cls=MotionEventReader,
+    ),
     # 관련 토픽: /joint_states
     #   - joint_state_broadcaster 가 현재 로봇 조이트 정보를 발송.
     'sensor_msgs/msg/JointState': TypeBinding(
@@ -93,7 +115,7 @@ MESSAGE_TYPE_REGISTRY: dict[str, TypeBinding] = {
     #   - 백엔드별 scene 상태 노드가 내는 물체들의 ground-truth pose.
     #   - **학습 입력(observation)이 아니라 라벨·큐레이션용으로 적재한다.**
     #     시뮬레이터의 ground truth 는 실기에 없으므로 관측에 넣을지는 export
-    #     단계의 별도 결정이다 (docs/rosbag2/scene_objects_observation_decision.md).
+    #     단계의 별도 결정이다 (docs/learning/scene_objects_observation_decision.md).
     'rdfp_msgs/msg/SceneObjects': TypeBinding(
         table='scene_objects',
         writer_cls=SceneObjectsWriter,

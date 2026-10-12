@@ -36,6 +36,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
@@ -47,22 +48,12 @@ from rdfp.dataset.db.registry import (
     IMAGE_MESSAGE_TYPES, MESSAGE_TYPE_REGISTRY, resolve_message_type,
 )
 from rdfp.dataset.db.topic_message_replayer import TopicMessageReplayer
-from robot_control.moveit import create_move_group_client
+from robot_control.moveit import backends, create_move_group_client
 from robot_control.moveit.servo_client import ServoClient
 
 
 _DEFAULT_IMAGE_TOPIC = '/camera/image_raw'
 _DEFAULT_INIT_TARGET = 'ready'
-# 'auto' | 'action' | 'stream' — "위치 초기화" 의 실행 경로 선택.
-#   action: MoveGroup/ExecuteTrajectory 액션 (JointTrajectoryController 환경)
-#   stream: /panda_arm_controller/commands 직접 스트리밍 (JGPC 환경)
-#   auto  : 명령 토픽 존재 여부로 판별
-# 하위 호환을 위해 기존 파라미터 값을 유지하고, 팩토리 모드로 변환해 넘긴다.
-_DEFAULT_INIT_EXEC_MODE = 'auto'
-_INIT_EXEC_MODES = ('auto', 'action', 'stream')
-_INIT_EXEC_MODE_TO_CLIENT_MODE = {'auto': 'auto', 'action': 'jtc', 'stream': 'jgpc'}
-# JGPC(forward command) 컨트롤러의 명령 토픽. 'auto' 판별의 신호로도 쓴다.
-_ARM_COMMAND_TOPIC = '/panda_arm_controller/commands'
 # 카메라 이미지 표시 영역의 기본 크기. 720p (1280x720) 를 기본으로 한다.
 _DEFAULT_DISPLAY_W = 1280
 _DEFAULT_DISPLAY_H = 720
@@ -91,14 +82,12 @@ class ReplayControlNode(Node):
         # --- 파라미터 ---
         self.declare_parameter('image_topic', _DEFAULT_IMAGE_TOPIC)
         self.declare_parameter('init_named_target', _DEFAULT_INIT_TARGET)
-        self.declare_parameter('init_exec_mode', _DEFAULT_INIT_EXEC_MODE)
+        # **기본값이 없다.** 어느 스택에 붙는지는 사람이 안다 — 짐작하게 두면 틀린
+        # 짐작이 조용히 통과하고, 증상은 "'위치 초기화' 가 안 먹는다" 로만 보인다.
+        self.declare_parameter('backend', Parameter.Type.STRING)
         self._image_topic: str = self.get_parameter('image_topic').value
         self._init_named_target: str = self.get_parameter('init_named_target').value
-        self._init_exec_mode: str = self.get_parameter('init_exec_mode').value
-        if self._init_exec_mode not in _INIT_EXEC_MODES:
-            raise ValueError(
-                f'init_exec_mode must be one of {_INIT_EXEC_MODES}, got {self._init_exec_mode!r}'
-            )
+        self._backend: str = self._require_backend()
 
         # --- DB 설정 로드 ---
         cfg = load_dataset_or_fail(config_path)
@@ -117,11 +106,10 @@ class ReplayControlNode(Node):
         )
 
         # --- MoveGroupClient ---
-        # 컨트롤러 판별은 생성 시점에 한 번만 한다. init_exec_mode 파라미터로
-        # 강제할 수 있으며, 'auto' 면 명령 토픽 존재 여부로 판별한다.
-        self._move_group = create_move_group_client(
-            self, mode=_INIT_EXEC_MODE_TO_CLIENT_MODE[self._init_exec_mode]
-        )
+        # **어느 스택이 JTC 인가는 `robot_control.moveit` 이 안다** — 프로파일 표와
+        # JTC 오판 경고가 모두 팩토리에 있다. 여기서는 이름만 넘긴다. JTC/JGPC 선택은
+        # 생성 시점에 한 번만 일어나며, 호출마다 갈리지 않는다.
+        self._move_group = create_move_group_client(self, backend=self._backend)
 
         # --- ServoClient (replay 시작 직전마다 servo 를 start 하기 위한 핸들).
         # service client 등 상태를 들고 있으므로 인스턴스 자체는 한 번만 만들고
@@ -138,9 +126,27 @@ class ReplayControlNode(Node):
         self.get_logger().info(
             f'ReplayControlNode initialized: image_topic={self._image_topic}, '
             f'init_named_target={self._init_named_target!r}, '
-            f'init_exec_mode={self._init_exec_mode!r}, '
+            f'backend={self._backend!r}, '
             f'config={config_path}'
         )
+
+    def _require_backend(self) -> str:
+        """`backend` 파라미터를 읽는다. **없으면 뜨지 않는다.**
+
+        기본값을 두면 틀린 짐작이 조용히 통과한다 — jgpc 스택을 JTC 로 잡으면 계획은
+        되고 실행만 안 되어 "'위치 초기화' 가 안 먹는다" 로만 보인다.
+        """
+        try:
+            value = self.get_parameter('backend').value
+        except Exception:       # noqa: BLE001 — 미설정이면 rclpy 가 예외를 던진다
+            value = None
+        if not value:
+            raise ValueError(
+                f"the 'backend' parameter is required; pick one of {list(backends())} "
+                "(e.g. --ros-args -p backend:=mock)")
+        if value not in backends():
+            raise ValueError(f'backend must be one of {list(backends())}, got {value!r}')
+        return str(value)
 
     # ----- 이미지 콜백 / 최신 프레임 조회 ---------------------------------
 

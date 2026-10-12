@@ -35,6 +35,9 @@ class EpisodeFilter(BaseModel):
     task_labels_include: list[str] = Field(default_factory=list)
     task_labels_exclude: list[str] = Field(default_factory=list)
     min_duration_sec: float = 0.0
+    # 적재할 에피소드를 자연키(`start_ns`)로 못박는다. 비어 있으면 제한하지 않는다.
+    # `rosbag export` 가 선택 결과를 이 값으로 넘기므로, 적재 경로는 하나로 유지된다.
+    start_ns_in: list[int] = Field(default_factory=list)
 
 
 class SessionFilter(BaseModel):
@@ -100,6 +103,12 @@ class DatasetConfig(BaseModel):
     # dataset 전용 필드.
     # import 전용 필드. init-db/stats/list/replay 에서는 미지정 허용.
     output_mp4_dir: str | None = None
+    # **레코더가 남긴 mp4 의 루트** (`image_pipeline.yaml` 의 `output_dir`).
+    # 주면 적재가 그 출력을 읽어 `image_streams` · `image_frames` 에 등록한다(I4) —
+    # rosbag 에서 이미지를 인코딩하는 `output_mp4_dir` 경로와 **다른 것이다.**
+    # 영상은 rosbag 에 담지 않는 것이 방향이므로 이쪽이 정본이 된다.
+    # ``None`` 이면 등록하지 않는다 (영상 없이 수집한 데이터도 유효하다).
+    recordings_dir: str | None = None
 
     @field_validator('rosbag_dir')
     @classmethod
@@ -109,6 +118,11 @@ class DatasetConfig(BaseModel):
     @field_validator('output_mp4_dir')
     @classmethod
     def _expand_output_mp4_dir(cls, v: str | None) -> str | None:
+        return _expand_path(v) if v is not None else None
+
+    @field_validator('recordings_dir')
+    @classmethod
+    def _expand_recordings_dir(cls, v: str | None) -> str | None:
         return _expand_path(v) if v is not None else None
     db: DbConfig = Field(default_factory=lambda: DbConfig())
     on_existing_episode: Literal['skip', 'replace', 'error'] = 'skip'
