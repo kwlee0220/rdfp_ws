@@ -40,11 +40,11 @@ source install/setup.bash
 | `SceneObjects` | 백엔드별 `scene_state_node` → `/scene/objects` | 한 시점의 scene 물체 전체. mock / Gazebo / Isaac 이 각자 이 타입으로 변환해 발행하므로 트윈·후처리기가 환경 구현을 모른다. `frame_id` 는 로봇 베이스(`panda_link0`) 고정, QoS 는 `TRANSIENT_LOCAL`. |
 
 > 그리퍼 계열(`GripperCommand` / `GripperState`)의 필드 판정식·백엔드별 실현
-> 가능성·데이터셋 사용법은 [docs/gripper/GripperNode_Design.md](../../docs/gripper/GripperNode_Design.md)
+> 가능성·데이터셋 사용법은 [docs/control/gripper_node_design.md](../../docs/control/gripper_node_design.md)
 > 에 있다. **명령은 심볼, 관측은 물리량**이라는 비대칭이 의도적이다.
 
 > scene 계열(`SceneObject` / `SceneObjects` 와 서비스 `ResetScene`)의
-> 필드 계약·발행 노드·트윈 연산·함정은 [docs/scene/scene_objects_guide.md](../../docs/scene/scene_objects_guide.md)
+> 필드 계약·발행 노드·트윈 연산·함정은 [docs/control/scene_objects_guide.md](../../docs/control/scene_objects_guide.md)
 > 에 모아 두었다.
 
 ### 서비스 (`srv/`)
