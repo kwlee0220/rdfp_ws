@@ -1,7 +1,8 @@
 # rdfp launch 안내
 
 **학습 데이터 수집 계층의 launch 진입점.** 로봇 제어 스택 위에 세션·녹화·재생·
-teleop 노드를 얹는 `rdfp_*` 계열이다.
+teleop 노드를 얹는 launch 셋(`rdfp_collect` · `replay_panda_mock` · `teleop_mirror`)이다.
+제어 스택을 함께 띄우는 묶음 launch 는 없다 — 제어 스택은 `robot_control` 쪽에서 따로 띄운다.
 
 ```bash
 ros2 launch robot_control panda_mock.launch.py               # 터미널 1 — 제어 스택
@@ -143,12 +144,12 @@ retargeting), `ee_twist_node` (목표 pose → `/servo_node/delta_twist_cmds`).
 > 📘 **절차서는 따로 있다** — [docs/collect/수집_계층_얹기_절차서.md](../../../docs/collect/수집_계층_얹기_절차서.md).
 > 이 절은 인자·구조 레퍼런스이고, 백엔드별 기동 명령·에피소드 수집 절차·함정은 그쪽이 갖는다.
 
-수집 노드 4종(`session_control_node`, `rdfp_image_viewer_node`, `image_recorder_node`,
+수집 노드 4종(`session_control_node`, `rdfp_image_viewer_node`, `rdfp_image_recorder`,
 `target_joint_cmds_publisher`)**만** 띄운다. 제어 스택은 별도 터미널에서 미리 올린다.
 
 ```bash
-ros2 launch robot_control panda_mock.launch.py    # 터미널 1 — 로봇
-ros2 launch rdfp rdfp_collect.launch.py          # 터미널 2 — 수집
+ros2 launch robot_control panda_mock.launch.py          # 터미널 1 — 로봇
+ros2 launch rdfp rdfp_collect.launch.py backend:=mock   # 터미널 2 — 수집
 ```
 
 **이 조합이 옛 `rdfp_panda_mock` 을 대체한다.** 동일한 노드 그래프를 만드는 것을 실측으로 확인했다
@@ -162,15 +163,17 @@ ros2 launch rdfp rdfp_collect.launch.py          # 터미널 2 — 수집
 비동기로 하며, 실패해도 `JointState.name` 이 비는 것으로 그친다. 제어 스택을 먼저
 띄우는 이 방식에서는 조회 시점에 컨트롤러가 확실히 올라와 있다.
 
-`--show-args` 가 정상 동작한다 — YAML 에 의존하지 않는 인자는
-`OpaqueFunction` 밖에서 선언했다.
+`--show-args` 에는 **YAML 에 의존하지 않는 인자만** 보인다 — 그것들은 `OpaqueFunction`
+밖에서 선언했다(§2). 아래가 그 목록이고, 이미지 파이프라인 인자는 §3.1 · §3.5 에 있다.
 
 | 인자 | 기본값 | 설명 |
 |---|---|---|
-| `arm_cmd_source` | `joint_trajectory` | arm 명령 채널. `joint_trajectory`(JTC) / `float64_multi_array`(JGPC) / `none` |
-| `target_joint_cmds_input_topic` | `''` | 비우면 `arm_cmd_source` 에 맞는 기본값 (`/panda_arm_controller/joint_trajectory` 또는 `/commands`) |
+| `backend` | `''` | `config/backends/<이름>.yaml` 에서 아래 인자들의 기본값을 가져온다. 명시한 인자가 이긴다 |
+| `arm_cmd_source` | `''` | arm 명령 채널. `joint_trajectory`(JTC) / `float64_multi_array`(JGPC) / `joint_state`(토픽 연동 시뮬레이터) / `none`. 비우면 `backend` 가, 그것도 없으면 `joint_trajectory` |
+| `target_joint_cmds_input_topic` | `''` | 비우면 `arm_cmd_source` 에 맞는 기본값 (`/panda_arm_controller/joint_trajectory` · `/commands` · `/input/panda_joint`) |
 | `arm_controller_node_name` | `/panda_arm_controller` | 관절 이름 조회 대상 |
-| `use_sim_time` | `false` | Gazebo 백엔드와 함께 쓸 때 `true` |
+| `image_recorder_input_format` / `camera_compressed_topic` | `''` | 압축 카메라용. 비우면 `backend` 가 정한다 |
+| `use_sim_time` | `''` | 비우면 `backend` 가, 그것도 없으면 `false`. 프로파일이 없는 Gazebo 는 `true` 를 손으로 준다 |
 | `log_level` | `info` | `session_control` 로그 레벨 |
 | `config_file` | `<robot_control share>/config/image_pipeline.yaml` | 카메라·뷰어·레코더 인자 출처 |
 
@@ -178,16 +181,17 @@ ros2 launch rdfp rdfp_collect.launch.py          # 터미널 2 — 수집
 > / `camera_fps` 는 제어 스택과 공유한다. 기본값이 같은 YAML 에서 오므로 손대지
 > 않으면 자동으로 일치하지만, **한쪽에만 override 하면 조용히 어긋난다** — 레코더가
 > `invalid frame dropped` 를 내고 auto-stop 한다. 바꿀 때는 양쪽에 같은
-> `config_file:=` 을 준다. 예전 묶음 launch 는 한 곳에서 선언했으므로
-> 구조적으로 어긋날 수 없다 — **그것이 묶음 launch 를 남겨 둔 이유다.**
+> `config_file:=` 을 주거나, 양쪽이 같은 프로파일을 읽도록 `backend:=` 를 준다. 예전
+> 묶음 launch 는 한 곳에서 선언했으므로 구조적으로 어긋날 수 없었다 — **분리의 대가다.**
 
 ---
 
 > **백엔드마다 인자 기본값이 어떻게 다른지**는 제어 계열 README 의
 > [§2.0 백엔드 횡단표](../../robot_control/launch/README.md#20-백엔드-횡단표--같은-인자가-스택마다-어떻게-다른가)
-> 를 본다. `rdfp_*` 는 그 백엔드 launch 를 include 하므로 거기 값이 그대로 바닥에 깔린다
-> (이 계층이 덮어쓰는 것만 아래 §3 표에 있다). 그 표는 손으로 맞추지 않고
-> `test_backend_argument_matrix.py` 가 네 launch 를 실제로 만들어 대조한다.
+> 를 본다. 이 계층의 launch 는 제어 launch 를 include 하지 않으므로 그 값은 제어 스택
+> 쪽에서만 정해지고, `rdfp_collect` 는 `backend:=` 로 **같은 프로파일**을 읽어 맞춘다.
+> 그 표는 손으로 맞추지 않고 `test_backend_argument_matrix.py` 가 네 launch 를 실제로
+> 만들어 대조한다.
 
 ## 2. Launch 인자 — `--show-args` 가 쓸모없다
 
@@ -217,7 +221,6 @@ ros2 launch rdfp rdfp_collect.launch.py          # 터미널 2 — 수집
 | 설정 파일 | 소유 패키지 | 읽는 launch | 지정 argument |
 |---|---|---|---|
 | `config/image_pipeline.yaml` | **`robot_control`** | `rdfp_collect` | `config_file` |
-| | | `rdfp`, `rdfp_collect` | `config_file` |
 | `config/replay_panda_mock.yaml` | `rdfp` | `replay_panda_mock` | `config_file` |
 | `config/teleop_mirror.yaml` | `rdfp` | `teleop_mirror` | `config_file` |
 | `config/panda_jgpc_ros2_controllers.yaml` | **`robot_control`** | `panda_mock_jgpc` (제어 계열) | — |
@@ -233,8 +236,8 @@ share 에서 읽는다.
 
 ### 3.1 `image_pipeline.yaml` — YAML ↔ 인자 대응
 
-camera → image_viewer / image_recorder 파이프라인 설정. **여섯 launch 의 공통
-출처**이며 파일은 `robot_control` 패키지가 소유한다
+camera → image_viewer / image_recorder 파이프라인 설정. **네 launch 의 공통
+출처**이며 (`rdfp_collect` 와 제어 계열 `panda_mock` · `panda_mock_jgpc` · `panda_functionbay`) 파일은 `robot_control` 패키지가 소유한다
 (`<robot_control share>/config/image_pipeline.yaml`). 세 블록을 한 파일에 둔 이유는 값을 서로 공유하기 때문이다.
 
 ```
@@ -263,8 +266,8 @@ camera.fps          ◀▶ image_recorder.fps  (어긋나면 프레임 drop)
 `RdfpImageRecorderNode`(세션 구동)는 `/session` 상태로 녹화를 시작하므로
 `auto_start` 파라미터를 받지 않는다. 그 노드만 쓰는 launch 는
 `declare_image_pipeline_arguments(config, include_auto_start=False)` 로 선언에서
-뺀다 — 소비자 없는 argument 를 만들지 않기 위해서다. **레코더를 고를 수 있는
-`rdfp_collect` 도 선언하지 않는다** — 세션 구동 레코더만 띄우기 때문이다.
+뺀다 — 소비자 없는 argument 를 만들지 않기 위해서다. **`rdfp_collect` 도 선언하지
+않는다** — 세션 구동 레코더만 띄우기 때문이다.
 
 ### (삭제) 3.2 mock 번들의 YAML ↔ 인자 대응
 
@@ -418,7 +421,7 @@ panda_mock.launch.py          (robot_control — 제어 스택)
 rdfp_collect.launch.py        (rdfp — 수집 노드 묶음, 별도 터미널)
  ├─ session_control_node
  ├─ rdfp_image_viewer_node
- ├─ rdfp_image_recorder | image_recorder_node   (recorder 인자가 고른다)
+ ├─ rdfp_image_recorder                         (enable_image_recorder)
  └─ target_joint_cmds_publisher
 ```
 
@@ -453,6 +456,7 @@ replay_panda_mock.launch.py
 | 위의 JGPC 판 | `panda_mock_jgpc` + `rdfp_collect backend:=mock_jgpc` |
 | Gazebo 백엔드로 수집 | `panda_gazebo` + `rdfp_collect` (인자 4개, §6.1) |
 | Isaac Sim 백엔드로 수집 | `panda_isaac` + `rdfp_collect backend:=isaac` |
+| 펑션베이 백엔드로 수집 | `panda_functionbay` + `rdfp_collect backend:=functionbay` (시뮬레이터 먼저) |
 | **제어 스택은 그대로 두고 수집만 재시작** | `rdfp_collect.launch.py` (§6.1) |
 | 적재된 에피소드 재생 | `replay_panda_mock.launch.py` |
 | leader-follower teleop | `teleop_mirror.launch.py` (follower 스택이 이미 떠 있어야 함) |
@@ -510,27 +514,30 @@ ros2 launch rdfp rdfp_collect.launch.py backend:=mock_jgpc
 > 기본값(세션 구동 레코더)이 낫다 — `/session` 이 `IN_EPISODE` 인 구간만 자동으로
 > 담고 `.jsonl` 사이드카와 `metadata.json` 을 함께 쓴다.
 
-#### Gazebo 조합은 인자를 명시해야 한다
+#### Isaac 은 `backend:=isaac` 하나로 된다
 
-Isaac 도 **`image_pipeline.yaml` 을 읽지 않는다** — `backend:=isaac` 이 대신
-`isaac_scene.json` 의 `camera` 블록을 읽는다. 이미지를 카메라 노드가 아니라
-**시뮬레이터가 직접** 발행하므로 해상도·주파수를 정하는 쪽이 Isaac 이기 때문이다.
-`rdfp_collect` 로 분리해 쓰려면 네 인자를 맞춰야 한다.
+Isaac 은 **`image_pipeline.yaml` 을 읽지 않는다** — 이미지를 카메라 노드가 아니라
+**시뮬레이터가 직접** 발행하므로 해상도·주파수를 정하는 쪽이 Isaac 이고, `backend:=isaac`
+이 그 정본인 `isaac_scene.json` 의 `camera` 블록을 읽는다. 펼치면 아래와 같다 (참고용 —
+손으로 줄 필요는 없다).
 
 ```bash
-ros2 launch robot_control panda_isaac.launch.py enable_gripper:=true enable_scene:=true
-ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
-    arm_cmd_source:=joint_state \
-    target_joint_cmds_input_topic:=/isaac/arm_command \
-    camera_image_topic:=/isaac/camera/image_raw \
-    camera_resolution:=640x480 image_recorder_fps:=10
+ros2 launch robot_control panda_isaac.launch.py
+ros2 launch rdfp rdfp_collect.launch.py backend:=isaac
+# ≒ use_sim_time:=true arm_cmd_source:=joint_state \
+#   target_joint_cmds_input_topic:=/isaac/arm_command \
+#   camera_image_topic:=/isaac/camera/image_raw \
+#   camera_resolution:=640x480 image_recorder_fps:=10 image_recorder_pixel_format:=rgb8
 ```
 
-`arm_cmd_source:=joint_state` 는 **컨트롤러의 `joints` 파라미터를 조회하지 않는다** —
-메시지에 이름이 이미 있기 때문이다. ros2_control 컨트롤러가 없는 Isaac 스택에서
-중요한 성질이며, 기본값(`joint_trajectory`)으로 두면 조회가 실패해 `JointState.name`
-이 빈 채로 적재된다.
+arm 채널이 `joint_state` 인 것은 Isaac 의 실제 명령이 `ros2_control.joint_commands_topic`
+(`/isaac/arm_command`)으로 나가기 때문이다. 이 경로는 **컨트롤러의 `joints` 파라미터를
+조회하지 않는다** — 메시지에 이름이 이미 있다. 프로파일 없이 기본값(`joint_trajectory`)으로
+두면 엉뚱한 토픽을 구독해 **0 건**을 받는다.
 
+#### Gazebo 조합은 인자를 명시해야 한다
+
+Gazebo 는 백엔드 프로파일이 없어 `backend:=` 를 쓸 수 없다.
 삭제된 `rdfp_panda_gazebo` 는 **`image_pipeline.yaml` 을 읽지 않고 자체 기본값을 썼다.**
 그 값들이 백엔드에 묶여 있기 때문이며, 그래서 분리 조합에서는 손으로 맞춰야 한다 — 해상도는 `description/panda.gazebo.xacro`
 의 gz 카메라 센서(`width:=640 height:=480`)를 따르고, 뷰어·레코더가 기본 off 인
@@ -539,7 +546,6 @@ ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
 | 인자 | Gazebo 에 맞는 값 | `rdfp_collect` 기본 (YAML) |
 |---|---|---|
 | `camera_resolution` | `640x480` | `1280x720` |
-| `image_recorder_auto_start` | `false` | `true` |
 | `enable_image_viewer` | `false` | `true` |
 | `enable_image_recorder` | `false` | `true` |
 | `camera_image_topic` · `image_recorder_fps` · `image_recorder_output_dir` · `target_joint_cmds_input_topic` | — | 동일 ✅ |
@@ -570,18 +576,16 @@ ros2 launch rdfp rdfp_collect.launch.py use_sim_time:=true \
   `sys.path.insert(0, os.path.dirname(__file__))` 패턴은 제거되었고, 되살리면
   패키지 경계를 넘는 import 가 다시 불가능해진다.
 - **`Node(package=...)` 를 정확히 적는다.** 이 계열 launch 는 `robot_control` 의
-  실행파일(`rdfp_image_viewer_node`, `target_joint_cmds_publisher`,
-  `ee_twist_node`, `gripper_action_node`, `servo_auto_start_node` …)을 자주
-  띄운다. 패키지를 틀리면 `--show-args` 는 통과하고 **실제 기동 때만**
+  실행파일(`target_joint_cmds_publisher`, `ee_twist_node`, `gripper_action_node`,
+  `servo_auto_start_node` …)과 `rdfp` 의 실행파일(`rdfp_image_viewer_node`,
+  `rdfp_image_recorder`, `session_control_node` …)을 섞어 띄운다. 패키지를 틀리면 `--show-args` 는 통과하고 **실제 기동 때만**
   `executable not found` 로 죽는다.
 - YAML 계열은 argument 기본값을 손대려면 YAML 을 먼저 확인한다. CLI 에서
   `config_file:=<path>` 또는 개별 `arg:=value` 로 덮어쓸 수 있다.
 - **카메라 argument 를 고칠 때는 `robot_control.launch_helpers.image_pipeline`
-  하나만 본다.** 여섯 launch 가 이 모듈을 (직접 또는 `camera` 경유로) 쓰므로 한
+  하나만 본다.** 네 launch 가 이 모듈을 (직접 또는 `camera` 경유로) 쓰므로 한
   곳을 고치면 전부 반영된다. 어느 한 launch 에서만 기본값을 바꾸려 하면 값이 다시
   갈라지므로, 그 launch 에 `config_file` 을 주는 쪽을 택한다.
 - **수집 노드를 추가·변경하면 `rdfp_collect` 한 곳만 고치면 된다** (묶음이 사라졌다).
-  함께 볼 것은 §6.1 의
-  대응표. 묶음 launch 와 `rdfp_collect` 가 어긋나면 §6.1 의 "완전 일치" 가
-  거짓이 된다.
+  백엔드별 기동 조합이 바뀌면 §6 · §6.1 의 표를 함께 고친다.
 - launch 를 추가하면 §1 표와 §4 의존 관계 표를 함께 갱신한다.
