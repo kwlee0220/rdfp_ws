@@ -83,8 +83,8 @@ backed by `FFMpegMp4Recorder` but with different control surfaces:
 
 - `image_recorder_node` (`rdfp.recorder.image_recorder_node`) — external
   start/stop services (`/image_recorder/start_session`,
-  `/image_recorder/stop_session`); single recording per service call. Used by
-  `rdfp_collect.launch.py`.
+  `/image_recorder/stop_session`); single recording per service call. **No
+  launch starts it** since 2026-09-13 — run it by hand.
 - `rdfp_image_recorder` (`rdfp.recorder.rdfp_image_recorder_node`) —
   subscribes `/session` (`SessionCommand`) and **auto-records IN_EPISODE
   windows**, timestamp-based segmentation via a `pending_image_queue`. Also
@@ -92,7 +92,6 @@ backed by `FFMpegMp4Recorder` but with different control surfaces:
   (에피소드 키 · topic · codec · fps; 2026-09-18 이전에는 prefix 당 한 파일이라
   에피소드마다 덮어썼다). Used by
   `rdfp_collect.launch.py` (its **only** recorder — `enable_image_recorder` gates it).
-  `image_recorder_node` has no launch since 2026-09-13; run it by hand.
 
 Both names show up across the codebase — match the launch file to the right
 node when reviewing changes.
