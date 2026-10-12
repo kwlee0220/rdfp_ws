@@ -1,7 +1,7 @@
 # 데이터셋 후처리기 설계서
 
 **참조 문서:**
-- [dataset_ingest_design.md](dataset_ingest_design.md)
+- [rosbag2_operation_report.md](../archive/rosbag2_operation_report.md) — 옛 「rosbag2 운영 방안」 (이력; 구현된 부분은 §0 에 옮겼다)
 - [session_control_guide.md](session_control_guide.md)
 
 ---
@@ -502,7 +502,7 @@ SQL 을 복사하지 않는다 — 2026-09-18 의 `joint_names` · `motion_*` �
 
 ### 5.4 이유: `session_path` 컬럼 제외
 
-rosbag 은 정제 후 삭제될 수 있는 **중간 저장소** 이므로, DB 레코드에 원본 세션 디렉터리 경로를 남길 필요가 없다. 재실행 멱등성은 `sessions.UNIQUE(start_sec, start_nanosec)` 로 확보한다 (에피소드 시작 시각은 ns 정밀도의 `header.stamp` 이므로 실질적으로 충돌하지 않는다).
+rosbag 은 정제 후 삭제될 수 있는 **중간 저장소** 이므로, DB 레코드에 원본 세션 디렉터리 경로를 남길 필요가 없다. 재실행 멱등성은 `sessions.UNIQUE(start_sec, start_nanosec)` 로 확보한다 (에피소드 시작 시각은 ns 정밀도의 `header.stamp` 이므로 **한 회차 안에서는** 실질적으로 충돌하지 않는다). ⚠️ **회차가 다르면 충돌한다** — 시뮬레이터를 재기동하면 sim 시계가 0 으로 되감겨 키가 겹치고, 함께 적재하면 관절 데이터가 조용히 0 건이 된다 (§10.3).
 
 ### 5.5 Registry 설계
 
@@ -823,6 +823,11 @@ mp4 의 CFR 선언은 편의적인 재생용이고, **정확한 프레임 시각
 | `replace` | 기존 `sessions` 행을 삭제 (FK `ON DELETE CASCADE` 로 자식 테이블도 제거) 후 mp4 디렉터리를 삭제하고 재삽입 |
 | `error` | 즉시 실패 |
 
+### 10.2 장애 복구
+
+- 에피소드 단위 트랜잭션 덕분에, 중간 장애로 부분 적재된 에피소드는 `replace` 로 재실행하면 정상화된다.
+- 진행 상황 로그(JSONL) 에 `(episode_id, row_counts, mp4_files)` 를 남겨 재현성을 확보한다.
+
 ### 10.3 ⚠️ sim 시계 겹침 — 회차가 다른 bag 을 같은 `rosbag_dir` 에 두지 않는다
 
 에피소드 키가 `(start_sec, start_nanosec)` 이므로 **시뮬레이터를 재기동해 sim 시계가 0 으로 되감기면 회차 간에 키가
@@ -831,11 +836,6 @@ mp4 의 CFR 선언은 편의적인 재생용이고, **정확한 프레임 시각
 겉보기에 멀쩡했다. 같은 bag 을 혼자 적재하면 정상이다. 그래서 **적재가 끝난 세션 디렉터리는 `rosbag_dir` 밖으로 뺀다**
 (`/data/rdfp/rosbag_imported/` 로 옮기거나 `ros2 run rdfp rosbag delete`). 확인은 적재 후 `joint_states` 가 0 인
 에피소드가 있는지 세는 것이다.
-
-### 10.2 장애 복구
-
-- 에피소드 단위 트랜잭션 덕분에, 중간 장애로 부분 적재된 에피소드는 `replace` 로 재실행하면 정상화된다.
-- 진행 상황 로그(JSONL) 에 `(episode_id, row_counts, mp4_files)` 를 남겨 재현성을 확보한다.
 
 ---
 
