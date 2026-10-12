@@ -7,8 +7,10 @@ import pytest
 pytest.importorskip('rclpy')
 pytest.importorskip('sensor_msgs')
 
+import time                                               # noqa: E402
+
 import rclpy                                              # noqa: E402
-from sensor_msgs.msg import JointState                    # noqa: E402
+from sensor_msgs.msg import JointState, TimeReference     # noqa: E402
 
 from robot_control.functionbay.joint_state_fusion_node import (   # noqa: E402
     JointStateFusionNode,
@@ -91,3 +93,52 @@ def test_stamp_auto_fills_zero_stamp(node):
     node._on_joint_state(_incoming([0.0] * 7))
     stamp = sent[0].header.stamp
     assert (stamp.sec, stamp.nanosec) != (0, 0)
+
+
+def _elapsed(sec: int, nanosec: int = 0) -> JointState:
+    """기동 후 경과시간으로 찍힌 입력 (2026-09-17 회차의 모습)."""
+    msg = _incoming([0.0] * 7)
+    msg.header.stamp.sec = sec
+    msg.header.stamp.nanosec = nanosec
+    return msg
+
+
+def _seconds(stamp) -> float:
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def test_aligned_is_the_default_and_moves_elapsed_stamps_to_the_host_clock(node):
+    """기본값 `aligned` 는 경과시간 stamp 를 벽시계 축으로 옮긴다."""
+    assert node._stamp_source == 'aligned'
+    sent = _capture(node)
+    pairs: list[TimeReference] = []
+    node._reference_publisher.publish = pairs.append      # noqa: SLF001 - 테스트 목적
+
+    node._on_joint_state(_elapsed(4600))
+    assert abs(_seconds(sent[0].header.stamp) - time.time()) < 1.0
+    # 짝은 (정렬 시각, 원 stamp) 이다 — 카메라 중계가 같은 오프셋을 쓰려면 둘 다 필요하다.
+    assert (pairs[0].time_ref.sec, pairs[0].time_ref.nanosec) == (4600, 0)
+    assert pairs[0].header.stamp == sent[0].header.stamp
+
+
+def test_aligned_never_reorders_samples(node):
+    """묶음으로 들어온 표본도 순서가 뒤집히지 않는다.
+
+    간격 보존(창이 찬 뒤 20 ms)은 `test_stamp_alignment` 가 합성 스트림으로 본다. 여기서는
+    한 묶음만 넣으므로 오프셋이 수렴 중이라 표본이 같은 시각 근처로 모이는 것이 정상이다.
+    """
+    sent = _capture(node)
+    node._reference_publisher.publish = lambda _msg: None    # noqa: SLF001 - 테스트 목적
+    for k in range(3):
+        node._on_joint_state(_elapsed(4600, 20_000_000 * k))
+    stamps = [_seconds(m.header.stamp) for m in sent]
+    assert stamps == sorted(stamps)
+
+
+def test_auto_keeps_the_incoming_stamp(node):
+    """옛 동작 `auto` 는 0 이 아닌 stamp 를 그대로 둔다."""
+    node._stamp_source = 'auto'                               # noqa: SLF001 - 테스트 목적
+    node._aligner = None                                      # noqa: SLF001 - 테스트 목적
+    sent = _capture(node)
+    node._on_joint_state(_elapsed(4600, 5))
+    assert (sent[0].header.stamp.sec, sent[0].header.stamp.nanosec) == (4600, 5)

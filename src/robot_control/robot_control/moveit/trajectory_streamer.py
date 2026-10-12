@@ -31,6 +31,17 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from trajectory_msgs.msg import JointTrajectory
 
+from robot_control.moveit.motion_event_publisher import (
+    RESULT_ABORTED,
+    RESULT_SUCCEEDED,
+    MotionContext,
+    MotionEventPublisher,
+    OperationTarget,
+)
+from robot_control.moveit.motion_trajectory_publisher import (
+    MotionTrajectoryPublisher,
+    trajectory_duration_sec,
+)
 from robot_control.ros2_utils import await_future_spin, await_future_spin_nospin
 
 DEFAULT_COMMAND_TOPIC = '/panda_arm_controller/commands'
@@ -108,6 +119,11 @@ class TrajectoryStreamer:
         self._streaming = threading.Event()
         self._closed = False
         self._command_format = command_format
+        # R1 실행 궤적 · R2 연산 이벤트 발행자. 처음 쓸 때 만든다 — 스트리밍을
+        # 안 하는 사용처에 쓸데없는 발행자를 남기지 않기 위해서다.
+        # ⚠️ **여기서 선언하지 않으면 첫 `stream()` 이 AttributeError 로 죽는다.**
+        self._motion_pub: Optional[MotionTrajectoryPublisher] = None
+        self._event_pub: Optional[MotionEventPublisher] = None
         msg_type = (JointState if command_format == COMMAND_FORMAT_JOINT_STATE
                     else Float64MultiArray)
         self._publisher = node.create_publisher(msg_type, self._command_topic, qos_depth)
@@ -215,10 +231,12 @@ class TrajectoryStreamer:
         return list(names)
 
     def stream(self, trajectory: RobotTrajectory, *, time_scaling: float = 1.0,
+               velocity_scaling: float = 1.0,
                publish_rate: Optional[float] = None,
                stop_event: Optional[threading.Event] = None,
                joint_names_timeout: float = DEFAULT_JOINT_NAMES_TIMEOUT_SEC,
-               externally_spun: bool = False) -> int:
+               externally_spun: bool = False,
+               target: Optional[OperationTarget] = None) -> int:
         """계획된 trajectory 를 ``time_from_start`` 시각에 맞춰 발행한다(블로킹).
 
         각 point 를 궤적이 지정한 상대 시각에 발행하므로, 호출은 궤적 길이만큼
@@ -286,6 +304,22 @@ class TrajectoryStreamer:
         )
 
         published = 0
+        # R1: **첫 명령을 보내기 직전**이 t₀ 다 (설계 §3.5 의 펑션베이 행). 실행 궤적을
+        # 여기서 한 건 발행한다 — 네 경로 중 스트리밍 둘이 이 함수로 모인다.
+        #
+        # **t₀ 를 여기서 찍어 넘긴다** — 발행자 안에서 찍게 두면 밖에서 못 보는데,
+        # R2 의 중단 시각 계산에 필요하다 (R2 설계 §3.3 의 (a)).
+        if self._motion_pub is None:
+            self._motion_pub = MotionTrajectoryPublisher(self._node)
+        t0 = self._node.get_clock().now().to_msg()
+        operation_id = self._motion_pub.publish(
+            joint_trajectory, stamp=t0, velocity_scaling=velocity_scaling,
+            time_scaling=time_scaling)
+        # 발행이 실패하면 식별자가 빈다 — 적재 검증이 짝 없는 이벤트로 드러낸다.
+        ctx = MotionContext.from_target(
+            target, operation_id=operation_id or '', stamp=t0,
+            duration_sec=trajectory_duration_sec(joint_trajectory))
+
         started_at = time.monotonic()
         try:
             for target_elapsed, data in samples:
@@ -293,21 +327,46 @@ class TrajectoryStreamer:
                     self._node.get_logger().warning(
                         f'Trajectory streaming stopped after {published} command(s)'
                     )
+                    # **여기가 잘렸는지를 아는 유일한 자리다** — 호출자는 `published`
+                    # 만 받고 계획한 샘플 수를 모른다 (R2 설계 §2 의 2). 중단 시각은
+                    # 마지막으로 **발행한** 샘플의 시각이고, 그 축에는 time_scaling 이
+                    # 이미 반영돼 있어 R1 궤적과 바로 맞는다.
+                    cut = samples[published - 1][0] if published else 0.0
+                    self._publish_event(ctx, result=RESULT_ABORTED,
+                                        reason=f'stopped after {published} command(s)',
+                                        truncated_at_sec=cut)
                     return published
                 self._publisher.publish(self._build_command(data))
                 published += 1
+        except Exception as exc:                       # noqa: BLE001 - 기록만 남기고 올린다
+            cut = samples[published - 1][0] if published else 0.0
+            self._publish_event(ctx, result=RESULT_ABORTED,
+                                reason=f'{type(exc).__name__}: {exc}',
+                                truncated_at_sec=cut)
+            raise
         finally:
             # 정상 종료·중단·예외 어느 경로로 빠져나가든 진행 표시를 내린다.
             self._streaming.clear()
 
         self._node.get_logger().info(f'Trajectory streaming done: {published} command(s)')
+        self._publish_event(ctx, result=RESULT_SUCCEEDED)
         return published
 
+    def _publish_event(self, ctx: MotionContext, *, result: str, reason: str = '',
+                       truncated_at_sec: Optional[float] = None) -> None:
+        """연산 이벤트를 한 건 발행한다 (R2). 발행자는 처음 쓸 때 만든다."""
+        if self._event_pub is None:
+            self._event_pub = MotionEventPublisher(self._node)
+        self._event_pub.publish_context(ctx, result=result, reason=reason,
+                                        truncated_at_sec=truncated_at_sec)
+
     def stream_async(self, trajectory: RobotTrajectory, *, time_scaling: float = 1.0,
+                     velocity_scaling: float = 1.0,
                      publish_rate: Optional[float] = None,
                      stop_event: Optional[threading.Event] = None,
                      joint_names_timeout: float = DEFAULT_JOINT_NAMES_TIMEOUT_SEC,
-                     externally_spun: bool = False) -> Future:
+                     externally_spun: bool = False,
+                     target: Optional[OperationTarget] = None) -> Future:
         """:meth:`stream` 을 별도 스레드에서 실행하고 Future 를 반환한다.
 
         Tk GUI 처럼 호출 스레드를 블로킹할 수 없는 환경에서 사용한다.
@@ -334,10 +393,12 @@ class TrajectoryStreamer:
         def _run() -> None:
             try:
                 published = self.stream(trajectory, time_scaling=time_scaling,
+                                        velocity_scaling=velocity_scaling,
                                         publish_rate=publish_rate,
                                         stop_event=stop_event,
                                         joint_names_timeout=joint_names_timeout,
-                                        externally_spun=externally_spun)
+                                        externally_spun=externally_spun,
+                                        target=target)
                 result_future.set_result(published)
             except Exception as exc:   # noqa: BLE001
                 result_future.set_exception(exc)
@@ -370,6 +431,20 @@ class TrajectoryStreamer:
         ``joint_state`` 형식은 관절 이름을 함께 싣는다. 수신 측이 이름을 무시하고
         순서만 보더라도, 이름이 있으면 `ros2 topic echo` 로 순서 오배치를 눈으로
         확인할 수 있다.
+
+        ⚠️ **`velocity` 를 비우면 펑션베이가 명령을 통째로 버린다.** 시뮬레이터(Unity
+        ROS-TCP-Connector)의 `JointStateMsg` 역직렬화가 빈 `velocity` 에서
+        `ArgumentException: Offset and length were out of bounds` 로 실패하고, 에러가
+        ROS 쪽으로 돌아오지 않아 증상은 **"팔만 안 움직인다"** 뿐이다 — 같은 경로의
+        그리퍼(`Float64MultiArray`)는 멀쩡히 움직여 원인이 더 가려진다. 실측
+        (2026-09-14, `Player.log`): `ArgumentException` 861건 · `OverflowException` 228건,
+        joint7 +0.1 rad 지령에 이동 0. 필드 조합을
+        바꿔 보내 보니 **`velocity` 만 채우면 된다** — `effort` 는 비워도 된다.
+
+        **0 으로 채운다 — 궤적의 실제 속도를 싣지 않는다.** 0 은 필드가 없던 때와 같은
+        뜻(속도 기준 0)이라 제어 거동이 바뀌지 않는다. 실제 속도를 실으면 시뮬레이터가
+        그것을 기준 속도로 쓸 수 있고, 그러면 중력 보상까지 포함한 추종 특성이 달라지는데
+        그것은 따로 재 본 적이 없다.
         """
         positions = self._apply_gravity(positions)
         if self._command_format == COMMAND_FORMAT_JOINT_STATE:
@@ -377,6 +452,7 @@ class TrajectoryStreamer:
             msg.header.stamp = self._node.get_clock().now().to_msg()
             msg.name = list(self._joint_names or [])
             msg.position = list(positions)
+            msg.velocity = [0.0] * len(msg.position)
             return msg
         return Float64MultiArray(data=positions)
 

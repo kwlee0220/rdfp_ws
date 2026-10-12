@@ -1,6 +1,6 @@
 # 로봇 트윈 정의 — Panda (mock 스택 기준).
 #
-# 설계서: docs/robot_twin/robot_twin_design.md
+# 설계서: docs/twin/robot_twin_design.md
 # 실행:   ros2 run rdfp robot_twin --config <이 파일 경로>
 #
 # 트윈 1개 = 프로세스 1개다. 같은 머신에 여러 대를 띄우려면 이 파일을 복사해
@@ -25,7 +25,7 @@ ros:
 
 moveit:
   # 백엔드 이름 하나로 정한다 — mode·명령채널을 `BACKEND_PROFILES` 가 채운다.
-  # JGPC mock 스택(`panda_jgpc_mock`)을 쓰려면 `mock_jgpc` 로 바꾼다.
+  # JGPC mock 스택(`panda_mock_jgpc`)을 쓰려면 `mock_jgpc` 로 바꾼다.
   backend: mock
   planning_group: panda_arm
 

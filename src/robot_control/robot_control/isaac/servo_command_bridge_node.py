@@ -143,6 +143,11 @@ class ServoCommandBridge(Node):
         out.header.stamp = self.get_clock().now().to_msg()
         out.name = list(self._joint_names)
         out.position = [float(v) for v in positions]
+        # **`velocity` 를 비우면 펑션베이가 이 메시지를 통째로 버린다** — 시뮬레이터의
+        # JointState 역직렬화가 빈 `velocity` 에서 실패하고 에러가 ROS 로 안 돌아와,
+        # teleop 키가 조용히 안 먹는다 (2026-09-14 실측). 0 은 '속도 기준 없음'과 같은
+        # 뜻이라 거동을 바꾸지 않는다. `effort` 는 비워도 된다.
+        out.velocity = [0.0] * len(out.position)
         self._pub.publish(out)
 
 

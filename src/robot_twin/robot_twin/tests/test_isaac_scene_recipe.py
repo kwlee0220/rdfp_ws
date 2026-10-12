@@ -3,7 +3,7 @@
 **두 곳에 적힌 값이라 조용히 갈라진다.** 트윈은 레시피대로 배치를 뽑아 `/scene/reset`
 으로 보내고, `isaac_scene_state_node` 는 `isaac_scene.json` 과 대조해 **거부**한다 —
 Isaac 은 물체를 만들거나 기하를 바꿀 수 없기 때문이다
-(`docs/scene/isaac_scene_reset.md` §3).
+(`docs/backends/isaac/isaac_scene_reset.md` §3).
 
 거부는 런타임에만 드러나고, 그때는 수집 루프가 이미 돌고 있다. 그래서 여기서 묶는다.
 
@@ -18,8 +18,20 @@ import pathlib
 
 import pytest
 
-# 테이블 상단 높이. 중심 z + 두께/2 로 나오며, 물체는 그 위에 반높이만큼 얹힌다.
-TABLE_TOP_Z = 0.4
+def _table_top_z() -> float:
+    """탁자 상면 z (중심 z + 두께/2). 물체는 그 위에 반높이만큼 얹힌다.
+
+    ⚠️ **여기에 숫자를 적지 않는다 — `isaac_scene.json` 에서 읽는다.** 한때
+    `TABLE_TOP_Z = 0.4` 라는 상수였는데, 그러면 같은 값이 **세 곳**(씬 JSON · 트윈
+    레시피 · 이 테스트)에 있게 되어 **탁자를 낮출 때 테스트가 함께 낡는다.** 그러면
+    레시피만 안 고쳐도 통과해 버리고, 어긋남은 `isaac_scene_state_node` 가 배치를
+    거부하는 런타임에야 드러난다 — 이 테스트가 막으려던 바로 그것이다
+    (2026-09-20 에 0.4 → 0.3 으로 낮추면서 드러났다).
+    """
+    with open(_isaac_scene_json(), encoding='utf-8') as handle:
+        scene = json.load(handle)
+    table = next(o for o in scene['objects'] if o['name'] == 'table')
+    return float(table['position'][2]) + float(table['dimensions'][2]) / 2.0
 
 
 def _half_height(spec) -> float:
@@ -131,19 +143,21 @@ def test_recipe_geometry_matches_the_stage():
 def test_recipe_z_keeps_objects_on_the_table():
     """z 를 흔들면 물체가 공중에서 떨어지거나 테이블에 박힌다.
 
-    테이블 상단(0.4)에 **반높이만큼** 얹힌다 — 5 cm 블록은 0.425, 높이 6 cm 실린더는
-    0.43 이다. 범위가 아니라 **고정값**이어야 하는 유일한 축이다.
+    테이블 상단에 **반높이만큼** 얹힌다 — 상면 0.3 기준으로 5 cm 블록은 0.325,
+    높이 6 cm 실린더는 0.33 이다. 범위가 아니라 **고정값**이어야 하는 유일한 축이다.
+    상면 값은 씬 JSON 에서 읽는다 (`_table_top_z`).
     """
     config, _ = _load()
+    table_top = _table_top_z()
     for scene_name, recipe in _recipes(config).items():
         for spec in recipe['objects']:
             z = spec['z']
             assert isinstance(z, (int, float)), (
                 f'{scene_name}/{spec["name"]}: z must be fixed, got {z!r}')
-            want = TABLE_TOP_Z + _half_height(spec)
+            want = table_top + _half_height(spec)
             assert float(z) == pytest.approx(want), (
                 f'{scene_name}/{spec["name"]}: z={z} but resting on the table '
-                f'({TABLE_TOP_Z}) would be {want}')
+                f'({table_top}) would be {want}')
 
 
 def test_sampled_blocks_do_not_overlap():

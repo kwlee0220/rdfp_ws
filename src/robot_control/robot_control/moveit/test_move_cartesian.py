@@ -9,7 +9,7 @@ def main(args=None):
     node = None
     try:
         node = Node('move_to_cartesian_points')
-        with create_move_group_client(node) as client:
+        with create_move_group_client(node, backend='mock') as client:
             client.wait_until_ready()
 
             # Trajectory 1: 사각형 경로

@@ -1,8 +1,8 @@
 # 로봇 트윈 정의 — Panda (**펑션베이 시뮬레이터 백엔드**).
 #
-# 설계서: docs/robot_twin/robot_twin_design.md
-#         docs/simulation/functionbay_backend_design.md
-#         docs/robot_twin/peg_in_hole_via_mcp_plan.md (이 파일을 만든 이유)
+# 설계서: docs/twin/robot_twin_design.md
+#         docs/backends/functionbay/펑션베이_백엔드_설계.md
+#         docs/backends/functionbay/peg_in_hole_via_mcp_plan.md (이 파일을 만든 이유)
 # 실행:   ros2 run robot_twin robot_twin --config <이 파일 경로>
 #
 # **mock·Isaac 과 다른 점 넷** — 전부 이 백엔드의 성질에서 온다.
@@ -11,7 +11,7 @@
 #      런타임에 배치를 바꿀 수단 자체가 없어 넣으면 매번 실패한다. 물체를 잃으면
 #      **사람이 시뮬레이터를 재시작**해야 한다.
 #   ② `use_sim_time: false`. `/clock` 이 발행되긴 하나 **경과시간**이고 `/output/*` 는
-#      회차에 따라 벽시계일 수 있어 시간축이 섞인다 (벤더 B-13, 체크리스트 §G.1a).
+#      회차에 따라 벽시계일 수 있어 시간축이 섞인다 (벤더 B-13, 체크리스트 §A-9 상세).
 #      수집 전에 `fb_checkup.py` 로 stamp 기준을 확인한다.
 #   ③ **개루프다.** ros2_control 이 없어 `FollowJointTrajectory` 액션 서버가 없고,
 #      MoveIt 으로 계획한 궤적을 `/input/panda_joint` 로 직접 흘린다 —
@@ -47,7 +47,7 @@ ros:
   rmw: rmw_fastrtps_cpp
   node_name: robot_twin_panda_functionbay
   # **펑션베이는 켜지 않는다.** `/clock` 이 발행되지만 **경과시간**이고 `/output/*` 는
-  # 회차에 따라 벽시계일 수 있어(체크리스트 §G.1a) 시간축이 섞인다. 켜면 변수 stamp 가
+  # 회차에 따라 벽시계일 수 있어(체크리스트 §A-9 상세) 시간축이 섞인다. 켜면 변수 stamp 가
   # 56.7년 어긋난다 (벤더 요청 B-13).
   use_sim_time: false
 
@@ -63,7 +63,7 @@ moveit:
   #
   # **중력 보상이 여기서 따라온다.** 팩토리가 프로파일의
   # `motion.gravity_compensation` 을 읽어 스트리밍 경로에 얹으므로 트윈 쪽 설정이
-  # 필요 없다 (docs/simulation/functionbay_gravity_compensation.md).
+  # 필요 없다 (docs/backends/functionbay/펑션베이_중력_보상.md).
   backend: functionbay
   planning_group: panda_arm
   # **액션 서버 확인은 여기서 적지 않는다** — `runtime.py` 가 트윈에서는 항상 끈다
@@ -398,7 +398,7 @@ operations:
   #      열면 물체가 씬 밖으로 튕겨 나가는데(재현 4/4), 우리 쪽 복구 수단이 없다 —
   #      그래서 놓기 전 앉음 확인이 필수다.
   #
-  # 벤더 요청: functionbay_vendor_requests.md · 체크리스트 §B-18
+  # 벤더 요청: 펑션베이_요청_목록.md · 체크리스트 §B-18
 
   - name: start_session
     description: >-

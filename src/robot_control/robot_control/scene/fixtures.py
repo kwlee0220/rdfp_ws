@@ -17,7 +17,7 @@
 녹화 목록에 없어 **데이터셋에 안 남는다.** 넣으려면 로봇 링크 13개가 딸려 온다.
 
 **이 모듈은 `rclpy` 를 import 하지 않는다** — 값만 읽는 도구와 launch 에서도 쓸 수 있어야
-한다. 설계 근거: `docs/scene/scene_objects_guide.md`, 측정 출처는 JSON 의 `_comment`.
+한다. 설계 근거: `docs/control/scene_objects_guide.md`, 측정 출처는 JSON 의 `_comment`.
 """
 
 from __future__ import annotations

@@ -225,3 +225,39 @@ def test_setup_scene_can_build_every_type_in_the_json():
         assert kind in supported, (
             f'{spec["name"]}: isaac_scene.json 의 type {kind!r} 를 setup_scene 이 '
             f'만들지 못한다 (지원: {sorted(supported)})')
+
+
+# ── 설정을 설치본에서 읽는다 (2026-09-21) ────────────────────────────────────────
+#
+# 같은 장면을 세 주체가 읽는다 — Isaac 스테이지(여기 스크립트들), 트윈(`run_robot_twin.sh`),
+# scene 노드(`get_package_share_directory`). scene 노드는 ROS 관례대로 **설치본**을 읽는데
+# 나머지 둘이 `src/` 를 읽고 있어서, `src/` 만 고치고 `colcon build` 를 안 하면 갈라졌다
+# (실린더 반지름 · 탁자 높이를 바꾼 뒤 수집이 매 회 `reset_scene` 에서 거부됐다).
+#
+# 위의 `test_workspace_honors_env_override` 는 `SCENE_JSON` 이 `WORKSPACE` **아래**인지만
+# 보므로 `src/` 로 되돌려도 통과한다. 그래서 따로 박는다.
+
+_INSTALL_SCENE = '/install/robot_control/share/robot_control/config/isaac_scene.json'
+
+
+@pytest.mark.parametrize('path', _scripts(), ids=_ids)
+def test_scene_json_is_read_from_the_install_tree(path: pathlib.Path):
+    """Isaac 스테이지가 scene 노드와 같은 파일(설치본)을 읽어야 한다."""
+    namespace = _exec_header(path)
+    if 'SCENE_JSON' not in namespace:
+        pytest.skip(f'{path.name} 은 isaac_scene.json 을 읽지 않는다')
+    assert namespace['SCENE_JSON'].endswith(_INSTALL_SCENE), (
+        f"{path.name}: SCENE_JSON 이 설치본이 아니다 — {namespace['SCENE_JSON']}. "
+        '`src/` 를 읽으면 빌드를 잊었을 때 scene 노드와 갈라진다')
+
+
+def test_twin_launcher_reads_the_install_tree():
+    """트윈 기동 스크립트도 설치본을 읽어야 한다 — scene 노드와 같은 시점의 레시피."""
+    launcher = _REPO_ROOT / 'scripts' / 'run_robot_twin.sh'
+    if not launcher.is_file():
+        pytest.skip('scripts/run_robot_twin.sh 없음 (installed tree)')
+    lines = [ln.strip() for ln in launcher.read_text(encoding='utf-8').splitlines()
+             if ln.strip().startswith('config_dir=')]
+    assert lines, 'config_dir= 할당을 찾지 못했다'
+    assert all('/install/robot_twin/share/robot_twin/config' in ln for ln in lines), lines
+    assert not any('/src/robot_twin/config' in ln for ln in lines), lines

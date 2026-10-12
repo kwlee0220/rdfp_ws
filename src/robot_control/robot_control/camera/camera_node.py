@@ -43,7 +43,7 @@ class CameraNode(Node):
       로 끝내고 launch ``respawn`` 이나 systemd ``Restart=on-failure`` 에 맡긴다.
       노드가 스스로 재연결하기를 바라면 ``image_capture_node``(JPEG 전용)를 쓴다.
 
-    선택 표: ``docs/camera/README.md``.
+    선택 표: ``docs/control/README.md``.
     """
 
     def __init__(self) -> None:

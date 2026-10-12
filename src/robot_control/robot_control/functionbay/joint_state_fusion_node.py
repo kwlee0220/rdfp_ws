@@ -18,8 +18,13 @@ URDF/SRDF 와 기구학이 다르다). 그때까지는 `extra_joint_positions` �
 TF 만 성립시킨다. **따라서 이 노드가 싣는 손가락 관절값은 실제 개폐와 무관한
 더미다** — 그리퍼 상태는 `/gripper_states` 를 본다.
 
-시각(stamp) 도 여기서 정리한다. 펑션베이는 시뮬 시간을 쓰지 않고 입력 stamp 가
-0 인 경우가 있는데, 그대로 흘리면 TF 버퍼가 받지 않는다.
+시각(stamp) 도 여기서 정리한다 — **이 노드가 시뮬레이터 stamp 를 우리 시간축으로 옮기는
+경계다.** 시뮬레이터 stamp 는 회차마다 벽시계와 기동 후 경과시간 사이를 오가고, 주기적
+정지 때문에 벽시계 회차에도 초 단위로 흔들린다. 기본값 ``aligned`` 는 stamp 간격은 그대로
+두고 벽시계로 옮기는 오프셋만 더한다(`robot_control.functionbay.stamp_alignment`). 그리고
+표본마다 ``sensor_msgs/TimeReference`` (``header.stamp`` = 정렬 시각, ``time_ref`` =
+시뮬레이터 stamp)를 내 **같은 오프셋을 카메라 중계가 공유**하게 한다 — 토픽마다 따로
+추정하면 관절과 카메라의 관계가 어긋난다.
 
 이름(`name`) 처리
 -----------------
@@ -40,11 +45,18 @@ output_topic             /joint_states                변환 결과
 joint_names              panda_joint1..7              입력이 `name` 을 비웠을 때만 쓰인다
 extra_joint_names        [panda_finger_joint1]        입력에 없지만 URDF 가 요구하는 관절
 extra_joint_positions    [0.04]                       위 관절에 채울 고정값
-stamp_source             auto                         auto | incoming | now
+stamp_source             aligned                      aligned | auto | incoming | now
+time_reference_topic     /functionbay/stamp_reference ``aligned`` 일 때 쌍을 내는 토픽
 ======================== ============================ ==================================
 
-``stamp_source=auto`` 는 입력 stamp 가 0 이면 노드 시계를, 아니면 입력값을 쓴다.
-펑션베이는 시뮬 시간을 쓰지 않으므로 벽시계 기준이다.
+``stamp_source`` 의 뜻:
+
+- ``aligned`` — 시뮬레이터 stamp + 추정 오프셋 (벽시계 축, 간격 보존). 입력 stamp 가 0 이면
+  노드 시계를 쓴다.
+- ``auto`` — 입력 stamp 가 0 이면 노드 시계를, 아니면 입력값을 그대로 쓴다 (2026-09-17 이전
+  기본값). 경과시간 회차에는 우리 노드와 다른 축이 된다.
+- ``incoming`` — 입력값 그대로.
+- ``now`` — 수신 시각. 관절 보고가 묶여 도착하므로 stamp 가 몰린다 — 진단용으로만 쓴다.
 """
 
 from __future__ import annotations
@@ -55,8 +67,12 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 
-from sensor_msgs.msg import JointState
+from builtin_interfaces.msg import Time
+from sensor_msgs.msg import JointState, TimeReference
 
+from robot_control.functionbay.stamp_alignment import (
+    STAMP_REFERENCE_SOURCE, STAMP_REFERENCE_TOPIC, MonotonicStamps, StampAligner, ns_to_stamp,
+    stamp_to_ns)
 from robot_control.ros2_utils import get_parameter, log_periodic, parse_str
 
 _DEFAULT_INPUT_TOPIC = '/output/panda_joint'
@@ -66,10 +82,15 @@ _DEFAULT_EXTRA_JOINT_NAMES = ['panda_finger_joint1']
 _DEFAULT_EXTRA_JOINT_POSITIONS = [0.04]
 _DEFAULT_QUEUE_SIZE = 10
 
+_STAMP_ALIGNED = 'aligned'
 _STAMP_AUTO = 'auto'
 _STAMP_INCOMING = 'incoming'
 _STAMP_NOW = 'now'
-_VALID_STAMP_SOURCES = (_STAMP_AUTO, _STAMP_INCOMING, _STAMP_NOW)
+_VALID_STAMP_SOURCES = (_STAMP_ALIGNED, _STAMP_AUTO, _STAMP_INCOMING, _STAMP_NOW)
+# 카메라 중계가 오프셋 기록을 모을 수 있도록 넉넉히 둔다 (50 Hz × 1 s).
+_REFERENCE_QUEUE_SIZE = 50
+# 오프셋이 이보다 작으면 시뮬레이터 stamp 가 이미 벽시계라고 본다 (로그용 판정).
+_WALL_CLOCK_THRESHOLD_NS = 1_000_000 * 1_000_000_000
 
 # 반복 경고 사이 최소 간격(초).
 _WARN_INTERVAL_SEC = 5.0
@@ -83,7 +104,8 @@ class JointStateFusionNode(Node):
 
         self.declare_parameter('input_topic', _DEFAULT_INPUT_TOPIC)
         self.declare_parameter('output_topic', _DEFAULT_OUTPUT_TOPIC)
-        self.declare_parameter('stamp_source', _STAMP_AUTO)
+        self.declare_parameter('stamp_source', _STAMP_ALIGNED)
+        self.declare_parameter('time_reference_topic', STAMP_REFERENCE_TOPIC)
         # STRING_ARRAY / DOUBLE_ARRAY 는 타입만 선언한다. 빈 리스트를 기본값으로
         # 주면 rclpy 가 BYTE_ARRAY 로 추론해 이후 설정이 조용히 실패한다.
         self.declare_parameter('joint_names', Parameter.Type.STRING_ARRAY)
@@ -111,6 +133,22 @@ class JointStateFusionNode(Node):
         self._publisher = self.create_publisher(JointState, output_topic, _DEFAULT_QUEUE_SIZE)
         self._subscription = self.create_subscription(
             JointState, input_topic, self._on_joint_state, _DEFAULT_QUEUE_SIZE)
+
+        # `aligned` 일 때만 오프셋을 추적하고 (정렬 시각, 시뮬레이터 stamp) 쌍을 낸다.
+        self._aligner: Optional[StampAligner] = None
+        self._reference_publisher = None
+        self._logged_offset = False
+        self._monotonic = MonotonicStamps()
+        if self._stamp_source == _STAMP_ALIGNED:
+            self._aligner = StampAligner()
+            reference_topic = get_parameter(self, 'time_reference_topic', parse_str)
+            self._reference_publisher = self.create_publisher(
+                TimeReference, reference_topic, _REFERENCE_QUEUE_SIZE)
+            self.get_logger().info(
+                f'  stamp_source=aligned: simulator stamps + tracked offset, pairs -> '
+                f'{reference_topic}')
+        else:
+            self.get_logger().info(f'  stamp_source={self._stamp_source}')
 
         # 입력이 이름을 채워 주는지는 첫 메시지에서만 로깅한다.
         self._logged_name_source = False
@@ -191,10 +229,36 @@ class JointStateFusionNode(Node):
         incoming = msg.header.stamp
         if self._stamp_source == _STAMP_INCOMING:
             return incoming
-        # auto: 입력 stamp 가 0 이면 노드 시계를 쓴다.
+        # auto · aligned 공통: 입력 stamp 가 0 이면 노드 시계를 쓴다 (정렬할 원본이 없다).
         if incoming.sec == 0 and incoming.nanosec == 0:
             return self.get_clock().now().to_msg()
-        return incoming
+        if self._aligner is None:
+            return incoming
+        return self._align(incoming)
+
+    def _align(self, incoming):
+        """오프셋을 갱신하고 정렬 시각을 돌려준다. 쌍을 카메라 중계용으로 함께 낸다."""
+        sim_ns = stamp_to_ns(incoming)
+        offset_ns = self._aligner.observe(self.get_clock().now().nanoseconds, sim_ns)
+        # 짝에는 누른 값을 싣는다 — 카메라가 같은 시각을 기준으로 삼아야 순서가 맞는다.
+        aligned_ns = self._monotonic(sim_ns + offset_ns)
+        offset_ns = aligned_ns - sim_ns
+        aligned = ns_to_stamp(aligned_ns, Time)
+
+        reference = TimeReference()
+        reference.header.stamp = aligned
+        reference.time_ref = incoming
+        reference.source = STAMP_REFERENCE_SOURCE
+        self._reference_publisher.publish(reference)
+
+        if not self._logged_offset:
+            basis = ('wall-clock' if abs(offset_ns) < _WALL_CLOCK_THRESHOLD_NS
+                     else 'elapsed-since-start')
+            self.get_logger().info(
+                f'stamp offset established: {offset_ns / 1e9:+.3f} s '
+                f'(simulator stamps look {basis})')
+            self._logged_offset = True
+        return aligned
 
 
 def main(args=None) -> None:

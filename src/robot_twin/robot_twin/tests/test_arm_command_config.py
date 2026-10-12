@@ -141,7 +141,7 @@ def test_shipped_isaac_config_exposes_the_same_operations_as_mock():
     ROS 노드가 못 고친다고 봤기 때문이다. Isaac 6.0 이 표준
     `simulation_interfaces` 서비스를 열면서 그 전제가 깨졌고(2026-09-02),
     `isaac_scene_state_node` 가 그것을 대신 불러 계약을 맞춘다.
-    상세: docs/scene/isaac_scene_reset.md
+    상세: docs/backends/isaac/isaac_scene_reset.md
     """
     from robot_twin.config import load_config
 
@@ -246,10 +246,21 @@ def test_gravity_compensator_comes_from_the_backend():
     """
     from robot_twin.config import MoveItConfig
 
+    from robot_control.backend_profiles import BACKEND_PROFILES
+
     compensator = MoveItConfig(backend='functionbay').gravity_compensator()
 
-    assert compensator is not None
-    assert compensator.kp[0] == 2000.0
+    # **선언과 결과가 일치하는지만 본다 — 값도, 있음/없음도 박지 않는다.**
+    # `Kp` 는 씬·빌드마다 다르고(2026-09-29 t1 2000 → 20000), **선언 자체가 씬에 딸린다** —
+    # 2026-09-30 에 r2 가 벤더 보상을 받게 되어 블록을 지웠고 그때 이 시험이 깨졌다.
+    # 지킬 것은 "트윈이 프로파일을 그대로 물려받는다"(팩토리가 대신 해 주지 않는다)이다.
+    spec = (BACKEND_PROFILES['functionbay'].get('motion') or {}).get('gravity_compensation')
+
+    if spec:
+        assert compensator is not None
+        assert compensator.kp[0] == spec.get('kp', 2000.0)
+    else:
+        assert compensator is None, '프로파일에 선언이 없는데 트윈이 보상기를 만들었다'
 
 
 def test_backends_without_the_key_get_none():

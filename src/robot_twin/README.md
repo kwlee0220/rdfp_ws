@@ -70,6 +70,6 @@ ROS 쪽 노드는 원리적으로 할 수 없고, `isaac_scene_state_node` 가 `
 변수를 빼는 편이 낫다 — `description` 은 주석이 아니라 에이전트가 읽는 데이터라,
 부를 수 없는 연산이 카탈로그에 남으면 에이전트가 시도했다가 실패한다.
 
-문서: [../../docs/robot_twin/robot_twin_user_guide.md](../../docs/robot_twin/robot_twin_user_guide.md) ·
-[설계](../../docs/robot_twin/robot_twin_design.md) ·
-[Isaac 백엔드](../../docs/simulation/isaac_backend_skeleton.md) (§2 Phase 9)
+문서: [../../docs/twin/robot_twin_user_guide.md](../../docs/twin/robot_twin_user_guide.md) ·
+[설계](../../docs/twin/robot_twin_design.md) ·
+[Isaac 백엔드](../../docs/backends/isaac/isaac_backend.md) (§2 Phase 9)

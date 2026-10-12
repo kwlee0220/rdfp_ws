@@ -4,7 +4,7 @@
 
 소비자(뷰어·레코더)는 어느 노드가 떴는지 몰라야 한다. 그래야 백엔드를 바꿔도
 `camera_image_topic` 하나만 구독하면 되고, 제어 계층 노드가 백엔드를 알게 되는 일이
-없다. 설계: `docs/camera/compressed_image_pipeline_design.md`.
+없다. 설계: `docs/control/compressed_image_pipeline_design.md`.
 """
 
 from __future__ import annotations

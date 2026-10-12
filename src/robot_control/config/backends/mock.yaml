@@ -1,6 +1,6 @@
 # mock 스택 — ros2_control 의 `mock_components/GenericSystem`.
 #
-#   panda_mock.launch.py / rdfp_panda_mock.launch.py
+#   panda_mock.launch.py (수집 계층은 rdfp_collect.launch.py 로 따로 얹는다)
 #
 # **물리가 없다.** 명령이 그대로 상태로 되돌아오고 중력 처짐도 페이로드도 접촉도
 # 없다. 손가락에 effort state interface 가 없어 `stalled` 이 서지 않으므로 `grasp` 의
@@ -22,6 +22,7 @@ servo:
 
 camera:
   # 시뮬레이터가 이미지를 안 주므로 OpenCV `camera_node` 가 장치/파일에서 캡처한다.
+  pixel_format: bgr8   # OpenCV 카메라
   source: device
   image_topic: /camera/image_raw
 

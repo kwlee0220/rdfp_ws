@@ -33,7 +33,7 @@ _LAUNCH_DIR = os.path.join(_REPO, 'launch')
 _README = os.path.join(_LAUNCH_DIR, 'README.md')
 
 # 표의 열 순서. 헤더와 대조하므로 여기만 고치면 안 되고 README 도 함께 고쳐야 한다.
-_COLUMNS = ['panda_mock', 'panda_jgpc_mock', 'panda_isaac', 'panda_functionbay']
+_COLUMNS = ['panda_mock', 'panda_mock_jgpc', 'panda_isaac', 'panda_functionbay']
 
 # 모든 백엔드에서 같아 표에서 뺀 인자. **여기 없는데 값이 갈리면 표에 빠진 것이다.**
 _UNIFORM = {'log_level', 'base_frame', 'publish_rate', 'enable_scene', 'scene_publish_rate'}

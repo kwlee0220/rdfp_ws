@@ -33,6 +33,12 @@ panda_arm_controller:
   ros__parameters:
     # 위 머리말 참고. servo 래칫의 두 번째 되읽기 지점을 끊는다.
     open_loop_control: true
+    # `controller_state` 를 매 주기 낸다 (t₀ 후보 ③ 의 해상도, R1 설계 §3.5).
+    # 기본 50 Hz 는 이동 구간 샘플의 38 % 만 남긴다.
+    # ⚠️ **1000 은 '1 kHz' 가 아니라 '매 주기'라는 뜻이다** — JTC 는 `update()` 안에서
+    # 발행하므로 위 `update_rate: 100` 이 상한이다. 실효 100 Hz(10 ms)다.
+    # 기동 시점에만 읽으므로 `param set` 으로는 안 바뀐다 (open_loop_control 과 같다).
+    state_publish_rate: 1000.0
     command_interfaces:
       - position
     state_interfaces:

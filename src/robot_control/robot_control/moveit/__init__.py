@@ -3,7 +3,6 @@ from robot_control.backend_profiles import BACKEND_PROFILES, backends
 from .move_group_factory import (
     CLIENT_MODES,
     create_move_group_client,
-    detect_controller_mode,
     jtc_action_server_present,
     resolve_backend_channel,
 )
@@ -21,7 +20,6 @@ __all__ = [
     'TrajectoryStreamer',
     'create_move_group_client',
     'backends',
-    'detect_controller_mode',
     'jtc_action_server_present',
     'downward_pose',
     'downward_quaternion',

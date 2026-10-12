@@ -8,7 +8,10 @@
 기능 단위
 ---------
 - ``functionbay 브리지``:
-    - /joint_state_fusion  — /output/panda_joint → /joint_states (이름 부여)
+    - /joint_state_fusion  — /output/panda_joint → /joint_states (이름 부여 · stamp 를
+      벽시계 축으로 정렬하고 (정렬 시각, 원 stamp) 쌍을 /functionbay/stamp_reference 로 낸다)
+    - /camera_restamp      — /camera_image/compressed → /camera_image_aligned/compressed
+      (위 쌍으로 관절과 같은 오프셋을 더한다. 소비자는 이 출력을 받는다)
     - /readiness_gate      — 첫 관절 보고를 기동 완료 신호로 삼고 종료
 - ``moveit``: /move_group, /moveit_servo, /ee_pose_publisher
 - ``rviz2``: /rviz2 (``enable_rviz:=true`` 로 켠다, **기본 off**)
@@ -29,7 +32,7 @@
   raw 소비자**(여기서는 뷰어뿐)에서 파생되므로, 뷰어를 켜면 디코더가 함께 뜬다.
   수집 계층의 세션 구동 레코더(``rdfp_image_recorder``)는 ``input_format='mjpeg'`` 로
   압축을 그대로 받으므로 raw 를 요구하지 않는다.
-  설계: ``docs/camera/compressed_image_pipeline_design.md``
+  설계: ``docs/control/compressed_image_pipeline_design.md``
 
 mock 과의 차이
 --------------
@@ -51,7 +54,7 @@ Cartesian 궤적은 TOTG 로 ~10 Hz 로 리샘플되므로 그대로 흘리면 �
     client = create_move_group_client(node, backend='functionbay')
     client.follow_trajectory(waypoints, publish_rate=50.0)
 
-설계 배경: ``docs/simulation/multi_simulator_backend_design.md`` §6.3 (B).
+설계 배경: ``docs/backends/README.md`` §6.3 (B).
 """
 
 from __future__ import annotations
@@ -124,9 +127,12 @@ FB_GRIPPER_REPORT_TOPIC = _BACKEND.value('simulator', 'gripper_report_topic')
 # 카메라 토픽 둘. **`image_pipeline.yaml` 에서 오면 안 된다** — 그쪽은 OpenCV 카메라의
 # 값이라 시뮬레이터 스택에서는 프로파일이 선언한 이름과 갈린다 (실제로 갈려 있었다:
 # 프로파일 `/camera_image` 대 실효 `/camera/image_raw`). 수집 계열
-# `rdfp_panda_functionbay` 도 같은 프로파일을 읽으므로 두 계층이 같은 이름을 쓴다.
+# `rdfp_collect backend:=functionbay` 도 같은 프로파일을 읽으므로 두 계층이 같은 이름을 쓴다.
 CAMERA_IMAGE_TOPIC = _BACKEND.value('camera', 'image_topic')
 CAMERA_COMPRESSED_TOPIC = _BACKEND.value('camera', 'compressed_topic')
+# 시뮬레이터 **원본** 카메라. `CAMERA_COMPRESSED_TOPIC` 은 이것을 관절과 같은 stamp 축으로
+# 옮긴 중계 출력이다 — 둘을 혼동하면 소비자가 벤더의 흔들리는 stamp 를 그대로 받는다.
+FB_CAMERA_COMPRESSED_TOPIC = _BACKEND.value('simulator', 'camera_compressed_topic')
 
 # `/joint_states` 의 손가락에 채우는 **고정값** (열림, m).
 #
@@ -230,6 +236,10 @@ def create_joint_state_fusion_node() -> Node:
         parameters=[{
             "input_topic": LaunchConfiguration("fb_joint_report_topic"),
             "output_topic": "/joint_states",
+            # 시뮬레이터 stamp 를 벽시계 축으로 옮긴다 — 간격은 보존하고 오프셋만 더한다.
+            # 표본마다 (정렬 시각, 원 stamp) 쌍을 내 카메라 중계가 같은 오프셋을 쓴다.
+            # 옛 동작(stamp 그대로)은 "auto" 다.
+            "stamp_source": "aligned",
             "joint_names": ARM_JOINT_NAMES,
             "extra_joint_names": [FINGER_JOINT_NAME],
             # 스칼라 argument 를 리스트 리터럴로 감싸 DOUBLE_ARRAY 로 만든다.
@@ -237,6 +247,27 @@ def create_joint_state_fusion_node() -> Node:
             # 리스트를 스칼라 DOUBLE 로 평탄화해 노드가 타입 오류로 죽는다.
             "extra_joint_positions": ParameterValue(
                 ["[", LaunchConfiguration("fb_finger_position"), "]"], value_type=List[float]),
+        }],
+    )
+
+
+def create_camera_restamp_node() -> Node:
+    """시뮬레이터 카메라의 stamp 를 관절과 같은 벽시계 축으로 옮겨 재발행한다.
+
+    **즉시 띄운다** — `joint_state_fusion` 이 내는 (정렬 시각, 원 stamp) 쌍을 기다렸다
+    짝을 찾으므로 시뮬레이터 준비 여부와 무관하게 먼저 떠 있어도 된다. 소비자(세션
+    레코더 · `camera_republish`)는 프로파일의 `camera.compressed_topic`, 즉 이 노드의
+    출력을 받는다.
+    """
+    return Node(
+        package="robot_control",
+        executable="fb_camera_restamp",
+        name="camera_restamp",
+        output="screen",
+        emulate_tty=True,
+        parameters=[{
+            "input_topic": FB_CAMERA_COMPRESSED_TOPIC,
+            "output_topic": CAMERA_COMPRESSED_TOPIC,
         }],
     )
 
@@ -264,7 +295,7 @@ def create_image_viewer_node_for_functionbay() -> Node:
     **뷰어가 직접 디코드하지 않는 이유**는 성능이 아니다 (`cv2.imdecode` 는 0.75 ms/frame
     이고 GIL 도 놓는다). 소비자가 백엔드를 몰라야 하기 때문이다 — mock 은 장치, Isaac 은
     raw, 펑션베이는 압축이라, 뷰어에 분기를 넣으면 **제어 계층 노드가 백엔드를 알게 된다.**
-    설계: `docs/camera/compressed_image_pipeline_design.md` §2.
+    설계: `docs/control/compressed_image_pipeline_design.md` §2.
     """
     return Node(
         package="robot_control",
@@ -320,6 +351,7 @@ def generate_launch_description() -> LaunchDescription:
     static_tf = create_static_tf_node()
     robot_state_publisher = create_robot_state_publisher(moveit_config)
     joint_state_fusion = create_joint_state_fusion_node()
+    camera_restamp = create_camera_restamp_node()
     readiness_gate = create_readiness_gate_node()
 
     # --- 시뮬레이터 준비 후 기동 ---
@@ -391,6 +423,7 @@ def generate_launch_description() -> LaunchDescription:
         static_tf,
         robot_state_publisher,
         joint_state_fusion,
+        camera_restamp,
         readiness_gate,
         startup_handler,
     ])

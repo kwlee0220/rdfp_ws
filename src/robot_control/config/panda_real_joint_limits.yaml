@@ -18,7 +18,7 @@
 # 속도·가속도 항목은 원본 그대로다 (position 만 덧붙였다).
 #
 # 적용 범위: 현재 `panda_isaac.launch.py` 뿐이다. mock/Gazebo/펑션베이까지 넓힐지는
-# 별도 결정 사항이다 — docs/simulation/isaac_backend_skeleton.md §7 Q6.
+# 별도 결정 사항이다 — docs/backends/isaac/isaac_backend.md §7 Q6.
 
 joint_limits:
   panda_joint1:

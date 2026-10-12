@@ -9,6 +9,7 @@
 2. `arm_command_format` 은 **JGPC 생성자에만** 간다 — JTC 생성자는 그 인자를 모른다.
 3. JTC 로 결정됐는데 액션 서버가 없으면 **기동 시점에 알린다.**
 4. 스택보다 먼저 뜨는 호출자는 그 경고를 끌 수 있다.
+5. **런타임 자동 판별(`mode='auto'`)은 없다** — 근거 없이 짐작하지 않는다.
 """
 
 from __future__ import annotations
@@ -181,3 +182,42 @@ def test_no_profile_value_leaves_the_constructor_default(monkeypatch):
     f.create_move_group_client(_Node(), backend='mock', check_action_server=False)
 
     assert 'velocity_scaling' not in captured
+
+
+# ----- 'auto' 는 없앴다 -------------------------------------------------------
+
+def test_auto_mode_is_rejected():
+    """**`mode='auto'` 는 더 이상 없다.**
+
+    판별이 `/panda_arm_controller/commands` 의 유무만 봐서 그 토픽이 없는 펑션베이를
+    JTC 로 오판했고, 그 스택엔 `FollowJointTrajectory` 서버도 없어 **계획은 되고 실행만
+    조용히 안 됐다.** 되살리면 그 오진이 함께 돌아온다.
+    """
+    assert 'auto' not in f.CLIENT_MODES
+    assert not hasattr(f, 'MODE_AUTO')
+    assert not hasattr(f, 'detect_controller_mode')
+    with pytest.raises(ValueError, match='mode must be one of'):
+        f.create_move_group_client(_Node(), mode='auto')
+
+
+def test_backend_and_mode_cannot_both_be_omitted():
+    """근거가 없으면 짐작하지 않고 **그 사실을 말한다.**
+
+    예전에는 이 호출이 토픽 그래프를 보고 조용히 하나를 골랐다.
+    """
+    with pytest.raises(ValueError, match='arm command mode is unknown'):
+        f.create_move_group_client(_Node())
+
+
+def test_explicit_mode_beats_the_profile(monkeypatch):
+    """`backend` 와 `mode` 를 함께 주면 **인자가 이긴다.**
+
+    `'auto'` 가 있던 시절에는 기본값이 곧 "프로파일에 맡긴다" 였으므로, 기본값을
+    `None` 으로 바꾼 뒤에도 그 관계가 유지되는지 본다.
+    """
+    built = {}
+    monkeypatch.setattr(f, 'MoveGroupJgpcClient', lambda node, **kw: built.setdefault('jgpc', kw))
+    # isaac 프로파일은 jtc 다 — 인자로 뒤집는다.
+    f.create_move_group_client(_Node(), backend='isaac', mode='jgpc')
+
+    assert 'jgpc' in built

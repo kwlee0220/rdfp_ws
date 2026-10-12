@@ -54,7 +54,7 @@ setup(
             'target_joint_cmds_executor = robot_control.moveit.target_joint_cmds_executor:main',
             'target_joint_states_publisher = robot_control.moveit.target_joint_states_publisher:main',
             'target_joint_states_executor = robot_control.moveit.target_joint_states_executor:main',
-            # gripper — GripperNode 계약 구현 (docs/gripper/GripperNode_Design.md)
+            # gripper — GripperNode 계약 구현 (docs/control/gripper_node_design.md)
             'gripper_action_node = robot_control.gripper.gripper_action_node:main',
             'robotiq_2f_gripper_node = robot_control.gripper.robotiq_2f_gripper_node:main',
             # scene
@@ -63,6 +63,7 @@ setup(
             'functionbay_scene_state_node = robot_control.functionbay.scene_state_node:main',
             # functionbay 백엔드 브리지
             'fb_joint_state_fusion = robot_control.functionbay.joint_state_fusion_node:main',
+            'fb_camera_restamp = robot_control.functionbay.camera_restamp_node:main',
             'fb_readiness_gate = robot_control.functionbay.readiness_gate_node:main',
         ],
     },

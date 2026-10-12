@@ -13,9 +13,9 @@ ros2_control 없이 토픽만으로 잇던 옛 경로(`panda_isaac_bridge`)는 *
 -----------------
 - `execute_trajectory()` 가 돌아온다. 완료/중단이 액션으로 판정되므로 개루프 스트리밍의
   "성공을 반환했지만 도달하지 않았다"가 사라진다.
-- 호출부가 백엔드를 몰라도 된다 — `create_move_group_client(mode='auto')` 가 JTC 를
-  고르므로 트윈 설정의 `arm_command_*` 재정의 3종과 `teleop_keyboard` 의 4파라미터
-  지정이 필요 없다.
+- 호출부가 채널을 몰라도 된다 — `create_move_group_client(backend='isaac')` 가
+  프로파일에서 JTC 를 고르므로 트윈 설정의 `arm_command_*` 재정의 3종과
+  `teleop_keyboard` 의 4파라미터 지정이 필요 없다.
 - servo 가 기본 경로(`JointTrajectory` → `/panda_arm_controller/joint_trajectory`)로
   돌아온다. 브리지 노드도, `Float64MultiArray` 제약도 없다.
 
@@ -206,10 +206,12 @@ def declare_isaac_arguments() -> list[DeclareLaunchArgument]:
             ),
         ),
         DeclareLaunchArgument(
-            'enable_image_viewer', default_value='true', choices=['true', 'false'],
+            'enable_image_viewer', default_value='false', choices=['true', 'false'],
             description=(
-                'Isaac 카메라 이미지를 창으로 띄운다. ⚠️ **GUI 가 필요하다** — '
-                '화면 없는 곳에서는 false 로 끈다'
+                'Isaac 카메라 이미지를 창으로 띄운다. **기본 off** — 수집 계층'
+                '(`rdfp_collect`)이 세션 상태를 겹쳐 그리는 같은 이름의 뷰어를 '
+                '따로 띄우므로, 둘을 얹으면 창이 두 개가 된다. ⚠️ **GUI 가 '
+                '필요하다** — 화면 없는 곳에서 켜면 노드가 못 뜬다'
             ),
         ),
         DeclareLaunchArgument(

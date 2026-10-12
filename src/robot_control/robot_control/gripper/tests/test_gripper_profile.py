@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 
 import pytest
 
@@ -20,9 +21,27 @@ from robot_control.gripper.profile import (
     load_gripper_profile_file)
 
 
+# **활성 씬을 읽으면 안 된다.** 규약 시험이 확인하는 것은 *파일의 규약*이고, 어느 씬을
+# 띄웠는지는 `config/backends/functionbay.yaml` 의 운영 선택이다. 예전에는 이 fixture 가
+# `load_gripper_profile('functionbay')` 였고, 그래서 2026-09-29 에 씬을 t1 로 바꾸자
+# **규약이 멀쩡한데 시험 7건이 깨졌다**(도 ↔ 라디안, pvf ↔ position, 2축 ↔ 6축).
+_CONFIG_DIR = os.path.dirname(gripper_profile_path('functionbay') or '')
+
+
+def _convention(name: str):
+    return load_gripper_profile_file(os.path.join(_CONFIG_DIR, f'functionbay_gripper_{name}.json'))
+
+
 @pytest.fixture(scope='module')
 def profile():
-    return load_gripper_profile('functionbay')
+    """r2(RecurDyn) 규약 — 2축 · 도 · 관절당 (위치, 속도, 힘)."""
+    return _convention('recurdyn')
+
+
+@pytest.fixture(scope='module')
+def crisp_profile():
+    """t1(Crisp) 규약 — 6축 · 라디안 · 위치 나열."""
+    return _convention('crisp')
 
 
 def test_the_file_is_reachable():
@@ -34,6 +53,20 @@ def test_the_file_is_reachable():
 
 def test_axis_count_matches_the_signs(profile):
     assert profile.axis_count == len(profile.axis_signs)
+
+
+def test_the_active_scene_loads_whatever_the_yaml_declares():
+    """**씬 무관 불변식** — 활성 프로파일이 읽히고 `solver` 대조를 통과한다.
+
+    로더가 `config/backends/functionbay.yaml` 의 `solver` 와 규약 파일의 `solver` 를
+    맞춰 보므로(`_verify_solver`), 씬을 바꾸고 한쪽만 고치면 여기서 걸린다 —
+    체크리스트 함정 15.
+    """
+    active = load_gripper_profile('functionbay')
+
+    assert active.axis_count == len(active.axis_signs)
+    assert active.command_units in ('deg', 'rad')
+    assert active.command_packing in ('pvf', 'position')
 
 
 # ----- 단위 — 틀리면 1.7% 만 움직인다 -----------------------------------------
@@ -67,25 +100,32 @@ def test_pvf_packing_puts_zero_in_velocity_and_force(profile):
     assert data[0] == pytest.approx(-data[3])
 
 
-def test_position_packing_is_plain(tmp_path):
-    """t1(Crisp) 쪽 — 6축을 라디안 그대로 나열한다."""
-    path = tmp_path / 'crisp.json'
-    path.write_text(json.dumps({'axis_signs': [1, 1, -1, -1, -1, 1],
-                                'command_units': 'rad', 'command_packing': 'position'}),
-                    encoding='utf-8')
-    crisp = load_gripper_profile_file(str(path))
+def test_position_packing_is_plain(crisp_profile):
+    """t1(Crisp) 쪽 — 6축을 라디안 그대로 나열한다. **실제 규약 파일로 본다.**"""
+    assert crisp_profile.command_units == 'rad'
+    assert crisp_profile.command_packing == 'position'
+    assert crisp_profile.axis_count == 6
 
-    assert crisp.command(0.725) == [0.725, 0.725, -0.725, -0.725, -0.725, 0.725]
+    data = crisp_profile.command(0.725)
+
+    assert len(data) == 6
+    assert data == [s * 0.725 for s in crisp_profile.axis_signs]
 
 
 # ----- 거부 경로 — 조용히 진행하면 명령이 통째로 오해된다 ----------------------
 
-def test_axis_count_mismatch_is_refused(profile):
-    """씬을 바꾸고 파일을 안 바꿨을 때 **가장 먼저 틀리는 값이 축 수**다."""
-    with pytest.raises(ValueError, match='reports'):
-        profile.verify_report([0.0] * 6)
+def test_axis_count_mismatch_is_refused(profile, crisp_profile):
+    """씬을 바꾸고 파일을 안 바꿨을 때 **가장 먼저 틀리는 값이 축 수**다.
 
-    profile.verify_report([0.0] * profile.axis_count)      # 맞으면 조용히 통과한다
+    두 규약을 서로 엇갈리게 넣어 본다 — r2 에 6축 보고, t1 에 2축 보고.
+    """
+    with pytest.raises(ValueError, match='reports'):
+        profile.verify_report([0.0] * crisp_profile.axis_count)
+    with pytest.raises(ValueError, match='reports'):
+        crisp_profile.verify_report([0.0] * profile.axis_count)
+
+    profile.verify_report([0.0] * profile.axis_count)              # 맞으면 조용히 통과한다
+    crisp_profile.verify_report([0.0] * crisp_profile.axis_count)
 
 
 def test_unknown_unit_is_rejected(tmp_path):
@@ -133,9 +173,11 @@ def test_provenance_is_recorded(profile):
     assert profile.scene, '어느 씬인지 적혀 있어야 한다'
 
 
-def test_describe_shows_the_convention(profile):
+def test_describe_shows_the_convention():
+    """`describe()` 는 **활성 씬**을 설명한다 — 규약 파일 fixture 가 아니라 그쪽과 대조한다."""
+    active = load_gripper_profile('functionbay')
     text = describe('functionbay')
 
-    assert profile.command_units in text
-    assert profile.command_packing in text
-    assert profile.solver in text
+    assert active.command_units in text
+    assert active.command_packing in text
+    assert active.solver in text

@@ -97,7 +97,7 @@ class Backend:
 
         **키 유무로 추론하지 않는 이유**는 `device` 와 `native` 가 둘 다 `image_topic`
         만 갖기 때문이다 — 추론하면 mock 에 `compressed_topic` 을 실수로 넣었을 때
-        조용히 다른 노드가 뜬다. 설계: `docs/camera/compressed_image_pipeline_design.md`.
+        조용히 다른 노드가 뜬다. 설계: `docs/control/compressed_image_pipeline_design.md`.
         """
         return self.value('camera', 'source')
 

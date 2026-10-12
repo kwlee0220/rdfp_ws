@@ -85,7 +85,7 @@
 
   <!--
     `close` 값 0.725 는 URDF 의 `finger_joint` 상한이자, 시뮬레이터에서 실측한
-    완전 폐쇄 위치다 (`functionbay_backend_design.md` §6.1). 물체를 물면 그 앞에서
+    완전 폐쇄 위치다 (`펑션베이_백엔드_설계.md` §6.1). 물체를 물면 그 앞에서
     멈추며, 그 잔차와 effort 가 파지 성공 판정의 근거다.
   -->
   <group_state group="hand" name="open">

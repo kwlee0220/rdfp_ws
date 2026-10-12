@@ -96,6 +96,18 @@ def test_functionbay_launch_constants_come_from_the_profile():
     assert module.SERVO_COMMAND_TOPIC == p['servo']['command_out_topic']
     assert module.CAMERA_IMAGE_TOPIC == p['camera']['image_topic']
     assert module.CAMERA_COMPRESSED_TOPIC == p['camera']['compressed_topic']
+    assert module.FB_CAMERA_COMPRESSED_TOPIC == p['simulator']['camera_compressed_topic']
+
+
+def test_functionbay_camera_consumers_get_the_restamped_stream():
+    """소비자용 카메라 토픽은 시뮬레이터 원본이 아니라 stamp 중계의 출력이어야 한다.
+
+    둘이 같아지면 중계가 자기 출력을 다시 구독하거나, 소비자가 벤더의 흔들리는 stamp
+    (회차마다 벽시계/경과시간, 정지로 초 단위 흔들림)를 그대로 받는다 — 세션 레코더는
+    이미지 stamp 를 `/session` stamp 와 비교해 구간을 가르므로 **조용히 0 프레임**이 된다.
+    """
+    p = bp.BACKEND_PROFILES['functionbay']
+    assert p['camera']['compressed_topic'] != p['simulator']['camera_compressed_topic']
 
 
 def test_servo_output_channel_is_declared_once():
@@ -165,11 +177,16 @@ def test_functionbay_declares_its_compressed_camera():
     한동안 프로파일이 `camera: null`("카메라가 없다")이었다 — 옮겨 적을 때의 오류다.
     두 이름이 다 필요하다: 레코더는 압축을 직접 받고, 뷰어는 `camera_republish` 가
     되살린 raw 를 구독한다.
-    """
-    camera = bp.BACKEND_PROFILES['functionbay']['camera']
 
-    assert camera['compressed_topic'] == '/camera_image/compressed'
+    소비자가 받는 압축 토픽은 **시뮬레이터 원본이 아니라 stamp 중계(`fb_camera_restamp`)의
+    출력**이다 (2026-09-17). 원본은 `simulator.camera_compressed_topic` 이 갖는다.
+    """
+    profile = bp.BACKEND_PROFILES['functionbay']
+    camera = profile['camera']
+
+    assert camera['compressed_topic'] == '/camera_image_aligned/compressed'
     assert camera['image_topic'] == '/camera_image'
+    assert profile['simulator']['camera_compressed_topic'] == '/camera_image/compressed'
 
 
 def test_unknown_block_key_is_rejected(tmp_path):

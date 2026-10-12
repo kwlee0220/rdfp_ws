@@ -15,11 +15,34 @@ from robot_control.moveit.move_group_client import (
     TRAJECTORY_EXEC_TIMEOUT_SEC,
     MoveGroupClient,
 )
+from robot_control.moveit.motion_event_publisher import (
+    OPERATION_CARTESIAN,
+    OPERATION_JOINTS,
+    OPERATION_NAMED_TARGET,
+    RESULT_FAILED,
+    MotionContext,
+    MotionEventPublisher,
+    OperationTarget,
+)
+from robot_control.moveit.motion_trajectory_publisher import MotionTrajectoryPublisher
 from robot_control.moveit.trajectory_streamer import (
     COMMAND_FORMAT_FLOAT64_MULTI_ARRAY,
     DEFAULT_COMMAND_TOPIC,
     TrajectoryStreamer,
 )
+
+
+def _joint_target(trajectory, operation: str) -> OperationTarget:
+    """계획된 궤적의 **마지막 경유점**을 관절 목표로 삼는다 (R2 의 해석된 목표).
+
+    JTC 쪽은 `_complete_joint_values` 가 채운 dict 를 그대로 쓰지만, 스트리밍
+    경로는 계획을 먼저 받으므로 궤적 끝점이 곧 **클라이언트가 겨냥한 관절 구성**이다.
+    두 값은 계획 허용 오차 안에서 같고, 여기서는 추가 서비스 호출이 없다.
+    """
+    jt = trajectory.joint_trajectory if hasattr(trajectory, 'joint_trajectory') else trajectory
+    last = jt.points[-1] if jt.points else None
+    return OperationTarget(operation=operation, joint_names=tuple(jt.joint_names),
+                           joint_values=tuple(last.positions) if last else ())
 
 
 class MoveGroupJgpcClient(MoveGroupClient):
@@ -33,7 +56,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
 
     ``position_controllers/JointGroupPositionController`` 처럼
     ``FollowJointTrajectory`` 액션을 제공하지 않는 컨트롤러
-    (``panda_jgpc_mock.launch.py``) 를 위한 구현이다.
+    (``panda_mock_jgpc.launch.py``) 를 위한 구현이다.
 
     .. warning::
         **open loop 다.** 명령을 발행할 뿐 컨트롤러의 도달 여부를 확인하지
@@ -89,6 +112,9 @@ class MoveGroupJgpcClient(MoveGroupClient):
         self._gravity_compensator = gravity_compensator
         self._publish_rate = publish_rate
         self._streamer: Optional[TrajectoryStreamer] = None
+        # R2 연산 이벤트. **계획 실패 전용이다** — 실행 결과는 스트리머가 낸다
+        # (잘렸는지를 아는 자리가 거기뿐이다, R2 설계 §3.2).
+        self._event_pub: Optional[MotionEventPublisher] = None
 
     # ----- Lifecycle ------------------------------------------------------
 
@@ -199,11 +225,17 @@ class MoveGroupJgpcClient(MoveGroupClient):
         Returns:
             실제로 발행한 point 개수.
         """
-        trajectory = self.plan_joints(joint_values, velocity_scaling=velocity_scaling,
-                                      planning_time=planning_time, tolerance=tolerance,
-                                      timeout=timeout)
+        try:
+            trajectory = self.plan_joints(joint_values, velocity_scaling=velocity_scaling,
+                                          planning_time=planning_time, tolerance=tolerance,
+                                          timeout=timeout)
+        except Exception as exc:
+            self._publish_failed(OperationTarget(operation=OPERATION_JOINTS),
+                                 f'{type(exc).__name__}: {exc}')
+            raise
         published = self.stream_trajectory(trajectory, time_scaling=time_scaling,
-                                           publish_rate=publish_rate)
+                                           publish_rate=publish_rate,
+                                           target=_joint_target(trajectory, OPERATION_JOINTS))
         self._node.get_logger().info('Reached joint goal via command streaming')
         return published
 
@@ -232,12 +264,19 @@ class MoveGroupJgpcClient(MoveGroupClient):
             try:
                 exc = future.exception()
                 if exc is not None:
+                    # 계획에서 끝났다 — `failed` 이고 짝 궤적이 없다 (R2 설계 §3.1).
+                    self._publish_failed(OperationTarget(operation=OPERATION_JOINTS),
+                                         f'{type(exc).__name__}: {exc}')
                     result_future.set_exception(exc)
                     return
+                trajectory = future.result()
                 stream_future = self._get_streamer().stream_async(
-                    future.result(), time_scaling=time_scaling,
+                    trajectory, time_scaling=time_scaling,
+                    # R1 기록용 — 궤적에는 계획 단계에서 이미 반영돼 있다.
+                    velocity_scaling=self._resolve_velocity_scaling(velocity_scaling),
                     publish_rate=self._rate(publish_rate),
-                    externally_spun=externally_spun
+                    externally_spun=externally_spun,
+                    target=_joint_target(trajectory, OPERATION_JOINTS)
                 )
                 stream_future.add_done_callback(_on_stream_done)
             except Exception as exc:
@@ -312,11 +351,19 @@ class MoveGroupJgpcClient(MoveGroupClient):
         self._node.get_logger().info(
             f'Moving through {len(waypoints)} cartesian waypoints via command streaming...'
         )
-        trajectory = self.plan_trajectory(waypoints, velocity_scaling=velocity_scaling,
-                                          fraction_threshold=fraction_threshold, max_step=max_step,
-                                          jump_threshold=jump_threshold, timeout=timeout)
+        goal = OperationTarget(operation=OPERATION_CARTESIAN,
+                               pose=waypoints[-1] if waypoints else None,
+                               frame=self._tip_frame if waypoints else '')
+        try:
+            trajectory = self.plan_trajectory(waypoints, velocity_scaling=velocity_scaling,
+                                              fraction_threshold=fraction_threshold,
+                                              max_step=max_step,
+                                              jump_threshold=jump_threshold, timeout=timeout)
+        except Exception as exc:
+            self._publish_failed(goal, f'{type(exc).__name__}: {exc}')
+            raise
         published = self.stream_trajectory(trajectory, time_scaling=time_scaling,
-                                           publish_rate=publish_rate)
+                                           publish_rate=publish_rate, target=goal)
         self._node.get_logger().info(
             f'Cartesian path streaming done: {published} command(s)'
         )
@@ -347,6 +394,9 @@ class MoveGroupJgpcClient(MoveGroupClient):
         )
 
         result_future = Future()
+        goal = OperationTarget(operation=OPERATION_CARTESIAN,
+                               pose=waypoints[-1] if waypoints else None,
+                               frame=self._tip_frame if waypoints else '')
         plan_future = self.plan_trajectory_async(waypoints, max_step=max_step,
                                                  jump_threshold=jump_threshold)
 
@@ -355,6 +405,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
             try:
                 exc = future.exception()
                 if exc is not None:
+                    # 계획에서 끝났다 — `failed` 이고 짝 궤적이 없다 (R2 설계 §3.1).
+                    self._publish_failed(goal, f'{type(exc).__name__}: {exc}')
                     result_future.set_exception(exc)
                     return
 
@@ -363,6 +415,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
                     self._node.get_logger().error(
                         f'Path planning returned error code: {response.error_code.val}'
                     )
+                    self._publish_failed(goal, f'error_code={response.error_code.val}')
                     result_future.set_exception(RuntimeError(
                         f'Path planning failed with error code: {response.error_code.val}'
                     ))
@@ -372,6 +425,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
                     self._node.get_logger().error(
                         f'Path planning failed (fraction: {response.fraction})'
                     )
+                    self._publish_failed(goal, f'fraction {response.fraction:.3f} < {ft:.3f}')
                     result_future.set_exception(RuntimeError(
                         f'Path planning failed: only '
                         f'{response.fraction * 100:.1f}% of the path was planned'
@@ -387,8 +441,10 @@ class MoveGroupJgpcClient(MoveGroupClient):
 
                 stream_future = self._get_streamer().stream_async(
                     trajectory, time_scaling=time_scaling,
+                    velocity_scaling=vs,        # R1 기록용
                     publish_rate=self._rate(publish_rate),
-                    externally_spun=externally_spun
+                    externally_spun=externally_spun,
+                    target=goal
                 )
                 stream_future.add_done_callback(_on_stream_done)
             except Exception as exc:
@@ -426,8 +482,10 @@ class MoveGroupJgpcClient(MoveGroupClient):
         return self._publish_rate if publish_rate is None else publish_rate
 
     def stream_trajectory(self, trajectory: RobotTrajectory, *, time_scaling: float = 1.0,
+                          velocity_scaling: float = 1.0,
                           publish_rate: Optional[float] = None,
-                          externally_spun: bool = False) -> int:
+                          externally_spun: bool = False,
+                          target: Optional[OperationTarget] = None) -> int:
         """계획된 궤적을 컨트롤러의 Float64MultiArray 명령 토픽으로 발행한다(블로킹).
 
         ``JointTrajectoryController`` 가 컨트롤러 내부에서 하던 궤적 시간 보간을
@@ -451,8 +509,10 @@ class MoveGroupJgpcClient(MoveGroupClient):
         """
         self._require_open()
         return self._get_streamer().stream(trajectory, time_scaling=time_scaling,
+                                           velocity_scaling=velocity_scaling,  # R1 기록용
                                            publish_rate=self._rate(publish_rate),
-                                           externally_spun=externally_spun)
+                                           externally_spun=externally_spun,
+                                           target=target)
 
     def move_to_named_target_streamed(self, name: str, *,
                                       velocity_scaling: Optional[float] = None,
@@ -484,11 +544,17 @@ class MoveGroupJgpcClient(MoveGroupClient):
             TimeoutError: SRDF 조회 또는 계획이 시간 초과될 때.
             RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
         """
-        trajectory = self.plan_named_target(name, velocity_scaling=velocity_scaling,
-                                            planning_time=planning_time, tolerance=tolerance,
-                                            timeout=timeout)
-        published = self.stream_trajectory(trajectory, time_scaling=time_scaling,
-                                           publish_rate=publish_rate)
+        try:
+            trajectory = self.plan_named_target(name, velocity_scaling=velocity_scaling,
+                                                planning_time=planning_time, tolerance=tolerance,
+                                                timeout=timeout)
+        except Exception as exc:
+            self._publish_failed(OperationTarget(operation=OPERATION_NAMED_TARGET),
+                                 f'{type(exc).__name__}: {exc}')
+            raise
+        published = self.stream_trajectory(
+            trajectory, time_scaling=time_scaling, publish_rate=publish_rate,
+            target=_joint_target(trajectory, OPERATION_NAMED_TARGET))
         self._node.get_logger().info(f'Reached named target "{name}" via command streaming')
         return published
 
@@ -529,12 +595,19 @@ class MoveGroupJgpcClient(MoveGroupClient):
             try:
                 exc = future.exception()
                 if exc is not None:
+                    # 계획에서 끝났다 — `failed` 이고 짝 궤적이 없다 (R2 설계 §3.1).
+                    self._publish_failed(OperationTarget(operation=OPERATION_NAMED_TARGET),
+                                         f'{type(exc).__name__}: {exc}')
                     result_future.set_exception(exc)
                     return
+                trajectory = future.result()
                 stream_future = self._get_streamer().stream_async(
-                    future.result(), time_scaling=time_scaling,
+                    trajectory, time_scaling=time_scaling,
+                    # R1 기록용 — 궤적에는 계획 단계에서 이미 반영돼 있다.
+                    velocity_scaling=self._resolve_velocity_scaling(velocity_scaling),
                     publish_rate=self._rate(publish_rate),
-                    externally_spun=externally_spun
+                    externally_spun=externally_spun,
+                    target=_joint_target(trajectory, OPERATION_NAMED_TARGET)
                 )
                 stream_future.add_done_callback(_on_stream_done)
             except Exception as exc:
@@ -578,6 +651,21 @@ class MoveGroupJgpcClient(MoveGroupClient):
         # 계획 단계의 MoveGroup goal 도 취소한다.
         cancelled_goal = super().cancel()
         return streaming or cancelled_goal
+
+    def _publish_failed(self, target: OperationTarget, reason: str) -> None:
+        """궤적을 **넘기지도 못한** 연산을 `failed` 로 남긴다 (R2).
+
+        계획에서 끝났으므로 `stream` 이 아예 안 불렸고, 따라서 R1 도 없다 —
+        **짝 궤적이 없는 것이 정상이고** 그것이 `failed` 의 정의다(R2 설계 §3.1).
+        이 자리가 없으면 펑션베이의 계획 실패가 어느 채널에도 안 남는다(§2 의 4).
+        """
+        if self._event_pub is None:
+            self._event_pub = MotionEventPublisher(self._node)
+        self._event_pub.publish_context(
+            MotionContext.from_target(
+                target, operation_id=MotionTrajectoryPublisher.new_operation_id(),
+                stamp=self._node.get_clock().now().to_msg()),
+            result=RESULT_FAILED, reason=reason)
 
     def _get_streamer(self) -> TrajectoryStreamer:
         """궤적 스트리머를 lazy 생성한다 (명령 퍼블리셔도 이때 만들어진다)."""

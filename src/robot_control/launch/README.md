@@ -7,7 +7,7 @@
 ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진입점
 ```
 
-> 수집 계층까지 띄우려면 `rdfp` 패키지의 `rdfp_*` launch 를 쓴다 — [src/rdfp/launch/README.md](../../rdfp/launch/README.md). 그쪽 launch 들도 helper 는 **이 패키지 것을 쓴다** (§5). 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_framework_design.md).
+> 수집 계층까지 띄우려면 이 launch 위에 `rdfp` 패키지의 `rdfp_collect.launch.py` 를 **따로 얹는다** — [src/rdfp/launch/README.md](../../rdfp/launch/README.md). 백엔드별 묶음 launch 는 2026-09-13 에 전부 삭제됐다. 그쪽 launch 도 helper 는 **이 패키지 것을 쓴다** (§5). 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_framework_design.md).
 
 ---
 
@@ -28,7 +28,7 @@ ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진
 | launch | 백엔드 | 요약 |
 |---|---|---|
 | `panda_mock.launch.py` | mock | **기본 진입점.** ros2_control(mock) + MoveIt + RViz + 카메라 + ee_pose + 그리퍼 + scene |
-| `panda_jgpc_mock.launch.py` | mock | 위와 노드 구성 동일, arm 컨트롤러 **타입만** JGPC 로 교체 |
+| `panda_mock_jgpc.launch.py` | mock | 위와 노드 구성 동일, arm 컨트롤러 **타입만** JGPC 로 교체 |
 | `panda_gazebo.launch.py` | Gazebo (Fortress) | `panda_mock` 의 Gazebo 대응본 |
 | `panda_functionbay.launch.py` | 펑션베이+Crisp | **ros2_control 없음** — 토픽 브리지로 연동 |
 | `panda_isaac.launch.py` | Isaac Sim | **기본 Isaac 진입점 (2026-09-05~).** `topic_based_ros2_control` 로 `controller_manager` 를 이쪽에서 돌린다 — 팔이 JTC 가 되어 `panda_mock` 과 같은 그림이 된다. 시뮬레이터를 `run_isaac_sim.sh` (인자 없음) 로 띄워야 짝이 맞는다 |
@@ -38,7 +38,7 @@ ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진
 `static_tf` + `robot_state_publisher` + `ros2_control_node` + controller spawner 3종을 순차 기동한 뒤 `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_action_node`, `mock_scene_state_node` 를 일괄 spawn 한다.
 순서와 근거는 §4.
 
-### `panda_jgpc_mock.launch.py`
+### `panda_mock_jgpc.launch.py`
 
 arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `panda_arm_controller`로 동일해서 spawner helper 를 그대로 재사용한다.
 
@@ -51,7 +51,7 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 - servo 파라미터도 launch 안에서 `command_out_type` /`command_out_topic` / `publish_joint_velocities` 를 덮어쓴다.
 
 > ⚠️ JGPC 는 `FollowJointTrajectory` 액션을 제공하지 않으므로 **arm 의 `move_group` plan & execute 가 동작하지 않는다** (planning / IK / RViz 표시는 정상). arm 제어는 servo, commands 토픽 직접 발행, 또는 `create_move_group_client()` 가 돌려주는 `MoveGroupJgpcClient` 로 한다 —
-> [docs/moveit/MoveGroupJgpcClient_UserGuide.md](../../../docs/moveit/MoveGroupJgpcClient_UserGuide.md).
+> [docs/control/move_group_jgpc_client_user_guide.md](../../../docs/control/move_group_jgpc_client_user_guide.md).
 
 ### `panda_functionbay.launch.py`
 
@@ -73,7 +73,7 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 시뮬레이터가 내부 보간을 하지 않으므로 명령 스트리밍에 `publish_rate=50.0` 이
 **필수**다 (미지정 시 MoveIt 의 ~10 Hz 리샘플 그대로 계단 동작).
 
-상세: [docs/simulation/functionbay_backend_design.md](../../../docs/simulation/functionbay_backend_design.md)
+상세: [docs/backends/functionbay/펑션베이_백엔드_설계.md](../../../docs/backends/functionbay/펑션베이_백엔드_설계.md)
 
 ### `panda_isaac.launch.py`
 
@@ -101,7 +101,7 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 실제 Franka 보다 헐거운데 **Isaac 은 실제 스펙을 강제**하므로, 계획 단계에서 막지 않으면
 시뮬레이터가 한계에서 멈추고 그것이 추종 오차처럼 보인다.
 
-수집 계층까지 함께 띄우려면 `ros2 launch rdfp rdfp_panda_isaac.launch.py` 를 쓴다.
+수집 계층까지 쓰려면 다른 터미널에서 `ros2 launch rdfp rdfp_collect.launch.py backend:=isaac` 를 얹는다.
 
 
 ### `panda_gazebo.launch.py`
@@ -113,7 +113,7 @@ mock 백엔드와의 차이는 **로봇 백엔드뿐**이고 MoveIt / RViz / ee_
 - 모든 노드에 `use_sim_time:=true` 를 전파한다.
 - 카메라는 옵션이다 (`simulate_camera:=true` → gz 카메라 센서 + ros_gz 브리지).
 
-상세: [docs/simulation/gazebo_bringup_guide.md](../../../docs/simulation/gazebo_bringup_guide.md)
+상세: [docs/backends/gazebo_bringup_guide.md](../../../docs/backends/gazebo_bringup_guide.md)
 
 ---
 
@@ -125,7 +125,7 @@ mock 백엔드와의 차이는 **로봇 백엔드뿐**이고 MoveIt / RViz / ee_
 ros2 launch robot_control panda_mock.launch.py --show-args
 ```
 
-> 수집 계층(`rdfp`)의 `rdfp_*` launch 는 `OpaqueFunction` 안에서 인자를 선언해 `--show-args` 가 1~2개만 출력한다. 그쪽은 [해당 README](../../rdfp/launch/README.md) §3의 표를 봐야 한다. **이 차이가 두 계열의 가장 큰 사용성 차이다.**
+> 수집 계층(`rdfp`)의 launch 는 `OpaqueFunction` 안에서 인자를 선언해 `--show-args` 가 일부만 출력한다(`rdfp_collect` 는 절반이 보인다). 그쪽은 [해당 README](../../rdfp/launch/README.md) §3의 표를 봐야 한다. **이 차이가 두 계열의 가장 큰 사용성 차이다.**
 
 ### 2.0 백엔드 횡단표 — 같은 인자가 스택마다 어떻게 다른가
 
@@ -139,7 +139,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 
 <!-- BACKEND-MATRIX:BEGIN -->
 
-| 인자 | `panda_mock` | `panda_jgpc_mock` | `panda_isaac` | `panda_functionbay` |
+| 인자 | `panda_mock` | `panda_mock_jgpc` | `panda_isaac` | `panda_functionbay` |
 |---|---|---|---|---|
 | `ros2_control_hardware_type` | `mock_components` | `mock_components` | `isaac` | `mock_components` |
 | `ee_frame` | `panda_hand` | `panda_hand` | `panda_hand` | `grasp_center` |
@@ -147,10 +147,10 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `enable_rviz` | — | — | `false` | `false` |
 | `enable_servo` | — | — | `true` | — |
 | `enable_gripper` | — | — | `true` | `true` |
-| `enable_image_viewer` | — | — | `true` | `false` |
+| `enable_image_viewer` | — | — | `false` | `false` |
 | `enable_camera` | `true` | `true` | — | `$enable_image_viewer` |
 | `camera_image_topic` | `/camera/image_raw` | `/camera/image_raw` | `/isaac/camera/image_raw` | `/camera_image` |
-| `camera_compressed_topic` | — | — | — | `/camera_image/compressed` |
+| `camera_compressed_topic` | — | — | — | `/camera_image_aligned/compressed` |
 | `camera_resolution` | `1280x720` | `1280x720` | — | — |
 | `camera_fps` | `10` | `10` | — | — |
 | `camera_frame_id` | `camera_link` | `camera_link` | — | — |
@@ -203,9 +203,9 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 **`enable_camera` 가 무엇을 띄우는지는 `camera.source` 가 정한다** — `device` 면 OpenCV
 `camera_node`, `compressed` 면 `image_transport/republish`, `native` 면 아무것도 안 뜬다
 (시뮬레이터가 raw 를 직접 낸다). 설계:
-[docs/camera/compressed_image_pipeline_design.md](../../../docs/camera/compressed_image_pipeline_design.md).
+[docs/control/compressed_image_pipeline_design.md](../../../docs/control/compressed_image_pipeline_design.md).
 
-### 2.1 `panda_mock` / `panda_jgpc_mock` — 16개
+### 2.1 `panda_mock` / `panda_mock_jgpc` — 16개
 
 두 launch 의 인자는 **완전히 동일**하다 (컨트롤러 타입만 다르고 인자 체계는 공유).
 
@@ -254,14 +254,14 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 > **기본값은 그 launch 의 raw 소비자에서 파생된다** — `panda_functionbay` 는 뷰어뿐이라
 > `enable_image_viewer` 를 그대로 따르고, 수집 계열은 뷰어와 `rawvideo` 레코더 둘 중
 > 하나라도 켜지면 `true` 가 된다. 그래서 "뷰어를 켰는데 빈 창" 이 생기지 않는다.
-> 설계: [docs/camera/compressed_image_pipeline_design.md](../../../docs/camera/compressed_image_pipeline_design.md).
+> 설계: [docs/control/compressed_image_pipeline_design.md](../../../docs/control/compressed_image_pipeline_design.md).
 >
 > **뷰어 인자는 이 helper 가 주지 않는다.** `panda_functionbay` · `panda_isaac` 은
 > `enable_image_viewer` 를 launch 안에서 직접 선언한다 — 이름은 수집 계층과 같지만
 > (`image_pipeline.declare_image_viewer_arguments()`) 기본값을 YAML 이 아니라 백엔드
 > 사정으로 정하기 때문이다 (펑션베이 `false` / Isaac `true`).
 
-> **이 두 launch 는 설정 파일을 갈아끼울 argument 가 없다.** `image_pipeline.yaml`을 기본값 원천으로만 쓴다. 값을 바꾸려면 `arg:=value` 로 개별 지정하거나 YAML 자체를 수정한다. 파일 교체가 필요하면 `rdfp_panda_mock` 계열을 쓴다 (`image_pipeline_config_file:=`).
+> **이 두 launch 는 설정 파일을 갈아끼울 argument 가 없다.** `image_pipeline.yaml`을 기본값 원천으로만 쓴다. 값을 바꾸려면 `arg:=value` 로 개별 지정하거나 YAML 자체를 수정한다. 파일 교체가 필요하면 수집 계층(`rdfp_collect`)에 `config_file:=` 로 넘긴다.
 
 ### 2.2 `panda_isaac` — 20개
 
@@ -283,7 +283,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `controllers_file` | `config/panda_isaac_ros2_controllers.yaml` | JTC `open_loop_control: true` 사본. 래칫 수정의 나머지 절반이며 **`param set` 으로는 못 바꾼다**(읽기 전용) |
 | `enable_gripper` | **`true`** | `GripperActionNode` (액션 서버는 `panda_hand_controller`) |
 | `enable_rviz` | **`false`** | Isaac 이 이미 뷰포트를 그린다 |
-| `enable_image_viewer` | **`true`** | ⚠️ GUI 가 필요하다. 화면 없는 곳에서는 끈다 |
+| `enable_image_viewer` | **`false`** | 2026-09-20 에 뒤집혔다 — 수집 계층이 같은 이름의 인자로 자기 뷰어를 띄워 **창이 두 개**가 되고, Isaac 이 이미 뷰포트를 그린다. ⚠️ 켜려면 GUI 가 있어야 한다 |
 | `camera_image_topic` | `/isaac/camera/image_raw` | 뷰어가 구독할 토픽 |
 | `enable_scene` | **`true`** | `/scene/objects` · `/scene/reset` |
 | `scene_publish_rate` | `2.0` | |
@@ -301,7 +301,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 | `enable_camera` · `camera_image_topic` | `enable_image_viewer` 를 따름 · 프로파일의 `camera.image_topic` | 카메라 helper 로 여는 것은 이 둘뿐이다. 앞은 **raw 발행자를 둘 것인가**이며 무엇이 뜨는지는 `camera.source` 가 정한다 |
 | `enable_rviz` | **`false`** | 시뮬레이터가 이미 자기 화면을 그린다 — Isaac 과 같은 이유다 |
 | `enable_image_viewer` | **`false`** | `image_viewer_node` 를 띄운다. `camera_republish` 는 **`enable_camera` 가** 띄우는데 그 기본값이 이 인자에서 파생되므로 결과적으로 함께 뜬다. 이름은 수집 계층과 같고 기본값만 다르다 |
-| `camera_compressed_topic` | `/camera_image/compressed` | 시뮬레이터가 발행하는 압축 토픽. `camera_republish` 가 이것을 `camera_image_topic` 으로 되살린다 |
+| `camera_compressed_topic` | `/camera_image_aligned/compressed` | 소비자가 받는 압축 토픽 — 시뮬레이터 원본(`/camera_image/compressed`)의 stamp 를 `fb_camera_restamp` 가 관절과 같은 벽시계 축으로 옮긴 출력이다(2026-09-17). `camera_republish` 가 이것을 `camera_image_topic` 으로 되살리고, 수집 계층의 세션 레코더도 같은 값을 받는다. 원본은 프로파일 `simulator.camera_compressed_topic` |
 | `enable_gripper` · `fb_gripper_command_topic` · `fb_gripper_report_topic` | `true` · — · — | `robotiq_2f_gripper_node` — 액션이 아니라 관절 목표각 토픽으로 움직인다 |
 | `enable_scene` · `scene_publish_rate` | `true` · `2.0` | `functionbay_scene_state_node`. **이 백엔드만 `/scene/reset` 을 제공하지 않는다** |
 | `fb_joint_report_topic` · `fb_finger_position` · `fb_ready_timeout` | — | 펑션베이 전용 |
@@ -331,9 +331,9 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 
 | 파일 | 읽는 launch | 교체 argument |
 |---|---|---|
-| **`config/backends/<이름>.yaml`** | **`panda_mock` · `panda_jgpc_mock` · `panda_isaac` · `panda_functionbay`** | — (아래 §3.0) |
-| `config/image_pipeline.yaml` | `panda_mock`, `panda_jgpc_mock` | — (기본값 원천) |
-| `config/panda_jgpc_ros2_controllers.yaml` | `panda_jgpc_mock` | — (프로파일이 경로를 갖는다) |
+| **`config/backends/<이름>.yaml`** | **`panda_mock` · `panda_mock_jgpc` · `panda_isaac` · `panda_functionbay`** | — (아래 §3.0) |
+| `config/image_pipeline.yaml` | `panda_mock`, `panda_mock_jgpc` | — (기본값 원천) |
+| `config/panda_jgpc_ros2_controllers.yaml` | `panda_mock_jgpc` | — (프로파일이 경로를 갖는다) |
 | `config/panda_isaac_ros2_controllers.yaml` | `panda_isaac` | `controllers_file` (moveit_resources 것 + JTC `open_loop_control: true`; servo 래칫 — docs/teleop/servo_vs_planned_motion.md §3.3·§4) |
 | `config/gazebo_ros2_controllers.yaml` | `panda_gazebo` | — |
 | `config/panda.rviz` | RViz 를 띄우는 전부 | — |
@@ -364,7 +364,7 @@ DeclareLaunchArgument('servo_linear_scale',
 | launch | 프로파일에서 받는 것 |
 |---|---|
 | `panda_isaac` | hardware_type · 관절상태/명령/그리퍼 토픽 · `controllers_file` · `use_sim_time` · servo `linear_scale`/`joint_source` · camera 토픽 |
-| `panda_jgpc_mock` | `controllers_file` · servo 재정의 전체 · 명령 토픽 |
+| `panda_mock_jgpc` | `controllers_file` · servo 재정의 전체 · 명령 토픽 |
 | `panda_mock` | hardware_type |
 | `panda_functionbay` | 시뮬레이터 채널 5종 · arm_command 토픽/관절 이름 · servo 전체 |
 
@@ -397,7 +397,7 @@ DeclareLaunchArgument('servo_linear_scale',
 컨트롤러 파라미터를 params 파일로만 받는다.
 
 ①만 `config_file:=` 류로 교체할 수 있다(이 패키지에는 그 argument 가 없지만
-`rdfp_*` 계열에는 있다). ②는 사용자가 튜닝할 값이 아니라 **코드와 짝이 맞아야
+`rdfp_collect` 에는 있다). ②는 사용자가 튜닝할 값이 아니라 **코드와 짝이 맞아야
 하는 정의**라 상수로 둔다 — `panda_jgpc_ros2_controllers.yaml` 의 `joints` 순서는
 `/panda_arm_controller/commands` 배열 순서를 정의하므로, 바꾸면 에러 없이 엉뚱한
 관절이 움직인다.
@@ -407,12 +407,10 @@ DeclareLaunchArgument('servo_linear_scale',
 
 ### 3.2 `panda_jgpc_ros2_controllers.yaml` 은 왜 별도 파일인가
 
-JGPC 계열 두 launch 만 쓰지만 `panda_robot.yaml`(수집 계층) 과 합치지 않는다.
+`panda_mock_jgpc` 만 쓰지만 다른 설정 파일과 합치지 않는다.
 
-- `panda_robot.yaml` 의 키는 **JTC 판과 완전히 동일**하다. JGPC 전용 파일로 합치면 복제되어, 한쪽만 고쳤을 때 스택에 따라 다르게 동작한다.
 - 층위 ①과 ②는 스키마가 다르다. 한 파일에 `ros__parameters` 블록과 자유 형식 블록이 섞이면 어느 쪽이 어느 규격인지 구분되지 않는다.
 - 합치면 `config_file:=` 이 컨트롤러 정의까지 갈아끼우게 된다.
-- `panda_jgpc_mock` 은 애초에 `panda_robot.yaml` 을 읽지 않는다.
 
 ---
 
@@ -460,7 +458,7 @@ ros2_control_node start
 | launch | post_hand_actions |
 |---|---|
 | `panda_mock.launch.py` | `move_group`, `servo_node`, `rviz2`, `camera_node`, `ee_pose_node`, `gripper_action_node`, `mock_scene_state_node` |
-| `panda_jgpc_mock.launch.py` | 위와 동일 (컨트롤러 타입만 다름) |
+| `panda_mock_jgpc.launch.py` | 위와 동일 (컨트롤러 타입만 다름) |
 
 ### scene 노드는 기본 on 이다
 
@@ -473,7 +471,7 @@ MoveIt 계획 파이프라인은 셋이 로드된다: OMPL, PILZ, CHOMP.
 ## 5. Helper 모듈
 
 **helper 는 `robot_control/launch_helpers/` 에 설치되는 정규 파이썬 모듈이다.**
-이 패키지의 launch 와 `rdfp` 패키지의 `rdfp_*` launch 가 **함께** 쓴다.
+이 패키지의 launch 와 `rdfp` 패키지의 `rdfp_collect` 가 **함께** 쓴다.
 
 ```python
 from robot_control.launch_helpers.camera import create_camera_node
@@ -488,7 +486,7 @@ from robot_control.launch_helpers.common import build_moveit_config
 | `camera.py` | 카메라 argument 선언 + `camera_node` 생성, `create_camera_republish_node()` (압축 → raw, `image_transport/republish`) |
 | `image_pipeline.py` | **`config/image_pipeline.yaml` 로더 + camera / image_viewer / image_recorder argument 선언.** 카메라를 띄우는 launch 가 여섯이라 기본값을 한 곳에 모은 모듈 |
 | `ee_pose.py` | EE pose argument 선언 + `ee_pose_node` 생성 |
-| `gripper.py` | `create_gripper_node()` → `gripper_action_node` (액션 서버가 있는 스택), `create_robotiq_2f_gripper_node()` → `robotiq_2f_gripper_node` (펑션베이 — 관절 목표각 토픽). **갈리는 축은 백엔드가 아니라 실행 수단이다.** **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [GripperNode_Design.md](../../../docs/gripper/GripperNode_Design.md) |
+| `gripper.py` | `create_gripper_node()` → `gripper_action_node` (액션 서버가 있는 스택), `create_robotiq_2f_gripper_node()` → `robotiq_2f_gripper_node` (펑션베이 — 관절 목표각 토픽). **갈리는 축은 백엔드가 아니라 실행 수단이다.** **노드가 하나다** — `GripperState.goal` 에 마지막 명령을 실으려면 상태 발행자가 명령을 알아야 해서 구 `gripper_control_node`·`gripper_state_publisher` 를 합쳤다. `/joint_states` 로 대신할 수 없는 이유는 [토픽 규약](../../../docs/topic_naming_contract.md) §2.2, 설계는 [gripper_node_design.md](../../../docs/control/gripper_node_design.md) |
 | `scene.py` | `enable_scene` / `scene_publish_rate` 선언 + `create_mock_scene_node()` · `create_functionbay_scene_node()`. **Isaac 만 launch 안에서 직접 만든다** (`isaac_scene_state_node`) |
 | `gazebo.py` | Gazebo 백엔드 전용 — gz-sim 기동, 스폰, 브리지 |
 
@@ -505,7 +503,7 @@ from robot_control.launch_helpers.common import build_moveit_config
 | launch | common | controller | controller_startup | camera | image_pipeline | ee_pose | gripper | scene | gazebo |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | `panda_mock` | ✅ | ✅ | ✅ | ✅ | ⭕ | ✅ | ✅ | ✅ | |
-| `panda_jgpc_mock` | ✅ | ✅ | ✅ | ✅ | ⭕ | ✅ | ✅ | ✅ | |
+| `panda_mock_jgpc` | ✅ | ✅ | ✅ | ✅ | ⭕ | ✅ | ✅ | ✅ | |
 | `panda_gazebo` | ✅ | ✅ | | | | ✅ | ✅ | | ✅ |
 | `panda_functionbay` | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | `panda_isaac` | ✅ | ✅ | ✅ | | | ✅ | ✅ | | |
@@ -530,32 +528,35 @@ ros2_control 이 없어 spawner 가 없기 때문이다. 대신 `controller_star
 | 하려는 것 | launch |
 |---|---|
 | Panda mock 전체 스택 | `panda_mock.launch.py` |
-| arm 을 JGPC 로 제어 (move_group plan&execute 불가) | `panda_jgpc_mock.launch.py` |
+| arm 을 JGPC 로 제어 (move_group plan&execute 불가) | `panda_mock_jgpc.launch.py` |
 | Gazebo 물리 시뮬레이션 | `panda_gazebo.launch.py` |
 | **Isaac Sim** 백엔드 | `panda_isaac.launch.py` (Isaac 쪽 준비 선행 — §1) |
 | 펑션베이 시뮬레이터 | `panda_functionbay.launch.py` |
-| **세션·녹화·데이터셋까지** | `rdfp` 패키지의 `rdfp_panda_mock.launch.py` 등 |
+| **세션·녹화·데이터셋까지** | `rdfp` 패키지의 `rdfp_collect.launch.py` 를 이 위에 얹는다 |
 | 이 스택을 띄운 뒤 수집 계층만 얹기 | `ros2 launch rdfp rdfp_collect.launch.py` (아래) |
 
 ### 수집 계층을 나중에 얹기
 
 이 패키지의 launch 로 로봇을 띄워 둔 상태에서 `rdfp` 패키지의
-`rdfp_collect.launch.py` 를 따로 띄우면 **묶음 launch 와 같은 노드 그래프**가 된다.
+`rdfp_collect.launch.py` 를 따로 띄운다. **이것이 유일한 방법이다** — 백엔드별 묶음
+launch 는 2026-09-13 에 전부 삭제됐고, 이 조합이 그것과 같은 노드 그래프를 만드는
+것을 실측으로 확인한 뒤였다.
 제어 스택을 재시작하지 않고 수집 계층만 껐다 켤 수 있다.
 
 ```bash
-ros2 launch robot_control panda_mock.launch.py                              # 터미널 1
-ros2 launch rdfp rdfp_collect.launch.py                                    # 터미널 2
-# JGPC 스택이면
-ros2 launch rdfp rdfp_collect.launch.py arm_cmd_source:=float64_multi_array
+ros2 launch robot_control panda_mock.launch.py                  # 터미널 1
+ros2 launch rdfp rdfp_collect.launch.py backend:=mock           # 터미널 2
 ```
 
-동등성은 실측으로 검증되어 있고, Gazebo 조합은 인자를 맞춰야 한다 —
-[rdfp launch README §6.1](../../rdfp/launch/README.md) 참고.
+**`backend:=<이름>` 하나면 된다** — arm 명령 채널·카메라 토픽·해상도·fps·
+`use_sim_time`·압축 형식이 `config/backends/<이름>.yaml` 에서 온다. 네 백엔드
+(`mock` / `mock_jgpc` / `isaac` / `functionbay`) 모두 같은 형태다.
 
-Isaac 스택에 수집 계층까지 얹으려면 **묶음 launch** 를 쓴다 —
-`ros2 launch rdfp rdfp_panda_isaac.launch.py`. 카메라 설정을 `isaac_scene.json` 에서
-읽어 넘기므로 인자를 손으로 맞출 필요가 없다.
+레코더는 **세션 구동 하나다** — `/session` 이 IN_EPISODE 인 구간만 자동으로 담는다.
+옛 묶음 launch 는 서비스 구동 레코더를 썼지만 그 선택지는 2026-09-13 에 없앴다.
+대응표: [rdfp launch README §6.1](../../rdfp/launch/README.md).
+
+Gazebo 만 프로파일이 없어 인자 넷을 손으로 맞춘다 (같은 §6.1).
 
 robot twin(REST) 을 함께 쓰려면 이 launch 위에 `ros2 run robot_twin robot_twin --config <파일>` 을 띄운다.
 백엔드마다 설정 파일이 다르다 — mock 은 `robot_twin_panda01.yaml`, Isaac 은

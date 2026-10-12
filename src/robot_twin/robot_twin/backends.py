@@ -177,7 +177,7 @@ def dispatch(runtime: 'RobotTwinRuntime', client: Optional[Any], op: OperationCo
     if handler is None:
         raise BackendUnavailable(
             f"operation '{op.name}' has no backend wired; "
-            'see docs/robot_twin/robot_twin_design.md chapter 9'
+            'see docs/twin/robot_twin_design.md chapter 9'
         )
     return handler(runtime, client, op, session, timeout)
 

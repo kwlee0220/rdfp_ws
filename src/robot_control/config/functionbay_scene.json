@@ -13,7 +13,7 @@
     "",
     "**고정 물체(peg_hole·peg_tray)는 싣지 않는다.** 벤더가 `static=\"false\"` 인 body 만",
     "TF 로 내보내므로 애초에 조회할 프레임이 없고, `/scene/objects` 는 조작 대상 채널이라",
-    "실을 이유도 없다 (docs/scene/scene_objects_guide.md 7장).",
+    "실을 이유도 없다 (docs/control/scene_objects_guide.md 7장).",
     "",
     "`dimensions` 순서는 shape_msgs/SolidPrimitive 규약을 따른다 —",
     "cylinder 는 **[높이, 반지름]** 이다 (직관과 반대이므로 주의).",

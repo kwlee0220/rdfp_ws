@@ -3,7 +3,7 @@
 `Node.__init__` 을 피하고 판정 메서드만 빌려 쓴다 — 토픽·시뮬레이터 없이 로직만
 검증하기 위해서다.
 
-수치는 펑션베이 실측에서 왔다 (`docs/simulation/functionbay_backend_design.md` §6.1):
+수치는 펑션베이 실측에서 왔다 (`docs/backends/functionbay/펑션베이_백엔드_설계.md` §6.1):
 빈손 폐쇄 토크 0.004 / 자유 이동 중 최대 0.845 / 파지 17.19 N·m.
 """
 
@@ -12,12 +12,22 @@ from __future__ import annotations
 from typing import Optional
 
 import math
+import os
 
 import pytest
 
 pytest.importorskip('rclpy')
 
+from robot_control.gripper.profile import (                        # noqa: E402
+    gripper_profile_path, load_gripper_profile_file)
 from robot_control.gripper.robotiq_2f_gripper_node import Robotiq2FGripperNode  # noqa: E402
+
+# 규약 시험은 **활성 씬이 아니라 규약 파일**을 읽는다 (2026-09-29, 씬을 t1 로 바꾸며).
+_CONFIG_DIR = os.path.dirname(gripper_profile_path('functionbay') or '')
+
+
+def _convention(name: str):
+    return load_gripper_profile_file(os.path.join(_CONFIG_DIR, f'functionbay_gripper_{name}.json'))
 
 SIGNS = [1.0, 1.0, -1.0, -1.0, -1.0, 1.0]
 CLOSED = 0.725
@@ -185,10 +195,12 @@ def test_ramp_defaults_to_off_so_other_stacks_are_unchanged() -> None:
 
 
 def test_recurdyn_profile_ramps_like_the_reference_script() -> None:
-    """r2 프로파일은 `fb_gripper.set_span` 의 기본값(2.0초)과 같게 둔다."""
-    from robot_control.gripper.profile import load_gripper_profile
+    """r2 프로파일은 `fb_gripper.set_span` 의 기본값(2.0초)과 같게 둔다.
 
-    assert load_gripper_profile('functionbay').command_ramp_sec == 2.0
+    **활성 씬이 아니라 r2 규약 파일을 직접 읽는다** — 활성 씬을 읽으면 t1 로 바꿨을 때
+    규약이 멀쩡한데 시험이 깨진다 (2026-09-29).
+    """
+    assert _convention('recurdyn').command_ramp_sec == 2.0
 
 
 def test_ramp_interpolates_from_where_the_fingers_are() -> None:
@@ -196,10 +208,8 @@ def test_ramp_interpolates_from_where_the_fingers_are() -> None:
 
     목표에서 시작하면 첫 발행이 그대로 점프가 되어 나눠 보내는 의미가 없다.
     """
-    from robot_control.gripper.profile import load_gripper_profile
-
-    profile = load_gripper_profile('functionbay')
-    # 절반쯤 닫힌 상태를 보고했다고 하면
+    profile = _convention('recurdyn')
+    # 절반쯤 닫힌 상태를 보고했다고 하면 (r2 는 2축이다)
     positions = [0.3625, -0.3625]
     assert profile.scalar_from_report(positions) == pytest.approx(0.3625)
 

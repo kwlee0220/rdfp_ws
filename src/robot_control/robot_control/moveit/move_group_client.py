@@ -52,6 +52,11 @@ DEFAULT_JOINT_TOLERANCE = 1e-4
 DEFAULT_FRAME_ID = 'panda_link0'
 DEFAULT_MOVEIT_GROUP_NAME = 'panda_arm'
 
+#: MoveIt 그룹의 tip link. **데카르트 목표가 해석되는 기준 프레임**이며, 연산
+#: 이벤트(R2)의 `target_frame` 에 실린다. 정본은 백엔드 프로파일의 `frames.tip` 이고
+#: 팩토리가 그 값을 넘긴다 — 여기 상수는 백엔드 없이 만들 때의 값이다.
+DEFAULT_TIP_FRAME = 'panda_link8'
+
 # joint 값 목표에는 SRDF 이름이 없다. 오류 메시지에서 named target 과 구분하기 위한
 # 라벨이며, `_extract_planned_trajectory` 등 이름을 요구하는 헬퍼에 넘긴다.
 _JOINT_GOAL_LABEL = 'joint goal'
@@ -82,7 +87,7 @@ class MoveGroupClient(abc.ABC):
 
         from robot_control.moveit import create_move_group_client
 
-        with create_move_group_client(node) as client:
+        with create_move_group_client(node, backend='mock') as client:
             client.wait_until_ready()
             client.move_to_named_target('ready')
 
@@ -146,6 +151,7 @@ class MoveGroupClient(abc.ABC):
         *,
         frame_id: str = DEFAULT_FRAME_ID,
         moveit_group_name: str = DEFAULT_MOVEIT_GROUP_NAME,
+        tip_frame: str = DEFAULT_TIP_FRAME,
         fraction_threshold: float = DEFAULT_FRACTION_THRESHOLD,
         velocity_scaling: float = DEFAULT_VELOCITY_SCALING,
         max_step: float = DEFAULT_MAX_STEP,
@@ -161,6 +167,9 @@ class MoveGroupClient(abc.ABC):
                 하며, 이 클래스는 Node 를 파괴하지 않는다.
             frame_id: 카테시안 경로 계획에 사용할 기준 프레임 ID.
             moveit_group_name: MoveIt 플래닝 그룹 이름.
+            tip_frame: 그룹의 tip link 이름. 데카르트 목표가 이 프레임 기준으로
+                해석되며, 연산 이벤트(R2)가 `target_frame` 으로 싣는다. 팩토리가
+                백엔드 프로파일의 `frames.tip` 을 넘긴다.
             fraction_threshold: 계획된 카테시안 경로의 최소 허용 비율 기본값
                 (0.0 ~ 1.0). 각 호출에서 override 가능.
             velocity_scaling: 계획된 trajectory 에 적용할 속도 스케일링 계수
@@ -188,6 +197,7 @@ class MoveGroupClient(abc.ABC):
         self._node = node
         self._frame_id = frame_id
         self._moveit_group_name = moveit_group_name
+        self._tip_frame = tip_frame
         self._default_fraction_threshold = fraction_threshold
         self._default_velocity_scaling = velocity_scaling
         self._default_max_step = max_step

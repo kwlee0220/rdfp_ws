@@ -8,9 +8,9 @@
 #
 # 이 파일을 읽는 launch (카메라를 띄우는 모든 launch 의 단일 출처):
 #
-#   rdfp_panda_mock / rdfp_panda_jgpc_mock  — image_pipeline_config_file 인자
-#   rdfp / rdfp_advanced                    — config_file 인자
-#   panda_mock / panda_jgpc_mock            — camera_launch_helper 가 기본값으로 사용
+#   rdfp_collect                            — config_file 인자
+#   rdfp / rdfp_collect                     — config_file 인자
+#   panda_mock / panda_mock_jgpc            — camera_launch_helper 가 기본값으로 사용
 #
 # YAML 키 ↔ launch argument 대응표: src/rdfp/launch/README.md 의 "Launch 인자" 절.
 
@@ -34,5 +34,22 @@ image_viewer:
 image_recorder:
   enabled: true
   fps: 10                   # camera.fps 와 맞춘다 — 어긋나면 프레임이 버려진다
-  output_dir: /tmp/recordings
-  auto_start: true          # rdfp_advanced 는 세션 기반이라 이 키를 쓰지 않는다
+  # **장기 보관 경로다 — `/tmp` 가 아니다** (2026-09-18). 레코더 mp4 는 rosbag 과
+  # 달리 **지우면 안 되는 원본**이다: rosbag 은 적재 뒤 삭제하지만 영상은 DB 와
+  # 함께 데이터셋의 원본으로 남는다(좌표 공간 문서 권고 12). `/data/rdfp` 는
+  # rosbag(`/data/rdfp/rosbag`)과 같은 데이터 루트다. 없으면 노드가 만든다.
+  output_dir: /data/rdfp/recordings
+  auto_start: true          # 세션 구동 레코더(rdfp_image_recorder)는 이 키를 쓰지 않는다
+  # ── 인코딩 — **녹화 시점에 비가역이다** (수집 설계 §7.3). 수집을 시작하기 전에
+  # 확정하고, 회차 중간에 바꾸지 않는다. 바꾸면 그 뒤 에피소드만 달라진다.
+  #
+  # 값의 근거는 [E7 저장 형식 설계](../../../docs/learning/저장_형식.md) 부록 C 의
+  # 실측이다. 요약: **짧은 GOP 는 아카이브로 쓰면 안 된다** — 같은 화질(PSNR 46 dB)에서
+  # all-intra 가 9.8배 크다(5.9 → 58 MB / 600프레임). 학습이 무작위 접근 속도를 원하면
+  # **그때 JPEG 으로 전개한다**(2.75 ms, 같은 용량인데 더 빠르고 파생물이라 지울 수 있다).
+  # AV1 · HEVC 도 이득이 없다(부록 C) — 게다가 시스템 ffmpeg 4.4.2 에 libsvtav1 이 없다.
+  bitrate: 4M
+  gop_size: 0               # 0 = ffmpeg 기본. 짧게 잡지 않는다 (위 근거)
+  preset: medium
+  encoder_mode: auto        # auto 는 하드웨어 인코더를 고를 수 있다 — 그때 codec 이
+                            # 바뀌며, 그 값은 에피소드마다 metadata.json 에 남는다

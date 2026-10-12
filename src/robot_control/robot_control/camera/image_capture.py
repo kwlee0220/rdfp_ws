@@ -39,7 +39,7 @@ class ImageCaptureNode(Node):
     (raw ``Image`` 는 내지 않는다), 끊김을 supervisor 가 아니라 ``ReconnectingCamera``
     가 복구한다. 세션 결합은 여기에도 없다.
 
-    선택 표: ``docs/camera/README.md``.
+    선택 표: ``docs/control/README.md``.
     """
 
     def __init__(self):

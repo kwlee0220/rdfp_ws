@@ -131,7 +131,7 @@ def create_raw_image_source_node(backend, config: Optional[dict] = None):
 
     무엇이 뜨는지는 프로파일의 `camera.source` 가 정한다 — 소비자는 어느 쪽이 떴는지
     몰라도 `camera_image_topic` 만 구독하면 된다. 그것이 이 설계의 목적이다
-    (`docs/camera/compressed_image_pipeline_design.md` §2).
+    (`docs/control/compressed_image_pipeline_design.md` §2).
 
     ==============  ==========================================
     `camera.source` 뜨는 노드
@@ -226,8 +226,8 @@ def declare_camera_republish_arguments(
     return [
         DeclareLaunchArgument(
             "camera_compressed_topic", default_value=default_compressed_topic,
-            description=("시뮬레이터가 발행하는 압축 이미지 토픽. "
-                         "camera_image_topic 으로 되살릴 원본이다"),
+            description=("압축 이미지 토픽. camera_image_topic 으로 되살릴 원본이다 "
+                         "(펑션베이는 stamp 를 정렬한 중계 출력)"),
         ),
     ]
 

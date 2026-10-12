@@ -8,9 +8,11 @@ description: 펑션베이 시뮬레이터 (ros2_control 없음, JointState 직�
 # **지금 띄운 씬의 솔버.** 아래 두 데이터 파일이 각자 `solver` 를 들고 있고 로더가
 # 이 값과 대조한다 — 씬을 바꾸고 한쪽만 고치는 실수를 로드 시점에 잡는다.
 #
-# 빌드 `MMR-Build_260907` 은 씬 둘을 담고 있다:
-#   r2 씬 → `r2__RecurDyn_1_vm.xml`  (지금 이것)
-#   t1 씬 → `t1__SNU_1_vm.xml`       (Crisp, 서울대)
+# 빌드 `MMR-Build_260929` 의 씬:
+#   r2 씬 → `r2__RecurDyn_1_vm.xml`  (RecurDyn — **지금 이것**. 2026-09-29 빌드에서 **벤더
+#                                     중력 보상이 들어간 쪽이다** — B-4 실측으로 확인하고
+#                                     아래 gravity_compensation 블록을 지웠다)
+#   t1 씬 → `t1__SNU_1_vm.xml`       (Crisp, 서울대 — 게인이 20000 이고 그리퍼가 6축이다)
 solver: RecurDyn
 
 # MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
@@ -46,6 +48,10 @@ simulator:
   joint_command_topic: /input/panda_joint
   gripper_command_topic: /input/gripper_joint
   gripper_report_topic: /output/gripper_joint
+  # 시뮬레이터가 내는 **원본** 카메라. 소비자는 여기가 아니라 `camera.compressed_topic`
+  # (stamp 를 관절과 같은 축으로 옮긴 중계 출력)을 받는다. 진단 도구(`fb_checkup`
+  # · `fb_stamp`)는 벤더의 stamp 를 봐야 하므로 이 원본을 직접 구독한다.
+  camera_compressed_topic: /camera_image/compressed
 
 # 팔 이동의 전역 기본 속도. **인자로 주면 인자가 이긴다.**
 motion:
@@ -58,23 +64,24 @@ motion:
   # 스케일하는 것은 관절 속도이고 EE 경로 길이와 선형 관계가 아니다. 1.0 → 0.2 로
   # 5배 줄여도 EE 속도는 243 → 154 mm/s (1.6배)였다. 데카르트 구간은 비례한다.
   velocity_scaling: 0.4
-  # **지점별 처짐 캘리브레이션은 삭제했다 (2026-09-11).** 아래 중력 보상이 대체한다 —
-  # 잰 지점 ±20 mm 에서만 쓰던 계수 대신 매 명령점의 자세에서 τ_g(q) 를 직접 풀므로
-  # 작업 영역 전체에서 성립한다 (8지점 실측 평균 오차 0.00 mm).
-  # 배경: docs/simulation/functionbay_gravity_compensation.md §6.1
-  # **우리가 대신 하는 중력 보상.** 이 시뮬레이터의 관절 제어에는 중력 보상이 없어
-  # `실제 − 지령 = τ_g(q)/Kp` 로 처진다. `Kp` 는 씬 XML 의 `<Gain Kp=...>` 값이며
-  # `t1`·`r2` 모두 2000 이다. 지령에 `τ_g/Kp` 를 미리 더해 상쇄한다.
+  # ✅ **우리 중력 보상은 껐다 (2026-09-30) — 벤더가 A-1 을 반영했다.**
+  # `MMR-Build_260929` 의 `r2` 는 솔버가 직접 보상한다
+  # (`r2__RecurDyn_1_vm.xml` 의 `<Gravity_Compensation Use="true" URDF="panda_urdf_tool" />`;
+  # 그 씬 신호차트의 관절별 상수 토크도 0 으로 바뀌었다).
   #
-  # 실측 대조(2026-09-11, `ready`): 예측과 실측이 **일곱 관절 전부 0.03 mrad 안**.
-  # URDF 는 **벤더가 준 대상 로봇 기술**을 쓴다 — MoveIt 이 물린 `moveit_resources_panda`
-  # 는 손이 Panda Hand 라 말단 질량이 다르다.
+  # 실측으로 판정했다 — 보상을 **안 얹은** `fb_hold` 정착 오차가 **일곱 관절 전부 0.0000**
+  # (기준선은 joint4 −0.0097). 그 상태에서 우리 보상을 얹으면 **부호가 뒤집혀 +0.0097** 로
+  # 나왔다 — 체크리스트가 예고한 **이중 보정** 지문이다(체크리스트 §B-4 상세).
   #
-  # ⚠️ **벤더가 A-1(중력 보상)을 반영하면 이 블록을 지운다** — 안 지우면 이중 보정이다.
-  gravity_compensation:
-    urdf_package: panda_ftsensor_robotiq
-    urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
-    kp: 2000.0
+  # ⚠️ **`t1`(Crisp)에는 벤더 보상이 없다** — 그 씬으로 바꾸면 이 블록을 되살리고
+  # `kp` 를 그 씬 값(260929 기준 **20000**)으로 맞춘다. 지웠던 내용:
+  #
+  #   gravity_compensation:
+  #     urdf_package: panda_ftsensor_robotiq
+  #     urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
+  #     kp: <씬 XML 의 Gain Kp — fb_gains.py 로 대조>
+  #
+  # 배경·되돌리는 절차: docs/backends/functionbay/펑션베이_중력_보상.md
 
 # 팔 끝을 가리키는 **두 프레임**. `ee` 는 `/ee_pose` 의 기준이고 `tip` 은 MoveIt
 # 계획 그룹의 끝 링크다 — **149 mm 떨어져 있다.**
@@ -88,7 +95,7 @@ frames:
 
 # 그리퍼 **명령 규약** — `/input/gripper_joint` 배열을 어떻게 채우는가.
 # 씬마다 축 수·단위·packing 이 달라 파일로 뺐다 (r2 는 2축·도·관절당 p/v/f,
-# t1 은 6축·라디안·위치 나열). 씬을 바꾸면 이 줄도 함께 바꾼다.
+# t1 은 6축·라디안·위치 나열). 씬을 바꾸면 이 줄도 함께 바꾼다 — 지금은 **r2(RecurDyn)** 이다.
 gripper:
   profile_file: config/functionbay_gripper_recurdyn.json
 
@@ -105,15 +112,35 @@ servo:
 
 camera:
   # 시뮬레이터가 **압축만** 준다 — raw 는 `image_transport/republish` 가 만든다.
+  pixel_format: bgr8   # republish 가 되살린 raw
   source: compressed
   # 새 빌드(2026-09-08)부터 **압축으로 발행한다** — 예전에는 `/camera_image`(Image,
   # bgr8)였다. 타입이 달라도 ROS 2 는 연결만 안 하고 오류를 안 내므로 증상이
   # "빈 창" 뿐이었다.
-  compressed_topic: /camera_image/compressed
+  #
+  # **소비자가 받는 토픽은 원본이 아니라 `fb_camera_restamp` 의 출력이다** (2026-09-17).
+  # 시뮬레이터 stamp 는 회차마다 벽시계와 경과시간을 오가고 정지 때문에 초 단위로
+  # 흔들리므로, `joint_state_fusion` 이 관절에 더하는 오프셋을 카메라에도 똑같이 더해
+  # 관절 · 명령 · `/session` 과 같은 벽시계 축에 둔다. 세션 레코더 · 뷰어가 이 값을
+  # 따르므로 수집 계층은 변환을 모른다. 원본은 `simulator.camera_compressed_topic`.
+  compressed_topic: /camera_image_aligned/compressed
   # raw 를 요구하는 소비자(뷰어)를 위해 `image_transport/republish` 가 되살리는 이름.
   # **raw 로 되살리는 순간 압축으로 아낀 대역폭이 돌아온다** (0.27 → 9.2 MB/s, 36배)
   # — 그래서 되살리기는 뷰어를 켤 때만 뜬다.
   image_topic: /camera_image
+  # **여기가 정본이다** — 시뮬레이터와 공유하는 정의 파일이 없다 (mock 은
+  # `image_pipeline.yaml`, Isaac 은 `isaac_scene.json` 이 갖는다).
+  resolution: 640x480       # 2026-09-01 실측
+  # **시뮬레이터 카메라 XML 과 같은 값을 둔다** — `<씬>__RGBCamera_1_vm.xml` 의
+  # `Publish_Frequency`(r2·t1 모두 10). 레코더는 CFR 이라 선언한 값이 곧 mp4 의 시간축이
+  # 되고 파이프라인에 데시메이션이 없어, 어긋나도 오류 없이 재생 속도만 틀어진다.
+  # 실측 소스는 9.54~9.60 Hz 라 10 으로 선언해도 mp4 시간축이 약 4 % 짧다 — 프레임별
+  # 실제 시각은 sidecar stamp 가 맞다.
+  #
+  # 2026-09-17 까지는 5 였다 ("소스를 5 Hz 로 낮출 목표값"). 소스 주기를 그대로 쓰기로
+  # 하면서(체크리스트 §C-10) 34.75 s 녹화가 66.8 s 영상이 되어 **1.9배 느리게** 재생됐다.
+  # **XML 주기를 바꾸면 이 값도 함께 바꾸고 `robot_control` 을 재빌드한다.**
+  fps: 10
 
 scene:
   # 움직이는 물체 — 이름·종류·크기만 채운다 (pose 는 시뮬레이터 TF 에서 온다).

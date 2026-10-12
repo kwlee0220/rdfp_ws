@@ -100,12 +100,22 @@ def test_stamp_is_filled():
     assert (stamp.sec, stamp.nanosec) != (0, 0)
 
 
-def test_velocity_and_effort_stay_empty():
-    """servo 는 위치만 낸다 — 빈 필드를 지어내지 않는다."""
+def test_velocity_is_zero_filled_because_the_simulator_requires_it():
+    """**`velocity` 를 비우면 펑션베이가 메시지를 통째로 버린다.**
+
+    예전 이 시험은 "빈 필드를 지어내지 않는다" 는 원칙으로 `velocity` 가 비어 있기를
+    요구했다. 받는 쪽이 그것을 못 푼다는 것이 실측으로 드러나 뒤집는다 — 시뮬레이터의
+    JointState 역직렬화가 빈 `velocity` 에서 `ArgumentException` 으로 실패하고, 에러가
+    ROS 로 안 돌아와 증상은 "팔만 안 움직인다" 뿐이었다 (2026-09-14, `Player.log` 에
+    `ArgumentException` 861건 · `OverflowException` 228건).
+    조합을 바꿔 보내 본 결과 `velocity` 만 채우면 된다 — `effort` 는 비워도 된다.
+    """
     node = _StubNode()
-    node._on_command(_cmd(*[0.0] * 7))
+    node._on_command(_cmd(*[0.3] * 7))
     out = node._pub.published[-1]
-    assert list(out.velocity) == [] and list(out.effort) == []
+    assert list(out.velocity) == [0.0] * 7
+    assert len(out.velocity) == len(out.position) == len(out.name)
+    assert list(out.effort) == []
 
 
 # ---------- 길이 불일치 ----------

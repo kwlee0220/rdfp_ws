@@ -10,22 +10,69 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from robot_control.gravity import (
     GravityCompensator, describe, load_gravity_compensator)
 
 READY = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
-# 2026-09-11 실측 (RecurDyn-260907 · r2 · ready 정착). `실제 − 지령`, 단위 rad.
+# 2026-09-11 실측 (RecurDyn-260907 · r2 · ready 정착, Kp=2000). `실제 − 지령`, 단위 rad.
 MEASURED_READY_DEFICIT = [0.0000, 0.0009, 0.0005, -0.0097, -0.0007, -0.0008, 0.0000]
+# 2026-09-29 실측 (Crisp-260929 · t1 · ready 정착, Kp=20000). **같은 처짐인데 1/10 이다.**
+MEASURED_READY_DEFICIT_KP20000 = [0.0000, 0.0001, 0.0000, -0.0010, -0.0001, -0.0001, 0.0000]
+# ⚠️ **실측치는 그 측정의 `Kp` 와 함께 묶는다.** 예전에는 활성 프로파일의 `Kp` 로 예측해
+# r2 실측(Kp=2000)과 비교했는데, 2026-09-29 에 씬을 t1(Kp=20000)으로 바꾸자 예측이 정확히
+# 1/10 이 되어 **모델이 멀쩡한데 시험이 깨졌다.** 씬 선택은 운영 값이고 모델 검증이 아니다.
+MEASURED = ((2000, MEASURED_READY_DEFICIT), (20000, MEASURED_READY_DEFICIT_KP20000))
 
 
+ARM_JOINTS = ['panda_joint%d' % i for i in range(1, 8)]
+
+
+def _urdf_path() -> str:
+    """보상 모델이 쓰는 벤더 URDF — **활성 프로파일과 무관하게** 찾는다."""
+    from ament_index_python.packages import get_package_share_directory
+    return os.path.join(get_package_share_directory('panda_ftsensor_robotiq'),
+                        'urdf', 'panda_ftsensor_robotiq.urdf')
+
+
+# **활성 백엔드에서 만들지 않는다.** 이 파일이 검증하는 것은 *모델*이고, 어느 씬을 띄웠는지는
+# 운영 선택이다. 2026-09-30 에 `r2` 가 벤더 보상을 받게 되어 프로파일에서 블록을 지웠더니
+# `load_gravity_compensator('functionbay')` 가 `None` 이 되어 **모델이 멀쩡한데 15건이 깨졌다.**
 @pytest.fixture(scope='module')
 def comp():
-    return load_gravity_compensator('functionbay')
+    return GravityCompensator(_urdf_path(), ARM_JOINTS, 2000.0, scale=1.0)
 
 
-def test_profile_provides_a_compensator(comp):
+def _with_kp(comp, kp):
+    """같은 URDF·같은 자세를 **그 측정의 `Kp`** 로 다시 푼다."""
+    return GravityCompensator(comp.path, comp.joint_names, kp, scale=1.0)
+
+
+def test_the_loader_follows_the_profile_both_ways():
+    """**`None` 도 정상 경로다** — 선언이 있으면 만들고, 없으면 `None` 이다.
+
+    `functionbay` 는 씬에 따라 갈린다 — `t1`(Crisp)은 우리가 보상하고,
+    `r2`(RecurDyn, `MMR-Build_260929`)는 **벤더가 보상해 2026-09-30 에 블록을 지웠다**.
+    그래서 이 시험은 값을 박지 않고 **선언과 결과가 일치하는지**만 본다.
+    """
+    from robot_control.backend_profiles import BACKEND_PROFILES
+
+    for backend in ('functionbay', 'mock', 'isaac'):
+        spec = (BACKEND_PROFILES[backend].get('motion') or {}).get('gravity_compensation')
+        built = load_gravity_compensator(backend)
+
+        if spec:
+            assert built is not None, backend
+            assert len(built.joint_names) == 7, backend
+            assert built.kp[0] == spec.get('kp', 2000.0), backend
+        else:
+            assert built is None, f'{backend}: 선언이 없는데 보상기가 만들어졌다'
+
+
+def test_the_model_covers_the_seven_arm_joints(comp):
     assert comp is not None
     assert len(comp.joint_names) == 7
 
@@ -43,10 +90,11 @@ def test_deficit_matches_the_measured_sag(comp):
     실측은 일곱 관절 전부 0.03 mrad 안에서 일치했다. 1 mrad 허용치면 모델이 망가지는
     것(질량 누락, 축 부호 반전, 가지 빠짐)은 다 걸리면서 빌드별 미세차는 통과한다.
     """
-    predicted = comp.deficit(READY)
+    for kp, measured in MEASURED:
+        predicted = _with_kp(comp, kp).deficit(READY)
 
-    for name, p, m in zip(comp.joint_names, predicted, MEASURED_READY_DEFICIT):
-        assert p == pytest.approx(m, abs=0.001), f'{name}: {p:+.5f} vs 실측 {m:+.5f}'
+        for name, p, m in zip(comp.joint_names, predicted, measured):
+            assert p == pytest.approx(m, abs=0.001), f'Kp={kp} {name}: {p:+.5f} vs 실측 {m:+.5f}'
 
 
 def test_gravity_neutral_joints_are_zero(comp):
@@ -150,12 +198,19 @@ def test_scale_is_applied(comp):
 
 # ----- 표시 -------------------------------------------------------------------
 
-def test_describe_mentions_kp_and_urdf(comp):
-    text = describe('functionbay')
+def test_describe_follows_the_profile():
+    """`describe()` 는 **활성 프로파일**을 설명한다 — 선언이 있으면 `Kp`·URDF, 없으면 '없음'.
 
-    assert '2000' in text
-    assert 'panda_ftsensor_robotiq' in text
+    `functionbay` 의 선언은 씬에 따라 있고 없으므로 값을 박지 않는다(위 로더 시험과 같은 이유).
+    """
+    from robot_control.backend_profiles import BACKEND_PROFILES
 
+    for backend in ('functionbay', 'mock', 'isaac'):
+        spec = (BACKEND_PROFILES[backend].get('motion') or {}).get('gravity_compensation')
+        text = describe(backend)
 
-def test_describe_says_so_when_absent():
-    assert '없음' in describe('mock')
+        if spec:
+            assert str(int(spec.get('kp', 2000.0))) in text, backend
+            assert spec['urdf_package'] in text, backend
+        else:
+            assert '없음' in text, backend

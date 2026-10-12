@@ -9,11 +9,10 @@
 =============================  ==========================================
 launch                         설정 파일 지정 방법
 =============================  ==========================================
-rdfp_panda_mock                ``image_pipeline_config_file:=<path>``
-rdfp_panda_jgpc_mock           ``image_pipeline_config_file:=<path>``
+rdfp_collect                   ``config_file:=<path>``
 rdfp                           ``config_file:=<path>``
-rdfp_advanced                  ``config_file:=<path>``
-panda_mock / panda_jgpc_mock   (지정 불가 — 기본 YAML 을 기본값으로만 사용)
+rdfp_collect                   ``config_file:=<path>``
+panda_mock / panda_mock_jgpc   (지정 불가 — 기본 YAML 을 기본값으로만 사용)
 =============================  ==========================================
 
 ``camera_launch_helper.declare_camera_arguments()`` 는 본 모듈의
@@ -152,13 +151,14 @@ def declare_image_recorder_arguments(
     """``image_recorder`` 블록에서 레코더 argument 를 선언한다.
 
     ``include_auto_start`` 가 False 면 ``image_recorder_auto_start`` 를 빼고
-    선언한다. ``rdfp_advanced`` 의 ``RdfpImageRecorderNode`` 는 ``/session`` 상태로
-    녹화를 시작하므로 그 파라미터를 받지 않는다 — 선언해 봐야 소비자가 없다.
+    선언한다. ``RdfpImageRecorderNode`` 는 ``/session`` 상태로 녹화를 시작하므로 그
+    파라미터를 받지 않는다 — 선언해 봐야 소비자가 없다. 세션 구동 레코더만 띄우는
+    launch(``rdfp_collect``)가 False 로 넘긴다.
     """
     ir = config["image_recorder"]
     args = [
         DeclareLaunchArgument(
-            "enable_image_recorder_node",
+            "enable_image_recorder",
             default_value=as_launch_str(ir["enabled"]),
             description="Whether to start the image recorder node",
         ),
@@ -174,6 +174,37 @@ def declare_image_recorder_arguments(
             "image_recorder_output_dir",
             default_value=as_launch_str(ir["output_dir"]),
             description="Output directory for recorded MP4 files",
+        ),
+        # 인코딩 설정 — **녹화 시점에 비가역이라** 코드 기본값이 아니라 YAML 이
+        # 갖는다. 근거는 E7 설계 부록 C 의 실측이다(짧은 GOP 는 아카이브로 부적합).
+        # ⚠️ **Isaac 은 `rgb8` 로 발행한다.** 레코더 기본값 `bgr8` 로 두면 모든 프레임이
+        # 버려지고 mp4 는 0 프레임이 된다 — 경고만 쌓이고 오류는 안 난다.
+        DeclareLaunchArgument(
+            "image_recorder_pixel_format",
+            default_value=as_launch_str(ir.get("pixel_format", "bgr8")),
+            description="Image encoding the recorder expects (bgr8 | rgb8). "
+                        "Isaac publishes rgb8; a mismatch drops every frame silently",
+        ),
+        DeclareLaunchArgument(
+            "image_recorder_bitrate",
+            default_value=as_launch_str(ir["bitrate"]),
+            description="ffmpeg -b:v value for the recorded MP4 (irreversible once recorded)",
+        ),
+        DeclareLaunchArgument(
+            "image_recorder_gop_size",
+            default_value=as_launch_str(ir["gop_size"]),
+            description="Keyframe interval; 0 leaves the ffmpeg default",
+        ),
+        DeclareLaunchArgument(
+            "image_recorder_preset",
+            default_value=as_launch_str(ir["preset"]),
+            description="libx264 preset",
+        ),
+        DeclareLaunchArgument(
+            "image_recorder_encoder_mode",
+            default_value=as_launch_str(ir["encoder_mode"]),
+            description="auto | software — 'auto' may pick a hardware encoder, which "
+                        "changes the codec (recorded per episode in metadata.json)",
         ),
     ]
     if include_auto_start:

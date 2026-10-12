@@ -26,9 +26,9 @@ mock 과의 핵심 차이
 
 사용 예
 -------
-    ros2 launch rdfp panda_gazebo.launch.py
-    ros2 launch rdfp panda_gazebo.launch.py world:=empty.sdf
-    ros2 launch rdfp panda_gazebo.launch.py simulate_camera:=true
+    ros2 launch robot_control panda_gazebo.launch.py
+    ros2 launch robot_control panda_gazebo.launch.py world:=empty.sdf
+    ros2 launch robot_control panda_gazebo.launch.py simulate_camera:=true
 """
 
 from __future__ import annotations

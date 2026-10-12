@@ -13,38 +13,16 @@ from robot_control.moveit.move_group_jgpc_client import MoveGroupJgpcClient
 from robot_control.moveit.move_group_jtc_client import MoveGroupJtcClient
 from robot_control.moveit.trajectory_streamer import DEFAULT_COMMAND_TOPIC
 
-MODE_AUTO = 'auto'
 MODE_JTC = 'jtc'
 MODE_JGPC = 'jgpc'
-CLIENT_MODES = (MODE_AUTO, MODE_JTC, MODE_JGPC)
+# **런타임 판별(`'auto'`)은 없앴다.** 판별이 `/panda_arm_controller/commands` 의 유무만
+# 보므로 그 토픽이 없는 펑션베이를 JTC 로 오판했고, 그 스택엔 `FollowJointTrajectory`
+# 서버도 없어 **계획은 되고 실행만 조용히 안 됐다.** 어느 스택이 JTC 인가는
+# `BACKEND_PROFILES` 가 갖는다 — 호출부는 `backend` 이름 하나를 준다.
+CLIENT_MODES = (MODE_JTC, MODE_JGPC)
 
 # 액션 서버 존재 확인에 쓰는 숨은 상태 토픽 (아래 `_jtc_server_present` 참조).
 _JTC_ACTION_NAME = '/panda_arm_controller/follow_joint_trajectory'
-
-
-def detect_controller_mode(node: Node, *,
-                           arm_command_topic: str = DEFAULT_COMMAND_TOPIC) -> str:
-    """실행 중인 스택의 arm 컨트롤러 종류를 판별한다.
-
-    JGPC(forward command) 스택에서만 ``std_msgs/Float64MultiArray`` 명령
-    토픽이 존재하므로 이를 신호로 쓴다. 토픽 그래프만 조회하므로 서비스
-    호출이나 대기가 없다.
-
-    Args:
-        node: 토픽 그래프를 조회할 ROS2 Node.
-        arm_command_topic: JGPC 판별에 쓸 명령 토픽 이름.
-
-    Returns:
-        ``'jgpc'`` 또는 ``'jtc'``.
-
-    Note:
-        DDS discovery 가 아직 끝나지 않았으면 JGPC 스택이라도 ``'jtc'`` 로
-        판별될 수 있다. 노드를 막 생성한 직후에 호출하지 말고, 스택이 뜬 것을
-        확인한 뒤 호출한다. 확실히 알고 있다면 ``mode`` 를 명시하는 편이 낫다.
-    """
-    publishers = node.get_publishers_info_by_topic(arm_command_topic)
-    subscribers = node.get_subscriptions_info_by_topic(arm_command_topic)
-    return MODE_JGPC if (publishers or subscribers) else MODE_JTC
 
 
 def jtc_action_server_present(node: Node,
@@ -63,7 +41,7 @@ def jtc_action_server_present(node: Node,
 
 
 def create_move_group_client(node: Node, *, backend: Optional[str] = None,
-                             mode: str = MODE_AUTO,
+                             mode: Optional[str] = None,
                              arm_command_topic: str = DEFAULT_COMMAND_TOPIC,
                              arm_command_format: Optional[str] = None,
                              arm_command_joint_names: Optional[list[str]] = None,
@@ -81,11 +59,14 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
         node: 서비스/액션 클라이언트를 올릴 ROS2 Node.
         backend: :data:`BACKEND_PROFILES` 의 키 (``'isaac'`` / ``'functionbay'`` /
             ``'mock'`` / ``'mock_jgpc'``). 주면 아래 네 인자의 기본값을 채운다.
-            **``'auto'`` 라는 백엔드는 없다** — 프로파일은 모두 확정 모드다. 붙어 있는
-            스택에 맞추려면 ``backend`` 없이 ``mode='auto'`` 를 쓴다.
-        mode: ``'auto'`` (기본) 이면 :func:`detect_controller_mode` 로 판별한다.
-            ``'jtc'`` / ``'jgpc'`` 로 강제할 수 있다.
-        arm_command_topic: JGPC 명령 토픽. ``'auto'`` 판별에도 사용된다.
+            **프로파일은 모두 확정 모드다** — 붙어 있는 스택을 런타임에 짐작하는
+            길은 없앴다(아래 ``mode`` 참조).
+        mode: ``'jtc'`` / ``'jgpc'``. ``None`` (기본) 이면 ``backend`` 프로파일이
+            정한다 — 주면 프로파일을 이긴다. **``backend`` 와 ``mode`` 를 둘 다
+            생략할 수는 없다.** 예전에는 ``'auto'`` 가 명령 토픽의 유무로 판별했는데,
+            그 토픽이 없는 펑션베이를 JTC 로 오판했고 그 스택엔 액션 서버도 없어
+            **계획은 되고 실행만 조용히 안 됐다.**
+        arm_command_topic: JGPC 명령 토픽.
         arm_command_format: **JGPC 전용.** JTC 생성자는 이 인자를 모르므로 JGPC 로
             결정됐을 때만 전달된다.
         arm_command_joint_names: JGPC 명령 배열의 joint 순서. ``None`` 이면
@@ -98,6 +79,10 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
         gravity_compensator: **JGPC 전용.** ``None`` (기본) 이면 프로파일의
             ``motion.gravity_compensation`` 으로 자동 구성한다. 그 키가 없으면 보상하지
             않는다. 명시로 주면 프로파일보다 우선한다.
+        publish_rate: **JGPC 전용.** 명령 스트리밍 주기(Hz). ``kwargs`` 로 받아 클라이언트
+            생성자에 넘긴다. 안 주면 프로파일의 ``arm_command.publish_rate`` 를 쓰고,
+            **``backend`` 가 없으면 그것도 없어 ``None``** 이 되어 데카르트 궤적이 10 Hz
+            계단으로 나간다. JTC 로 결정되면 생성자가 모르는 인자라 버린다.
         check_action_server: JTC 로 결정됐을 때 액션 서버 유무를 확인해 없으면
             ERROR 를 낸다. **스택보다 먼저 뜨는 호출자는 꺼야 한다** — 그때는 서버가
             없는 것이 정상이라 매 기동마다 오경보가 되고, 그런 로그는 사람을 길들여
@@ -109,11 +94,11 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
         :class:`~robot_control.moveit.move_group_jgpc_client.MoveGroupJgpcClient`.
 
     Raises:
-        ValueError: ``mode`` 가 유효하지 않을 때.
+        ValueError: ``backend`` 와 ``mode`` 가 둘 다 없거나, ``mode`` 가 유효하지 않을 때.
     """
     if backend is not None:
         channel = resolve_backend_channel(
-            backend, arm_command_mode=(None if mode == MODE_AUTO else mode),
+            backend, arm_command_mode=mode,
             arm_command_topic=(None if arm_command_topic == DEFAULT_COMMAND_TOPIC
                                else arm_command_topic),
             arm_command_format=arm_command_format,
@@ -134,16 +119,27 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
         profile_rate = BACKEND_PROFILES[backend].get('arm_command_publish_rate')
         if profile_rate is not None and 'publish_rate' not in kwargs:
             kwargs['publish_rate'] = float(profile_rate)
+        # **tip link 이름의 정본은 프로파일의 `frames.tip` 이다.** 연산 이벤트(R2)가
+        # 데카르트 목표의 기준 프레임으로 싣는다 — 안 실으면 소비자가 그 pose 가
+        # tip 기준인지 EE 기준인지 알 수 없고, 펑션베이에서 둘은 149 mm 다르다.
+        profile_tip = (BACKEND_PROFILES[backend].get('frames') or {}).get('tip')
+        if profile_tip and 'tip_frame' not in kwargs:
+            kwargs['tip_frame'] = profile_tip
 
     if velocity_scaling is not None:
         # `None` 은 넘기지 않는다 — 클라이언트 생성자 기본값(1.0)이 살아야 한다.
         kwargs['velocity_scaling'] = velocity_scaling
 
+    if mode is None:
+        # `backend` 를 줬으면 위에서 프로파일이 채웠다 — 여기 오면 그 프로파일에
+        # `arm_command.mode` 가 없다는 뜻이다. 둘 다 안 줬으면 고를 근거가 없다.
+        raise ValueError(
+            f'arm command mode is unknown: pass mode={list(CLIENT_MODES)} explicitly, '
+            f'or a backend whose profile sets arm_command.mode (backends={list(backends())})')
     if mode not in CLIENT_MODES:
         raise ValueError(f'mode must be one of {CLIENT_MODES}, got {mode!r}')
 
-    resolved = detect_controller_mode(node, arm_command_topic=arm_command_topic) \
-        if mode == MODE_AUTO else mode
+    resolved = mode
 
     if resolved == MODE_JGPC:
         node.get_logger().info('Using MoveGroupJgpcClient (forward command streaming)')

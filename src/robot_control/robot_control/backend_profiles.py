@@ -36,10 +36,11 @@ _ARM_COMMAND_KEYS = {
 }
 
 # 프로파일이 안 정하면 쓰는 값. `arm_command_topic` 의 기본은 ros2_control JGPC 의
-# 표준 토픽이며 `mode='auto'` 판별의 탐침이기도 하다.
+# 표준 토픽이다.
 #
-# `arm_command_mode` 의 폴백이 `auto` 인 것은 **프로파일이 mode 를 빠뜨렸을 때**의
-# 안전망일 뿐이다. 지금 모든 프로파일은 확정 모드를 갖는다 — `auto` 라는 백엔드는 없다.
+# **`arm_command_mode` 에는 폴백이 없다 (`None`).** 모든 프로파일이 확정 모드를 갖고,
+# 빠뜨렸으면 짐작하지 말고 팩토리가 그 사실을 말해야 한다 — 예전의 `'auto'` 폴백은
+# 런타임 판별로 되돌아가 펑션베이를 JTC 로 오판하는 길을 열어 두고 있었다.
 DEFAULT_ARM_COMMAND_TOPIC = '/panda_arm_controller/commands'
 
 # 프로파일이 담을 수 있는 것. **모르는 키는 거부한다** — 조용히 무시하면 "설정했는데
@@ -58,8 +59,12 @@ _BLOCK_KEYS = {
     # **servo 출력 채널은 여기 없다** — `servo.command_out_topic` 하나다. servo 가
     # 내는 곳이 곧 `servo_command_bridge` 가 받는 곳이라 키가 둘이면 갈릴 수 있고,
     # 갈리면 servo 는 발행하고 다리는 못 받아 모션 전체가 조용히 무동작이 된다.
+    #
+    # `camera_compressed_topic` 은 **시뮬레이터 원본** 카메라다. 소비자가 받는
+    # `camera.compressed_topic` 과 다를 수 있다 — 펑션베이는 그 사이에서 stamp 를
+    # 관절과 같은 축으로 옮기는 중계(`fb_camera_restamp`)가 돈다.
     'simulator': {'joint_report_topic', 'joint_command_topic', 'gripper_command_topic',
-                  'gripper_report_topic'},
+                  'gripper_report_topic', 'camera_compressed_topic'},
     'servo': {'linear_scale', 'joint_source', 'command_out_type', 'command_out_topic'},
     # 팔 이동의 **전역 기본값**. 백엔드마다 안전한 속도가 다르다 — 시뮬레이터가
     # 내부 보간을 안 하거나 처짐이 크면 느리게 도는 편이 낫다. 생략하면 코드
@@ -76,7 +81,16 @@ _BLOCK_KEYS = {
     'gripper': {'profile_file'},
     # `source` 는 **raw 를 어떻게 얻는가**다 (`device`/`compressed`/`native`).
     # 키 유무로 추론하지 않는다 — `device` 와 `native` 는 둘 다 `image_topic` 만 갖는다.
-    'camera': {'source', 'image_topic', 'compressed_topic'},
+    #
+    # `resolution`/`fps` 는 **정본이 다른 곳에 없을 때만** 적는다. 레코더는 CFR 이라
+    # 이 값이 곧 영상의 시간축이 되므로 두 곳에 적으면 어긋났을 때 조용히 틀린 영상이
+    # 나온다. 그래서:
+    #   · mock 계열  — `image_pipeline.yaml` 이 정본이다 (여기 적지 않는다)
+    #   · Isaac      — `scene.file`(`isaac_scene.json`)의 `camera` 블록이 정본이고
+    #                  시뮬레이터도 그것을 읽는다 (여기 적지 않는다)
+    #   · 펑션베이   — 공유 정의 파일이 없다 (여기가 정본이다)
+    'camera': {'source', 'image_topic', 'compressed_topic', 'resolution', 'fps',
+               'pixel_format'},
     # 팔 끝을 가리키는 **두 프레임**. `tip` 은 MoveIt 계획 그룹의 끝 링크라 데카르트
     # 목표가 해석되는 기준이고, `ee` 는 `/ee_pose` 가 발행하는 **작업 기준점**이다.
     # **둘은 같지 않다** — 펑션베이의 `grasp_center` 는 149 mm, mock 의 `panda_hand` 는
@@ -96,7 +110,7 @@ _BLOCK_KEYS = {
 _TOP_LEVEL_KEYS = ({'name', 'description', 'factory', 'use_sim_time', 'solver'}
                    | set(_BLOCK_KEYS))
 _FALLBACKS = {
-    'arm_command_mode': 'auto',
+    'arm_command_mode': None,
     'arm_command_topic': DEFAULT_ARM_COMMAND_TOPIC,
     'arm_command_format': 'float64_multi_array',
     'arm_command_joint_names': [],
@@ -254,7 +268,7 @@ def resolve_backend_channel(backend: str, **overrides) -> dict:
     Args:
         backend: 프로파일 파일 이름 (확장자 제외). **기본값이 없다** — 모든 프로파일이
             확정 모드(`jtc`/`jgpc`)를 가지므로 "모르겠다" 를 뜻하는 이름이 없다.
-            붙어 있는 스택에 맞추고 싶으면 `backend` 없이 `mode='auto'` 를 쓴다.
+            프로파일에 없는 스택이면 `backend` 없이 `mode='jtc'`/`'jgpc'` 를 명시한다.
         **overrides: ``arm_command_mode`` / ``arm_command_topic`` /
             ``arm_command_format`` / ``arm_command_joint_names``.
 

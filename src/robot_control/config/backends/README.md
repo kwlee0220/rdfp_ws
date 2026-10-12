@@ -20,10 +20,15 @@
 | `ros2_control` | controller_manager 배선 (`hardware_type`/`controllers_file`/`joint_commands_topic`/`gripper_commands_topic`/`joint_states_topic`) | ros2_control 을 안 쓴다 (펑션베이) |
 | `simulator` | ros2_control 없는 백엔드가 시뮬레이터와 직접 주고받는 채널 (**servo 출력은 여기 없다** — 아래 참조) | — |
 | `motion` | 팔 이동의 **전역 기본** `velocity_scaling` · 중력 보상 `gravity_compensation` | 이 백엔드만의 값이 없다 (코드 기본값 1.0) |
-| `servo` | `linear_scale` / `joint_source` / `command_out_type` | — |
-| `camera` | `source` (`device`/`compressed`/`native`) · `image_topic` (raw) · `compressed_topic` | 카메라가 없다 |
+| `servo` | `linear_scale` / `joint_source` / `command_out_type` / `command_out_topic` | — |
+| `frames` | 팔 끝을 가리키는 **두 프레임** `ee` · `tip` (아래 참조) | 코드 기본값 |
+| `gripper` | 그리퍼 **명령 규약** 파일 `profile_file` (아래 참조) | 규약이 따로 필요 없다 |
+| `camera` | `source` (`device`/`compressed`/`native`) · `image_topic` (raw) · `compressed_topic` · `resolution`/`fps` (아래) | 카메라가 없다 |
 | `scene` | 움직이는 물체 정의 `file` · **안 움직이는** 물체 정의 `fixtures_file` | 정의 파일이 없다 (mock 은 `/scene/reset` 이 놓은 것만) |
 | `use_sim_time` | 시계 출처 | — |
+
+블록 밖의 최상위 키는 `name` · `description` · `factory` · **`solver`** 넷이다
+(`solver` 는 아래 참조).
 
 **`null` 은 "빠뜨렸다" 가 아니라 "이 백엔드에는 없다" 는 뜻이다.** 모르는 키는 거부한다
 — 조용히 무시하면 "설정했는데 안 먹는다" 가 되고, 그 증상은 원인을 안 가리킨다.
@@ -34,6 +39,44 @@
 주고받는 채널이다. 옛 bridge 시절 Isaac 이 이 둘을 섞어 `arm_command.topic:
 /isaac/arm_command` 로 두었더니, 클라이언트가 **컨트롤러를 우회해** 같은 채널에 끼어들어
 서로 싸웠다. JTC 백엔드는 `arm_command` 에 채널을 갖지 않는다.
+
+### `frames` — `ee` 와 `tip` 은 같지 않다
+
+`tip` 은 MoveIt 계획 그룹의 끝 링크라 **데카르트 목표가 해석되는 기준**이고, `ee` 는
+`/ee_pose` 가 발행하는 **작업 기준점**이다. 둘은 떨어져 있다 — 펑션베이의 `grasp_center`
+는 149 mm, mock 의 `panda_hand` 는 107 mm. 그래서 `/ee_pose` 를 읽어 그대로 데카르트
+목표로 넣으면 에러가 아니라 **그만큼 엉뚱한 곳으로 간다.**
+
+이름을 프로파일에 두는 이유는 소비자가 둘이기 때문이다 — launch 의 `ee_pose_node` 와
+트윈의 `move_linear` 프레임 변환. 각자 적으면 한쪽만 뒤처진다.
+
+> ⚠️ **mock · Isaac 에는 `ee` 가 일부러 없다.** `panda_link8 → panda_hand` 는 평행이동
+> 0 에 z 축 45° 회전뿐인데, 그 45° 는 MCP 클라이언트의 `to_arm_command()` 가 이미
+> 곱한다 — 적으면 **90° 이중 회전**이 된다. 없는 것이 결락이 아니라 값이다.
+
+### `solver` 와 `gripper.profile_file` 은 **함께** 바꾼다
+
+`solver` 는 **지금 띄운 씬의 솔버**다. 펑션베이 한 빌드가 씬을 둘 담고 있고, 그리퍼
+명령 규약이 씬마다 다르다 — `r2`(RecurDyn)는 **2축·도(degree)·관절당 `(p, v, f)`**,
+`t1`(Crisp)은 **6축·라디안·위치 나열**이다.
+
+| 씬 | `solver` | `gripper.profile_file` |
+|---|---|---|
+| `r2` | `RecurDyn` | `config/functionbay_gripper_recurdyn.json` |
+| `t1` | `Crisp` | `config/functionbay_gripper_crisp.json` |
+
+**두 줄을 함께 고쳐야 한다.** 규약 파일도 자기 `solver` 를 들고 있어 로더가 대조하고,
+어긋나면 **로드 시점에** `ValueError` 로 세운다 (`gripper/profile.py` 의
+`_verify_solver`). 런타임까지 가면 증상이 **"그리퍼가 거의 안 움직인다"** 뿐이라
+원인에 도달하기 어렵기 때문이다 — 도로 읽는 씬에 라디안을 보내면 `π/180` = **1.7 %** 만
+움직이고 `effort` 도 안 올라 접촉으로도 안 잡힌다.
+
+씬을 바꿀 때는 `motion.gravity_compensation.kp` 와 `scene.*` 도 함께 본다. `t1`·`r2` 는
+`Kp` 가 둘 다 2000 이지만 **`r1` 은 200 으로 1/10** 이라 그 씬에서는 보상이 1/10 만
+걸린다. 지금 떠 있는 씬과 우리 선언이 맞는지는
+`./scripts/functionbay/fb_gains.py` 가 `SolverConfig.json` 을 읽어 대조한다 (불일치면
+종료 코드 1). 규약의 실측 근거:
+[펑션베이_백엔드_설계.md](../../../../docs/backends/functionbay/펑션베이_백엔드_설계.md) §6.1a.
 
 ### `scene.file` 과 `scene.fixtures_file` 은 다른 것이다
 
@@ -97,7 +140,7 @@ motion:
 구성한다.
 
 > **벤더가 A-1 을 반영하면 이 블록을 지운다** — 안 지우면 이중 보정이다. 판별·절차:
-> [gravity_compensation](../../../../docs/simulation/functionbay_gravity_compensation.md) §5.
+> [gravity_compensation](../../../../docs/backends/functionbay/펑션베이_중력_보상.md) §5.
 
 > **~~`motion.sag_calibration_file`~~ 은 2026-09-11 에 삭제됐다.** 지점별로 잰 처짐
 > 계수를 지령에 얹던 방식인데, 잰 지점 ±20 mm 에서만 유효했고 자세를 바꾸면 무효였다.
@@ -154,7 +197,7 @@ launch 는 `create_raw_image_source_node(backend)` 하나만 부르고, **소비
 그 기본값은 그 launch 의 **raw 소비자**에서 파생된다(뷰어를 켜면 디코더가 함께 뜬다).
 
 **키 유무로 추론하지 않는 이유**는 `device` 와 `native` 가 둘 다 `image_topic` 만 갖기
-때문이다. 설계: [docs/camera/compressed_image_pipeline_design.md](../../../../docs/camera/compressed_image_pipeline_design.md).
+때문이다. 설계: [docs/control/compressed_image_pipeline_design.md](../../../../docs/control/compressed_image_pipeline_design.md).
 
 ### 압축 카메라는 이름이 둘이다
 
@@ -170,14 +213,35 @@ raw 는 `image_transport/republish` 가 **뷰어를 켤 때만** 만든다 — �
 아낀 대역폭이 돌아오기 때문이다(0.27 → 9.2 MB/s, 36배).
 
 **두 이름 다 이 파일에서만 온다.** 제어 계열 `panda_functionbay` 와 수집 계열
-`rdfp_panda_functionbay` 가 같은 프로파일을 읽는다. 한때 제어 쪽이 `image_pipeline.yaml`
+`rdfp_collect backend:=functionbay` 가 같은 프로파일을 읽는다. 한때 제어 쪽이 `image_pipeline.yaml`
 (OpenCV 카메라용)에서 `camera_image_topic` 을 가져와, 프로파일은 `/camera_image` 라고
 적혀 있는데 실효값은 `/camera/image_raw` 였다 — 각 launch 안에서는 republish 출력과 뷰어
 구독이 같은 값을 써서 **동작은 했고, 그래서 안 드러났다.**
 
 > ⚠️ **서비스 구동 `image_recorder_node` 는 압축을 못 받는다.** 그것을 쓰는 launch 에서
 > 뷰어를 끄면 raw 발행자가 사라져 **레코더가 조용히 0 프레임을 담는다.**
-> `rdfp_panda_functionbay` 가 2026-09-08 까지 그 상태였다.
+> 옛 `rdfp_panda_functionbay` 가 2026-09-08 까지 그 상태였다.
+
+### `camera.resolution` / `camera.fps` — **정본이 없을 때만 적는다**
+
+레코더는 CFR 이라 이 값이 곧 **영상의 시간축**이다. 어긋나면 오류가 아니라 재생
+속도가 밀리므로 정본은 한 곳이어야 한다. 그래서 이 두 키는 **다른 곳에 정본이 없는
+백엔드만** 갖는다.
+
+| 백엔드 | 정본 | 프로파일에 적나 |
+|---|---|:-:|
+| `mock` · `mock_jgpc` | `image_pipeline.yaml` (OpenCV 카메라라 그 값이 카메라를 *정한다*) | ❌ |
+| `isaac` | `scene.file` = `isaac_scene.json` 의 `camera` 블록 (**시뮬레이터도 그것을 읽는다**) | ❌ |
+| `functionbay` | **여기** — 공유 정의 파일이 없다 | ✅ |
+
+`rdfp_collect` 가 이 순서로 찾는다: `scene.file` 의 `camera` 블록 → 프로파일 →
+`image_pipeline.yaml`. 계약은 `rdfp/recorder/tests/test_functionbay_recorder_wiring.py`
+가 고정한다 (Isaac 은 프로파일에 **없어야** 한다는 것까지).
+
+> ⚠️ **fps 는 소스 주기와 같아야 한다** — 레코더가 CFR 이라 어긋나면 오류 없이 재생 속도만
+> 틀어진다. 2026-09-17 에 두 백엔드 모두 10 으로 맞췄다: 펑션베이 `fps: 10`(카메라 XML
+> `Publish_Frequency` 10, 실측 9.54~9.60 Hz), Isaac `isaac_scene.json` `fps: 10`(시뮬레이터가
+> 같은 값으로 `frameSkipCount` 5 를 쓴다). 펑션베이는 5 로 두었다가 영상이 1.9배 느리게 재생됐다.
 
 ### 경로는 패키지 share 기준이다
 
@@ -202,12 +266,16 @@ rm install/robot_control/share/robot_control/config/backends/<이름>.yaml
 colcon build --packages-select robot_control
 ```
 
-## `auto` 라는 백엔드는 없다
+## `auto` 는 없다 — 백엔드에도, 모드에도
 
 모든 프로파일은 **확정 모드**(`jtc` / `jgpc`)를 갖는다. 표가 있는 이유가 런타임 판별의
 조용한 오판을 없애는 것인데, 표 안에 판별로 되돌아가는 항목을 두면 앞뒤가 안 맞기
 때문이다. mock 계열이 스택 둘이라 예전엔 `auto` 였지만, 지금은 `mock`(JTC)과
 `mock_jgpc`(JGPC)로 나뉘어 있다.
 
-붙어 있는 스택에 맞추고 싶은 저수준 경로는 `backend` 없이 `mode='auto'` 를 쓴다 —
-샘플 스크립트처럼 백엔드를 모르고 붙는 코드가 그 경우다.
+**`mode='auto'` 도 없다.** 프로파일에 없는 스택을 붙일 때는 `backend` 없이
+`mode='jtc'`/`'jgpc'` 를 **명시한다.** `backend` 와 `mode` 를 둘 다 생략하면
+`ValueError` 다.
+
+`arm_command.mode` 에는 **폴백이 없다.** 프로파일이 빠뜨리면 짐작하지 않고 그 사실을
+말한다.

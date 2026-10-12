@@ -64,16 +64,26 @@ def test_every_expected_backend_has_a_file():
 
 
 def test_no_profile_defers_to_runtime_detection():
-    """**`auto` 라는 백엔드는 없다.**
+    """**모든 프로파일이 확정 모드를 갖는다.**
 
     프로파일 표가 있는 이유가 런타임 판별의 조용한 오판을 없애는 것인데, 그 표 안에
-    판별로 되돌아가는 항목을 두면 앞뒤가 안 맞는다. 붙어 있는 스택에 맞추고 싶으면
-    `backend` 없이 `mode='auto'` 를 쓴다 — 그것은 저수준 경로다.
+    판별로 되돌아가는 항목을 두면 앞뒤가 안 맞는다. 프로파일에 없는 스택이면
+    `backend` 없이 `mode='jtc'`/`'jgpc'` 를 명시한다 — 그것은 저수준 경로다.
     """
     assert 'auto' not in bp.backends()
     for name, profile in bp.BACKEND_PROFILES.items():
         assert profile.get('arm_command_mode') in ('jtc', 'jgpc'), \
             f'{name}: 확정 모드여야 한다'
+
+
+def test_arm_command_mode_has_no_fallback():
+    """**빠뜨린 모드를 짐작하지 않는다.**
+
+    예전 폴백은 `'auto'` 였고, 그것이 런타임 판별로 되돌아가 펑션베이를 JTC 로
+    오판하는 길을 열어 두고 있었다 — 그 스택엔 액션 서버가 없어 **계획은 되고 실행만
+    조용히 안 된다.** 이제 `None` 이고, 팩토리가 그 사실을 말한다.
+    """
+    assert bp._FALLBACKS['arm_command_mode'] is None
 
 
 # ----- ROS 없이 읽힌다 --------------------------------------------------------

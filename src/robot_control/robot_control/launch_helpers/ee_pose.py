@@ -73,7 +73,7 @@ def create_grasp_center_tf_node() -> Node:
 
     **TF·충돌 형상은 여전히 Panda Hand 다.** 근본 해결은 description 교체이며
     (`panda_ftsensor_robotiq` 패키지), 필요한 정보는
-    `docs/simulation/functionbay_backend_design.md` §6.2 에 있다.
+    `docs/backends/functionbay/펑션베이_백엔드_설계.md` §6.2 에 있다.
     """
     return Node(
         package="tf2_ros",

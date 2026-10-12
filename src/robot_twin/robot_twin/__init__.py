@@ -1,6 +1,6 @@
 """로봇 트윈 — ROS 2 로봇을 RESTful/HTTP 로 노출하는 게이트웨이.
 
-설계서: `docs/robot_twin/robot_twin_design.md`
+설계서: `docs/twin/robot_twin_design.md`
 
 ROS 2 를 직접 사용하기 어려운 환경에서 상태 변수 조회(polling)와 미리 구현된
 연산 실행을 REST 로 제공한다. 트윈 자체가 ROS 노드이므로 별도 브리지를 두지
