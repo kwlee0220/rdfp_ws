@@ -29,7 +29,6 @@ from .episode.detector import Episode
 from .episode.dispatcher import AssignedMessage, DispatchEvent, assign_and_dispatch
 from .episode.from_bag import episodes_from_splits
 from .exceptions import PostProcError
-from .quality_gate import QualityGate
 from .run_log import RunLog
 from .media.frame_router import FrameRouter
 from .media.recorder_registry import RecorderRegistrar
@@ -84,13 +83,16 @@ def _apply_result_to_summary(
             summary['inserted'][table] = summary['inserted'].get(table, 0) + n
     elif status == 'skipped':
         summary['skipped'] += 1
+    else:
+        # 워커는 실패를 예외가 아니라 `status='failed'` 로 돌려준다. 여기서 세지 않으면
+        # 요약에도 종료 코드에도 안 남고 JSONL 의 `episode_failed` 에만 남는다.
+        summary['failed'] = summary.get('failed', 0) + 1
 
 
 def _empty_summary(splits: int = 0) -> dict:
     return {
         'episodes': 0, 'splits': splits,
-        'inserted': {}, 'skipped': 0, 'replaced': 0, 'mp4_files': 0,
-        'warnings': 0,
+        'inserted': {}, 'skipped': 0, 'replaced': 0, 'failed': 0, 'mp4_files': 0,
     }
 
 
@@ -259,11 +261,6 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
             conn, table=table_name, topic_id=topic_ids[topic],
         )
 
-    quality = QualityGate(
-        check_stamp_regression=cfg.quality_gate.stamp_regression,
-        idle_gap_ns=int(cfg.quality_gate.idle_gap_sec * 1_000_000_000),
-    )
-
     # 현재 에피소드 컨텍스트.
     cur_episode_id: Optional[int] = None
     cur_episode_ep: Episode | None = None
@@ -302,14 +299,12 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                 )
                 continue
             router.open_episode(cur_episode_id)
-            quality.reset_episode(cur_episode_id)
         elif kind == 'message':
             if cur_ignored:
                 continue
             am: AssignedMessage = payload
             if am.topic == SESSION_TOPIC:
                 continue
-            quality.on_message(am.topic, am.stamp_ns)
             if am.topic in image_topics:
                 try:
                     router.on_image(am.topic, am.type_name, am.msg)
@@ -395,13 +390,6 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
                     row_counts=row_counts,
                     mp4_files=mp4_files,
                 )
-                for qw in quality.pop_warnings():
-                    run_log.quality_warning(
-                        episode_id=qw.episode_id,
-                        kind=qw.kind, topic=qw.topic,
-                        stamp_ns=qw.stamp_ns, prev_stamp_ns=qw.prev_stamp_ns,
-                    )
-                    summary['warnings'] += 1
             except Exception as e:
                 _rollback_all(writers, router, conn)
                 _logger.exception('commit failed for episode_id=%s', cur_episode_id)

@@ -532,8 +532,7 @@ class ReplayControlNode(Node):
         """
         image_replayers: list[Mp4ImageReplayer] = []
         msg_topics: list[str] = []
-        mp4_root = (Path(self._cfg.output_mp4_dir)
-                    if self._cfg.output_mp4_dir else None)
+        mp4_roots = [Path(p) for p in self._cfg.mp4_roots()]
 
         with open_connection(self._cfg.db) as conn:
             with conn.cursor() as cur:
@@ -544,14 +543,14 @@ class ReplayControlNode(Node):
             # 1) 토픽 분류 + 이미지 토픽은 토픽당 Mp4ImageReplayer 1 개.
             for topic in topics:
                 if is_image_topic_in_db(conn, topic):
-                    if mp4_root is None:
+                    if not mp4_roots:
                         self.get_logger().warning(
-                            f'skip image topic {topic}: output_mp4_dir not set')
+                            f'skip image topic {topic}: neither recordings_dir nor output_mp4_dir is set')
                         continue
                     try:
                         r = Mp4ImageReplayer(
                             self, conn, episode_id=episode_id,
-                            topic_name=topic, mp4_root=mp4_root)
+                            topic_name=topic, mp4_root=mp4_roots)
                         image_replayers.append(r)
                     except (ValueError, RuntimeError) as e:
                         self.get_logger().warning(

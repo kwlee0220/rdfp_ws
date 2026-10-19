@@ -38,6 +38,27 @@ from .cli_common import (
 _logger = logging.getLogger(__name__)
 
 
+def _split_deletion_blocker(failed: int, excluded: int) -> str | None:
+    """`delete_splits_after_import` 를 막을 사유. 지워도 되면 ``None``.
+
+    지우는 단위는 **에피소드가 아니라 split 파일**이고, 대상은 이번 실행이 찾은 split
+    전부다(날짜 필터만 반영된다). 그래서 그 split 의 에피소드가 전부 DB 에 들어갔다고
+    말할 수 없는 실행에서는 지우지 않는다.
+
+    Args:
+        failed: 실패한 에피소드 수. 병렬 모드는 실패를 예외로 올리지 않으므로, 이것을
+            보지 않으면 실패한 에피소드의 원본까지 "성공"한 실행 뒤에 지워진다.
+        excluded: 감지됐지만 에피소드 필터가 뺀 수 — `start_ns_in`(`rosbag export` 의
+            선택) · task_label 포함/제외 · 최소 길이. 같은 split 에 있으면 함께 지워진다.
+    """
+    if failed:
+        return f'{failed} episode(s) failed'
+    if excluded:
+        return (f'episode filters excluded {excluded} episode(s) that may share '
+                f'the same splits')
+    return None
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog='import',
@@ -70,8 +91,9 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
     if cfg is None:
         return 2
 
-    # `rosbag export` 가 선택 결과를 자연키로 실어 보낸다. **인자가 설정을 이긴다** —
-    # 적재 경로를 둘로 만들지 않기 위해 이 함수 하나만 쓴다.
+    # `rosbag export` 가 선택 결과를 자연키로 실어 보낸다. 설정의 `start_ns_in` 을
+    # **대신한다**(교집합이 아니다). 작업 포함·제외와 최소 길이 같은 나머지 필터는 그대로
+    # 함께 적용된다. 적재 경로를 둘로 만들지 않기 위해 이 함수 하나만 쓴다.
     start_ns_in = list(getattr(args, 'start_ns_in', None) or [])
     if start_ns_in:
         cfg = cfg.model_copy(update={
@@ -79,6 +101,16 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                 update={'start_ns_in': start_ns_in}),
         })
         _logger.info('episode selection: %d key(s) from the caller', len(start_ns_in))
+
+    # `rosbag export --rosbag-dir` 가 에피소드를 고른 루트도 함께 보낸다. 고른 bag 과 적재하는
+    # bag 이 같아야 하므로 설정의 `rosbag_dir` 보다 앞선다 — 그러지 않으면 자연키만 들고 설정의
+    # 루트를 뒤져, 같은 키를 가진 다른 에피소드를 적재할 수 있다. `import` CLI 에는 이 인자가 없다.
+    rosbag_dir = getattr(args, 'rosbag_dir', None)
+    if rosbag_dir:
+        if str(rosbag_dir) != cfg.rosbag_dir:
+            _logger.info('bag root from the caller: %s (config rosbag_dir: %s)',
+                         rosbag_dir, cfg.rosbag_dir)
+        cfg = cfg.model_copy(update={'rosbag_dir': str(rosbag_dir)})
 
     # ROS / 무거운 ingest 의존은 본 함수 진입 시점에만 로드한다 (cli.py 의
     # ROS-free 서브커맨드들이 sensor_msgs 없이도 동작하도록).
@@ -108,7 +140,8 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
             summary = _empty_summary()
         else:
             episodes = _detect_all_episodes(splits)
-            _logger.info('detected %d episode(s)', len(episodes))
+            detected = len(episodes)
+            _logger.info('detected %d episode(s)', detected)
 
             episodes = _apply_episode_filters(episodes, cfg.episode_filter)
             _logger.info('%d episode(s) remain after filters', len(episodes))
@@ -141,8 +174,7 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                 summary = {
                     'episodes': 0, 'splits': len(splits),
                     'inserted': {t: 0 for t in required_tables},
-                    'skipped': 0, 'replaced': 0, 'mp4_files': 0,
-                    'warnings': 0,
+                    'skipped': 0, 'replaced': 0, 'failed': 0, 'mp4_files': 0,
                 }
 
                 # 스키마 검증 + topics 룩업 동기화를 단일 커넥션으로 선행한다
@@ -184,9 +216,16 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                             cfg=cfg,
                             summary=summary)
 
-                # import 가 예외 없이 끝났을 때만 사용된 split 파일을 제거한다.
+                # 사용한 split 은 그 안의 에피소드가 전부 들어갔다고 말할 수 있을 때만 지운다.
                 if cfg.delete_splits_after_import:
-                    summary['deleted_splits'] = _delete_used_splits(splits)
+                    blocker = _split_deletion_blocker(summary['failed'],
+                                                      detected - len(episodes))
+                    if blocker is None:
+                        summary['deleted_splits'] = _delete_used_splits(splits)
+                    else:
+                        _logger.warning('delete_splits_after_import skipped: %s', blocker)
+                        summary['deleted_splits'] = 0
+                        summary['delete_skipped'] = blocker
     except PostProcError as e:
         logging.error('post-processing failed: %s', e)
         return 1
@@ -195,6 +234,13 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
         return 1
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    # **병렬 모드는 에피소드 실패를 예외로 올리지 않는다** — 세지 않으면 실패가 있어도
+    # 0 으로 끝나, 종료 코드로 성공을 판정하는 호출자(cron 등)가 놓친다.
+    if summary.get('failed'):
+        logging.error('%d episode(s) failed; see episode_failed in %s',
+                      summary['failed'],
+                      Path(cfg.output_mp4_dir or '.') / '_logs' / 'postproc_run.jsonl')
+        return 1
     return 0
 
 

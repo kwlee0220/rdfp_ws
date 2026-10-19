@@ -34,9 +34,9 @@ def test_parser_with_dsn_env_arg() -> None:
 def test_parser_with_config() -> None:
     ns = _parser().parse_args(['--config', 'dataset_config.yaml'])
     assert ns.config == 'dataset_config.yaml'
-    # 기본값 유지.
-    assert ns.dsn_env == 'RDFP_DB_DSN'
-    assert ns.schema == 'public'
+    # 명시하지 않은 인자는 None 이다 — 그래야 설정 값을 덮지 않는다.
+    assert ns.dsn_env is None
+    assert ns.schema is None
 
 
 # ---- main flow ---------------------------------------------------------
@@ -60,9 +60,8 @@ def test_drop_requires_yes_in_non_tty(monkeypatch, tmp_path) -> None:
 def test_drop_with_yes_calls_init(monkeypatch, tmp_path) -> None:
     """`--drop --yes` 는 스키마 초기화를 호출하고 exit 0.
 
-    기본 설정 파일을 차단해야 `--dsn-env` 가 실제로 쓰인다 — 안 그러면 저장소의
-    `config/dataset_config.yaml` 이 잡혀 `RDFP_DB_DSN` 을 보게 되고, **그 변수가
-    설정된 환경에서만 우연히 통과**한다.
+    기본 설정 파일은 계속 차단한다 — 지금은 `--dsn-env` 가 설정을 이기지만, 저장소의
+    `config/dataset_config.yaml` 이 잡히면 이 시험이 그 파일의 내용에 묶인다.
     """
     monkeypatch.chdir(tmp_path)
     _isolate_default_config(monkeypatch, tmp_path)
@@ -80,11 +79,12 @@ def test_drop_with_yes_calls_init(monkeypatch, tmp_path) -> None:
 def test_missing_env_var_returns_2(monkeypatch, tmp_path, caplog) -> None:
     """`--dsn-env` 가 가리키는 환경변수가 없으면 exit 2.
 
-    **기본 설정 파일을 함께 차단해야 이 경로가 실제로 돈다.** `cmd_init_db` 는
-    설정 파일을 찾으면 `--dsn-env` 를 무시하고 `cfg.db.dsn_env` 를 쓴다. 이
-    저장소에는 `config/dataset_config.yaml` 이 있고 `RDFP_HOME` 도 설정돼 있어
-    `chdir` 만으로는 막을 수 없다 — 예전에는 그 설정의 DSN 으로 접속이 실패해서
-    우연히 2가 나왔고, DB 가 살아나자 0을 반환하며 드러났다.
+    기본 설정 파일을 함께 차단한다. 예전의 `cmd_init_db` 는 설정 파일을 찾으면
+    `--dsn-env` 를 무시하고 `cfg.db.dsn_env` 를 썼다 — 이 저장소에는
+    `config/dataset_config.yaml` 이 있고 `RDFP_HOME` 도 설정돼 있어, 그 설정의 DSN
+    으로 접속이 실패해서 우연히 2가 나왔고 DB 가 살아나자 0을 반환하며 드러났다.
+    지금은 `--dsn-env` 가 이기므로(`test_explicit_args_override_*`) 차단 없이도
+    통과하지만, 시험이 저장소 파일에 묶이지 않게 그대로 둔다.
     """
     monkeypatch.chdir(tmp_path)
     _isolate_default_config(monkeypatch, tmp_path)
@@ -129,3 +129,44 @@ def test_auto_uses_default_config(monkeypatch, tmp_path) -> None:
     rc = init_db_cmd_mod.main([])
     assert rc == 0
     assert captured == [('postgresql://auto', 'auto_schema', False)]
+
+
+def test_explicit_args_override_default_config(monkeypatch, tmp_path) -> None:
+    """기본 설정 파일이 잡혀도 명시한 `--schema` 가 이긴다.
+
+    예전에는 조용히 무시되어 워크스페이스 루트에서 `init-db --schema rdfp_v1` 이
+    설정의 스키마(`public`)에 테이블을 만들었다. 명시하지 않은 `dsn_env` 는 설정 값을 쓴다.
+    """
+    cfg_path = tmp_path / 'dataset_config.yaml'
+    cfg_path.write_text(
+        'rosbag_dir: /tmp/x\n'
+        'db: {dsn_env: AUTO_DSN, schema: auto_schema}\n'
+    )
+    monkeypatch.setattr(cli_common, 'DEFAULT_CONFIG_FILE_PATH', cfg_path)
+    monkeypatch.setenv('AUTO_DSN', 'postgresql://auto')
+    captured: list = []
+    monkeypatch.setattr(
+        init_db_cmd_mod, 'initialize_schema',
+        lambda dsn, schema, drop_first: captured.append((dsn, schema, drop_first)))
+    rc = init_db_cmd_mod.main(['--schema', 'rdfp_v1'])
+    assert rc == 0
+    assert captured == [('postgresql://auto', 'rdfp_v1', False)]
+
+
+def test_explicit_args_override_given_config(monkeypatch, tmp_path) -> None:
+    """`--config` 를 함께 줘도 명시한 `--dsn-env` 가 이기고, 스키마는 설정 값을 쓴다."""
+    _isolate_default_config(monkeypatch, tmp_path)
+    cfg_path = tmp_path / 'c.yaml'
+    cfg_path.write_text(
+        'rosbag_dir: /tmp/x\n'
+        'db: {dsn_env: CUSTOM_DSN, schema: custom}\n'
+    )
+    monkeypatch.delenv('CUSTOM_DSN', raising=False)
+    monkeypatch.setenv('OTHER_DSN', 'postgresql://other')
+    captured: list = []
+    monkeypatch.setattr(
+        init_db_cmd_mod, 'initialize_schema',
+        lambda dsn, schema, drop_first: captured.append((dsn, schema, drop_first)))
+    rc = init_db_cmd_mod.main(['--config', str(cfg_path), '--dsn-env', 'OTHER_DSN'])
+    assert rc == 0
+    assert captured == [('postgresql://other', 'custom', False)]

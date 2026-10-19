@@ -554,9 +554,37 @@ def test_export_uses_config_rosbag_dir(tmp_path, monkeypatch) -> None:
 
     import rdfp.dataset.import_cmd as import_cmd
     monkeypatch.setattr(import_cmd, 'cmd_import',
-                        lambda args, path: seen.update(keys=list(args.start_ns_in)) or 0)
+                        lambda args, path: seen.update(keys=list(args.start_ns_in),
+                                                       root=args.rosbag_dir) or 0)
 
     rc = cli_main(['export', '--config', config])
 
     assert rc == 0
     assert seen['keys'] == [base, base + 200 * sec]
+    # 고르기를 설정의 루트로 했으므로 적재도 설정의 루트를 쓴다 — 덮어쓸 루트가 없다.
+    assert seen['root'] is None
+
+
+def test_export_loads_from_the_root_it_selected_from(tmp_path, monkeypatch) -> None:
+    """`--rosbag-dir` 로 고른 루트를 적재에도 넘긴다.
+
+    적재는 설정의 `rosbag_dir` 을 다시 읽으므로, 루트를 넘기지 않으면 고른 bag 과 다른 bag
+    에서 같은 자연키를 찾는다 — 아무것도 안 들어가거나 다른 에피소드가 들어간다.
+    """
+    picked_root = tmp_path / 'picked'
+    config_root = tmp_path / 'config_root'
+    base, sec = _episode_bag(picked_root, labels=('peg',))
+    _episode_bag(config_root, labels=('other',))
+    config = _write_config(tmp_path / 'dataset_config.yaml', config_root)
+    seen = {}
+
+    import rdfp.dataset.import_cmd as import_cmd
+    monkeypatch.setattr(import_cmd, 'cmd_import',
+                        lambda args, path: seen.update(keys=list(args.start_ns_in),
+                                                       root=args.rosbag_dir) or 0)
+
+    rc = cli_main(['export', '--rosbag-dir', str(picked_root), '--config', config])
+
+    assert rc == 0
+    assert seen['keys'] == [base]
+    assert seen['root'] == str(picked_root)

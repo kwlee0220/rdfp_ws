@@ -542,7 +542,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
     """`export`: 선택된 에피소드만 DB·MP4 로 적재한다.
 
     적재 자체는 `import` 와 **같은 파이프라인**을 탄다 — 선택 결과를 자연키 목록으로
-    바꿔 `episode_filter.start_ns_in` 에 실어 넘긴다.
+    바꿔 `episode_filter.start_ns_in` 에 실어 넘긴다. `--rosbag-dir` 로 고른 루트도 함께
+    넘겨, 고른 bag 과 적재하는 bag 이 같게 한다.
     """
     if not getattr(args, 'config', None):
         logging.error('--config is required for export (database and mp4 output)')
@@ -562,7 +563,12 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
     from rdfp.dataset.import_cmd import cmd_import
 
-    ns = argparse.Namespace(start_ns_in=[v.start_ns for v in picked])
+    # 적재는 설정의 `rosbag_dir` 에서 split 을 다시 찾는다. `--rosbag-dir` 로 다른 루트에서
+    # 골랐는데 그 루트를 넘기지 않으면, 자연키만 들고 설정의 루트를 뒤져 아무것도 안
+    # 들어가거나 같은 키를 가진 **다른 에피소드**가 들어간다(경과시간 회차의 키 충돌).
+    # `--rosbag-dir` 이 없으면 고르기도 설정의 루트로 했으므로 넘길 것이 없다.
+    ns = argparse.Namespace(start_ns_in=[v.start_ns for v in picked],
+                            rosbag_dir=args.rosbag_dir)
     return cmd_import(ns, args.config)
 
 

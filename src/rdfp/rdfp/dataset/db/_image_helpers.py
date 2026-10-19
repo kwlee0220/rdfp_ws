@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence, Union
+
+import os
+from pathlib import Path
 
 import psycopg
 
@@ -20,6 +23,33 @@ from robot_control.types import ImageMetadata, Resolution, to_ros_image_msg
 SUPPORTED_PIXEL_FORMATS: frozenset[str] = frozenset({
     'bgr8', 'rgb8', 'bgra8', 'rgba8', 'mono8',
 })
+
+#: mp4 를 찾을 루트 — 하나 또는 여러 개 (앞에서부터 찾는다).
+Mp4Roots = Union[str, os.PathLike, Sequence[Union[str, os.PathLike]]]
+
+
+def resolve_mp4_path(mp4_path: str, roots: Mp4Roots) -> Path:
+    """``image_streams.mp4_path`` 를 실제 파일 경로로 푼다.
+
+    ``mp4_path`` 는 **그 영상을 만든 쪽의 출력 루트** 기준 상대 경로다 — 레코더 mp4 는
+    ``recordings_dir``, bag 에서 인코딩한 것은 ``output_mp4_dir``. 테이블에 어느 루트인지
+    적혀 있지 않으므로 주어진 루트를 앞에서부터 찾아 **파일이 있는 첫 경로**를 쓴다.
+    두 출력은 이름 규칙(``session_*.mp4`` · ``episode_<id>/…``)이 달라 겹치지 않는다.
+
+    예전에는 ``output_mp4_dir`` 하나만 봐서, 두 루트가 다른 구성에서 레코더 영상을
+    재생하면 파일을 못 찾았다. 절대 경로(루트 밖 파일을 등록한 경우)는 그대로 쓴다.
+
+    Raises:
+        RuntimeError: 어느 루트에도 파일이 없을 때. 찾아 본 경로를 모두 적는다.
+    """
+    root_list = [roots] if isinstance(roots, (str, os.PathLike)) else list(roots)
+    rel = Path(mp4_path)
+    candidates = [rel] if rel.is_absolute() else [Path(r) / rel for r in root_list]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    tried = ', '.join(str(c) for c in candidates) or 'no root given'
+    raise RuntimeError(f'mp4 file not found: {mp4_path} (tried: {tried})')
 
 
 def lookup_topic_id(conn: psycopg.Connection, topic_name: str) -> int:

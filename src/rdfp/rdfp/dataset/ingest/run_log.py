@@ -73,25 +73,6 @@ class RunLog:
             'task_label': task_label,
         })
 
-    def quality_warning(
-        self,
-        *,
-        episode_id: int | None,
-        kind: str,
-        topic: str,
-        stamp_ns: int,
-        prev_stamp_ns: int,
-    ) -> None:
-        self._write({
-            'ts': _now_iso(),
-            'event': 'quality_warning',
-            'episode_id': episode_id,
-            'kind': kind,
-            'topic': topic,
-            'stamp_ns': int(stamp_ns),
-            'prev_stamp_ns': int(prev_stamp_ns),
-        })
-
     def _write(self, record: dict) -> None:
         with self._path.open('a', encoding='utf-8') as f:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')

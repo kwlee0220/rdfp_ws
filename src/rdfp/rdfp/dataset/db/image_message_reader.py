@@ -28,7 +28,6 @@ from typing import Final, Iterator
 import logging
 import queue
 import threading
-from pathlib import Path
 
 import psycopg
 
@@ -38,11 +37,13 @@ from rdfp.dataset.types import ReplayStream
 
 from ._image_helpers import (
     SUPPORTED_PIXEL_FORMATS,
+    Mp4Roots,
     build_image_metadata,
     decode_one_frame,
     lookup_topic_id,
     read_image_frames_meta,
     read_image_stream_meta,
+    resolve_mp4_path,
 )
 
 
@@ -58,7 +59,7 @@ _PREFETCH_QUEUE_SIZE: Final[int] = 4
 
 def open_image_replay_source(conn: psycopg.Connection, episode_id: int,
                              topic_name: str,
-                             mp4_root: Path) -> ReplayStream | None:
+                             mp4_root: Mp4Roots) -> ReplayStream | None:
     """지정 에피소드/토픽의 mp4 파일을 lazy ``ReplayStream`` 으로 연다.
 
     image_streams + image_frames 메타는 즉시 읽지만 mp4 디코딩은 ``iterator``
@@ -69,7 +70,8 @@ def open_image_replay_source(conn: psycopg.Connection, episode_id: int,
         conn: 열려 있는 PostgreSQL 커넥션.
         episode_id: ``sessions.id``.
         topic_name: 조회 대상 이미지 토픽 이름.
-        mp4_root: ``image_streams.mp4_path`` 의 기준 루트.
+        mp4_root: ``image_streams.mp4_path`` 의 기준 루트. 여러 개면 앞에서부터 찾는다
+            (:func:`resolve_mp4_path` — 레코더 mp4 와 bag 인코딩 mp4 의 루트가 다르다).
 
     Returns:
         ``ReplayStream`` 인스턴스. 해당 에피소드에 image_frames row 가 없으면
@@ -95,9 +97,7 @@ def open_image_replay_source(conn: psycopg.Connection, episode_id: int,
             f'expected one of {sorted(SUPPORTED_PIXEL_FORMATS)}'
         )
 
-    mp4_path = Path(mp4_root) / stream['mp4_path']
-    if not mp4_path.is_file():
-        raise RuntimeError(f'mp4 file not found: {mp4_path}')
+    mp4_path = resolve_mp4_path(stream['mp4_path'], mp4_root)
 
     cap = cv2.VideoCapture(str(mp4_path))
     if not cap.isOpened():

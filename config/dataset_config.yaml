@@ -1,20 +1,23 @@
-# dataset CLI 설정 예시.
+# 적재 설정 — init-db · import · stats · list · replay 와 rosbag CLI(`--config`)가 함께 읽는다.
 #
-# 실행 전 DSN 환경변수를 설정한다:
+# 실행 전 DSN 환경변수를 설정한다 (`.rdfprc` 가 export 한다):
 #   export RDFP_DB_DSN="postgresql://rdfp@localhost:5432/rdfp"
 #
-# 실행:
-#   ros2 run rdfp dataset init-db --config dataset_config.yaml
-#   ros2 run rdfp dataset import  --config dataset_config.yaml
-#   ros2 run rdfp dataset stats   --config dataset_config.yaml
+# 실행 (워크스페이스 루트에서 — `--config` 를 안 주면 `$RDFP_HOME/config/dataset_config.yaml` 을 찾는다):
+#   ros2 run rdfp init-db
+#   ros2 run rdfp import --config config/dataset_config.yaml
+#   ros2 run rdfp stats  --config config/dataset_config.yaml
 #
-# 스키마 상세는 docs/collect/dataset_ingest_design.md 4.3 절 참조.
+# ⚠️ 이 파일을 다른 디렉터리로 복사하면 아래 `topics_file` 상대 경로가 깨진다 — 절대 경로로 바꾼다.
+# ⚠️ 모르는 키는 오류 없이 무시된다 — 오타를 내면 기본값으로 돈다.
+#
+# 운영 가이드: docs/collect/데이터셋_적재_운영_가이드.md · 필드 근거: docs/collect/데이터셋_적재_시스템_설계서.md 4장.
 
 
 # ── 입출력 경로 ─────────────────────────────────────────────────────
 #   `${VAR}` / `${VAR:-default}` 환경변수 치환과 `~` 홈 확장을 지원한다 (경로 필드 한정).
 rosbag_dir:     ${RDFP_ROSBAG_DIR:-$HOME/rosbag}  # rosbag2 MCAP 루트 (운영 방안 4장 구조)
-output_mp4_dir: ${RDFP_VIDEO_DIR:-/data/rdfp/videos}  # 에피소드별 mp4/metadata.json/frames.jsonl 저장 경로 (import 전용)
+output_mp4_dir: ${RDFP_VIDEOS_DIR:-/data/rdfp/videos}  # bag 이미지를 인코딩한 mp4(episode_<id>/) · 실행 로그(_logs/) 자리 (import 필수)
 # **레코더가 남긴 mp4 의 루트** (`image_pipeline.yaml` 의 `output_dir` 과 같은 값).
 # 주면 적재가 그 출력을 읽어 `image_streams`·`image_frames` 에 등록한다 —
 # `episode_key`(레코더 metadata) 로 에피소드를 찾으며 **파일 이름으로 맞추지 않는다**.
@@ -33,8 +36,9 @@ db:
 # ── 대상 토픽 화이트리스트 (비우면 rosbag 의 모든 토픽) ────────────
 #   /session 은 자동 포함되므로 누락해도 무방하다.
 #   topics_file 은 record_rosbag.sh 와 공유하는 텍스트 파일이다. 상대 경로는
-#   이 YAML 의 디렉터리 기준으로 해석한다. 추가로 좁히고 싶으면 아래 topics:
-#   를 함께 적으면 두 출처를 병합한다 (중복은 자동 제거).
+#   이 YAML 의 디렉터리 기준으로 해석한다.
+#   ⚠️ 아래 topics: 는 topics_file 에 **더해진다**(합집합, 중복 제거) — 좁히지 않는다.
+#   좁히려면 목록 파일을 따로 만들어 가리키거나, topics_file 을 빼고 topics 만 적는다.
 topics_file: recording_topics.list
 # topics: []
 
@@ -48,7 +52,7 @@ episode_filter:
 
 # ── 세션 사전 필터 ─────────────────────────────────────────────────
 session_filter:
-  dates: []                        # YYYY-MM-DD 목록 (빈 목록 = 모든 날짜)
+  dates: []                        # ["YYYY-MM-DD", ...] — 따옴표 필수 (없으면 YAML 이 날짜로 읽어 검증 실패)
 
 
 # ── 중복 에피소드 처리 정책 ────────────────────────────────────────
@@ -65,14 +69,14 @@ mp4:
 
 
 # ── 운영 통합 (선택) ──────────────────────────────────────────────
-#   1 = 단일 프로세스. 2 이상이면 에피소드 단위 병렬 처리.
+#   1 = 단일 프로세스(첫 실패에서 멈춘다). 2 이상이면 에피소드 단위 병렬 처리
+#   (실패해도 끝까지 돌고, 요약의 failed 에 센 뒤 종료 코드 1).
 parallelism: 1
 
-quality_gate:
-  stamp_regression: true            # header.stamp 역행 감지
-  idle_gap_sec: 0.0                 # >0 시 토픽별 유휴 갭 감지 (초)
-
-# rosbag 을 임시 스테이징으로 운용할 때: import 성공 후 사용된 split
-# (.mcap) 을 제거하고, metadata.yaml 만 남은 세션 디렉터리도 정리한다.
-# dry-run 모드에서는 무시된다.
+# rosbag 을 임시 스테이징으로 운용할 때: import 후 이번에 찾은 split(.mcap)을
+# 지우고, metadata.yaml 만 남은 세션 디렉터리도 정리한다.
+# ⚠️ 지우는 단위는 에피소드가 아니라 split 파일이다. 그래서 실패한 에피소드가
+# 있거나 필터(task_labels · min_duration · rosbag export 의 선택)가 에피소드를
+# 하나라도 뺀 실행에서는 지우지 않고 요약의 delete_skipped 에 사유를 남긴다.
+# 에피소드 단위로 지우려면 이 옵션 대신 `./scripts/rosbag.sh delete --exported`.
 delete_splits_after_import: false

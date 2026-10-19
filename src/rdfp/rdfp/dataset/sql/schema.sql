@@ -1,5 +1,5 @@
 -- 데이터셋 후처리기용 PostgreSQL 스키마.
--- 설계서: docs/rosbag2/데이터셋 후처리기 설계서.md
+-- 설계서: docs/collect/데이터셋_적재_시스템_설계서.md (§5)
 --
 -- stamp_ts/start_ts/stop_ts 는 sec + nanosec 으로부터 파생된 STORED generated
 -- column 이다. STORED 는 IMMUTABLE 식만 허용하므로 timestamptz + interval 경로

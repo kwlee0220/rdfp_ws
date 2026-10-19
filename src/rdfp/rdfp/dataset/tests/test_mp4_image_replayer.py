@@ -630,3 +630,45 @@ def test_stop_before_start_is_noop(tmp_path: Path) -> None:
     r.stop()   # no exception
     assert not r.is_running
     r.close()
+
+
+# --------------------------------------------------------------------------
+# 여러 루트 — 레코더 mp4 와 bag 인코딩 mp4 는 기준 루트가 다르다
+# --------------------------------------------------------------------------
+
+def test_init_finds_mp4_under_second_root(tmp_path: Path) -> None:
+    """루트를 여러 개 주면 파일이 있는 쪽을 쓴다.
+
+    레코더 mp4 는 `recordings_dir` 기준으로 등록되는데 예전에는 `output_mp4_dir` 만 봐서,
+    두 루트가 다른 구성에서 수집한 영상을 재생하면 파일을 못 찾았다.
+    """
+    from rdfp.dataset.db import mp4_image_replayer as m
+
+    empty_root = tmp_path / 'videos'
+    empty_root.mkdir()
+    recordings = tmp_path / 'recordings'
+    recordings.mkdir()
+    mp4 = _make_mp4(recordings)
+    conn = _make_conn(mp4, [(0, 100, 0)])
+
+    r = m.Mp4ImageReplayer(_FakeNode(), conn, episode_id=1, topic_name='/cam',
+                           mp4_root=[empty_root, recordings])
+    assert r._mp4_path == recordings / 'cam.mp4'
+    r.close()
+
+
+def test_init_missing_mp4_lists_every_root(tmp_path: Path) -> None:
+    """어느 루트에도 없으면 찾아 본 경로를 모두 적는다 — 어느 설정이 틀렸는지 보이게."""
+    from rdfp.dataset.db import mp4_image_replayer as m
+
+    conn = _FakeConn()
+    conn.row_queue = [
+        [(1,)],
+        [('missing.mp4', 'bgr8', '', 4, 4, 1)],
+        [(0, 100, 0)],
+    ]
+    with pytest.raises(RuntimeError, match='mp4 file not found') as exc:
+        m.Mp4ImageReplayer(_FakeNode(), conn, episode_id=1, topic_name='/cam',
+                           mp4_root=[tmp_path / 'a', tmp_path / 'b'])
+    assert str(tmp_path / 'a' / 'missing.mp4') in str(exc.value)
+    assert str(tmp_path / 'b' / 'missing.mp4') in str(exc.value)

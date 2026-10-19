@@ -165,3 +165,42 @@ def test_topics_file_env_expansion(monkeypatch, tmp_path) -> None:
     )
     cfg = load_dataset_config(cfg_path)
     assert cfg.topics == ['/session']
+
+
+def test_mp4_roots_recordings_first() -> None:
+    """재생이 찾을 영상 루트 — 레코더 출력이 먼저, 없는 것은 뺀다."""
+    both = DatasetConfig.model_validate(
+        {'rosbag_dir': '/b', 'output_mp4_dir': '/v', 'recordings_dir': '/r'})
+    assert both.mp4_roots() == ['/r', '/v']
+    only_bag = DatasetConfig.model_validate({'rosbag_dir': '/b', 'output_mp4_dir': '/v'})
+    assert only_bag.mp4_roots() == ['/v']
+    neither = DatasetConfig.model_validate({'rosbag_dir': '/b'})
+    assert neither.mp4_roots() == []
+
+
+def test_session_filter_dates_must_be_quoted_in_yaml(tmp_path) -> None:
+    """YAML 은 따옴표 없는 `2026-04-11` 을 날짜 객체로 읽어 검증에 실패한다.
+
+    운영 가이드의 예시가 이것을 따옴표 없이 적어 두었다가 실제로 실패했다 —
+    예시를 바꾸는 쪽이 맞고, 이 시험이 그 전제를 고정한다.
+    """
+    unquoted = tmp_path / 'unquoted.yaml'
+    unquoted.write_text('rosbag_dir: /tmp/rosbag\nsession_filter:\n  dates: [2026-04-11]\n')
+    with pytest.raises(ValueError):
+        load_dataset_config(unquoted)
+    quoted = tmp_path / 'quoted.yaml'
+    quoted.write_text('rosbag_dir: /tmp/rosbag\nsession_filter:\n  dates: ["2026-04-11"]\n')
+    assert load_dataset_config(quoted).session_filter.dates == ['2026-04-11']
+
+
+def test_removed_quality_gate_key_is_ignored(tmp_path) -> None:
+    """품질 게이트는 2026-10-18 에 뺐다 — 옛 설정에 블록이 남아 있어도 읽혀야 한다."""
+    old = tmp_path / 'old.yaml'
+    old.write_text(
+        'rosbag_dir: /tmp/rosbag\n'
+        'quality_gate:\n'
+        '  stamp_regression: true\n'
+        '  idle_gap_sec: 0.5\n'
+    )
+    cfg = load_dataset_config(old)
+    assert not hasattr(cfg, 'quality_gate')

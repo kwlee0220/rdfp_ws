@@ -3,11 +3,17 @@
 이전에는 ``dataset init-db`` 서브커맨드였으나, 별도 entry_point 로 분리되어
 독립 console script (``init-db``) 로 동작한다.
 
-DB 접속 정보 확정 순서:
-    1. ``--config`` 이 명시되거나 cwd 의 ``dataset_config.yaml`` 이 존재
-       하면 그 ``db`` 섹션을 사용.
-    2. 그렇지 않으면 ``--dsn-env`` (기본 ``RDFP_DB_DSN``) + ``--schema``
-       (기본 ``public``) 로 fallback.
+DB 접속 정보 확정 순서 (``dsn_env`` · ``schema`` 를 항목마다 따로 정한다):
+    1. 명시한 ``--dsn-env`` · ``--schema``.
+    2. 설정 파일의 ``db`` 섹션 — ``--config`` 또는 기본 설정 파일
+       (``$RDFP_HOME/config/dataset_config.yaml``, ``RDFP_HOME`` 이 없으면
+       ``./config/dataset_config.yaml``).
+    3. 내장 기본값 (``RDFP_DB_DSN`` / ``public``).
+
+**명시한 인자가 설정을 이긴다.** 기본 설정 파일은 사람이 고른 것이 아니라 *찾아진*
+것이다. 예전에는 그것이 있으면 ``--dsn-env`` · ``--schema`` 를 조용히 무시해,
+워크스페이스 루트에서 ``init-db --schema rdfp_v1`` 이 ``public`` 에 테이블을
+만들었다. 어느 대상에 적용하는지는 INFO 로그로 남긴다.
 
 ``--drop`` 은 destructive 작업이므로 ``--yes`` 가 함께 있거나 대화형 셸
 에서 ``YES`` 를 입력해야만 진행된다 (non-interactive 환경 + ``--yes`` 부재
@@ -29,7 +35,7 @@ from .cli_common import (
     add_common_args, configure_logging, load_dataset_or_fail,
     resolve_config_path,
 )
-from .db.config import DbConfig, resolve_dsn
+from .db.config import DEFAULT_DSN_ENV, DbConfig, resolve_dsn
 from .db.initialize import initialize_schema
 
 
@@ -40,13 +46,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_common_args(p)
     p.add_argument('--config',
-                   help='optional path to dataset_config.yaml (uses db.dsn_env + db.schema). '
-                        '미지정 시 cwd 의 dataset_config.yaml 을 자동 사용한다.')
-    p.add_argument('--dsn-env', default='RDFP_DB_DSN',
-                   help='environment variable name holding the DSN '
-                        '(used when --config is not given)')
-    p.add_argument('--schema', default='public',
-                   help='target schema name (used when --config is not given)')
+                   help='path to dataset_config.yaml (uses db.dsn_env + db.schema). '
+                        'If omitted, $RDFP_HOME/config/dataset_config.yaml '
+                        '(./config/dataset_config.yaml without RDFP_HOME) is used when present.')
+    # 기본값을 두지 않는다 — None 이어야 "명시하지 않았다"를 알고 설정 값을 쓸 수 있다.
+    p.add_argument('--dsn-env', default=None,
+                   help='environment variable name holding the DSN; overrides db.dsn_env '
+                        f'(default: {DEFAULT_DSN_ENV} when no config file is found)')
+    p.add_argument('--schema', default=None,
+                   help='target schema name; overrides db.schema '
+                        '(default: public when no config file is found)')
     p.add_argument('--drop', action='store_true',
                    help='drop existing postproc tables before recreating '
                         '(destructive — requires --yes)')
@@ -70,10 +79,17 @@ def cmd_init_db(args: argparse.Namespace) -> int:
             return 2
         db_cfg = cfg.db
     else:
-        db_cfg = DbConfig.model_validate({
-            'dsn_env': args.dsn_env,
-            'schema': args.schema,
-        })
+        db_cfg = DbConfig()
+    # 명시한 인자는 어느 설정보다 앞선다 (모듈 docstring).
+    overrides: dict[str, str] = {}
+    if args.dsn_env is not None:
+        overrides['dsn_env'] = args.dsn_env
+    if args.schema is not None:
+        overrides['schema_'] = args.schema
+    if overrides:
+        db_cfg = db_cfg.model_copy(update=overrides)
+    logging.info('target: schema=%r, DSN from $%s (config: %s)',
+                 db_cfg.schema_, db_cfg.dsn_env, config_path or 'none')
 
     try:
         dsn = resolve_dsn(db_cfg)

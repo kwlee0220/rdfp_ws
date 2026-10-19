@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 
 import pytest
@@ -81,6 +82,32 @@ def test_main_auto_uses_default_config(monkeypatch, tmp_path) -> None:
     assert called == ['/tmp/x']
 
 
+@requires_ros
+def test_cmd_import_prefers_root_from_caller(monkeypatch, tmp_path) -> None:
+    """`rosbag export --rosbag-dir` 가 보낸 루트가 설정의 `rosbag_dir` 보다 앞선다.
+
+    `export` 는 그 루트에서 에피소드를 골랐다. 적재가 설정의 루트를 다시 읽으면 고른 bag 과
+    다른 bag 에서 같은 자연키를 찾게 된다.
+    """
+    cfg_path = tmp_path / 'dataset_config.yaml'
+    cfg_path.write_text(
+        'rosbag_dir: /tmp/from_config\n'
+        'output_mp4_dir: /tmp/y\n'
+    )
+    called: list = []
+    monkeypatch.setattr(
+        import_cmd_mod, 'discover_splits',
+        lambda rosbag_dir, dates=None, topics=None: (
+            called.append(rosbag_dir) or []),
+    )
+    args = argparse.Namespace(start_ns_in=[1], rosbag_dir='/tmp/from_caller')
+
+    rc = import_cmd_mod.cmd_import(args, str(cfg_path))
+
+    assert rc == 0
+    assert called == ['/tmp/from_caller']
+
+
 def test_main_without_config_and_no_cwd_file_returns_2(monkeypatch, tmp_path,
                                                        caplog) -> None:
     """`--config` 없이 실행했을 때, 기본 설정 파일도 없으면 exit 2.
@@ -98,3 +125,107 @@ def test_main_without_config_and_no_cwd_file_returns_2(monkeypatch, tmp_path,
     with caplog.at_level('ERROR'):
         rc = import_cmd_mod.main([])
     assert rc == 2
+
+
+# ---- 자동 삭제 · 병렬 실패 ----------------------------------------------
+
+def test_split_deletion_blocker() -> None:
+    """split 을 지워도 되는 것은 실패도, 필터로 빠진 에피소드도 없을 때뿐이다."""
+    assert import_cmd_mod._split_deletion_blocker(0, 0) is None
+    assert 'failed' in import_cmd_mod._split_deletion_blocker(1, 0)
+    assert 'excluded 2' in import_cmd_mod._split_deletion_blocker(0, 2)
+
+
+def _stub_pipeline(monkeypatch, tmp_path, *, failed: int, keep: int) -> tuple[str, list]:
+    """`cmd_import` 의 무거운 단계(DB · 병렬 실행)를 대역으로 바꾼다.
+
+    에피소드 둘을 감지하고 필터가 앞의 `keep` 개를 남긴다. 병렬 실행은 `failed` 개를
+    실패로 보고한다. 돌려주는 목록에 `_delete_used_splits` 호출이 쌓인다.
+    """
+    from contextlib import contextmanager
+
+    import rdfp.dataset.db.connection as connection_mod
+    import rdfp.dataset.db.schema_check as schema_check_mod
+    import rdfp.dataset.db.topics as topics_mod
+    import rdfp.dataset.ingest.pipeline as pipeline_mod
+
+    class _Conn:
+        def commit(self) -> None:
+            pass
+
+    @contextmanager
+    def _open(_db):
+        yield _Conn()
+
+    def _parallel(cfg, splits, episodes, topic_entries, topic_ids, image_topics,
+                  run_log_path, summary) -> None:
+        summary['episodes'] += len(episodes) - failed
+        summary['failed'] += failed
+
+    deleted: list = []
+    monkeypatch.setattr(import_cmd_mod, 'discover_splits',
+                        lambda rosbag_dir, dates=None, topics=None: ['split0'])
+    monkeypatch.setattr(pipeline_mod, '_detect_all_episodes', lambda splits: ['ep1', 'ep2'])
+    monkeypatch.setattr(pipeline_mod, '_apply_episode_filters', lambda eps, f: eps[:keep])
+    monkeypatch.setattr(pipeline_mod, '_determine_topic_classification',
+                        lambda splits, cfg: (set(), {}, {}))
+    monkeypatch.setattr(pipeline_mod, '_run_parallel', _parallel)
+    monkeypatch.setattr(pipeline_mod, '_delete_used_splits',
+                        lambda splits: deleted.append(list(splits)) or len(splits))
+    monkeypatch.setattr(connection_mod, 'open_connection', _open)
+    monkeypatch.setattr(schema_check_mod, 'ensure_schema', lambda conn, tables: None)
+    monkeypatch.setattr(topics_mod, 'upsert_topic_ids', lambda conn, topics: {})
+
+    cfg_path = tmp_path / 'dataset_config.yaml'
+    cfg_path.write_text(
+        f'rosbag_dir: {tmp_path}/rosbag\n'
+        f'output_mp4_dir: {tmp_path}/videos\n'
+        'parallelism: 2\n'
+        'delete_splits_after_import: true\n'
+    )
+    return str(cfg_path), deleted
+
+
+@requires_ros
+def test_parallel_failure_returns_1_and_keeps_splits(monkeypatch, tmp_path, capsys) -> None:
+    """병렬 모드에서 에피소드가 실패하면 종료 코드 1 이고 split 을 지우지 않는다.
+
+    예전에는 워커가 돌려준 `status='failed'` 를 집계가 버려 0 으로 끝났고, 자동 삭제가
+    켜져 있으면 **실패한 에피소드의 원본까지** 지웠다.
+    """
+    cfg_path, deleted = _stub_pipeline(monkeypatch, tmp_path, failed=1, keep=2)
+
+    rc = import_cmd_mod.cmd_import(argparse.Namespace(), cfg_path)
+
+    assert rc == 1
+    assert deleted == []
+    out = capsys.readouterr().out
+    assert '"failed": 1' in out
+    assert '"delete_skipped"' in out
+
+
+@requires_ros
+def test_filtered_out_episodes_keep_splits(monkeypatch, tmp_path, capsys) -> None:
+    """필터가 에피소드 일부를 뺐으면 지우지 않는다 — 같은 split 에 있을 수 있다.
+
+    `rosbag export --episodes 3` 도 이 경로(`start_ns_in`)라, 예전에는 하나를 적재하고
+    `rosbag_dir` 의 split 을 전부 지울 수 있었다.
+    """
+    cfg_path, deleted = _stub_pipeline(monkeypatch, tmp_path, failed=0, keep=1)
+
+    rc = import_cmd_mod.cmd_import(argparse.Namespace(), cfg_path)
+
+    assert rc == 0
+    assert deleted == []
+    assert 'excluded 1' in capsys.readouterr().out
+
+
+@requires_ros
+def test_clean_run_deletes_splits(monkeypatch, tmp_path) -> None:
+    """실패도, 빠진 에피소드도 없으면 예전처럼 지운다."""
+    cfg_path, deleted = _stub_pipeline(monkeypatch, tmp_path, failed=0, keep=2)
+
+    rc = import_cmd_mod.cmd_import(argparse.Namespace(), cfg_path)
+
+    assert rc == 0
+    assert deleted == [['split0']]

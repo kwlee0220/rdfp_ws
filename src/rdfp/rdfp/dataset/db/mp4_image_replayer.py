@@ -54,11 +54,13 @@ from robot_control.types import ImageMetadata, to_ros_image_msg
 
 from ._image_helpers import (
     SUPPORTED_PIXEL_FORMATS,
+    Mp4Roots,
     build_image_metadata,
     decode_one_ndarray,
     lookup_topic_id,
     read_image_frames_meta,
     read_image_stream_meta,
+    resolve_mp4_path,
     stamp_to_ns,
 )
 
@@ -96,7 +98,7 @@ class Mp4ImageReplayer:
     """
 
     def __init__(self, node: Node, conn: psycopg.Connection, episode_id: int, topic_name: str,
-                 mp4_root: Path, *,
+                 mp4_root: Mp4Roots, *,
                  decode_queue_size: int = _DEFAULT_DECODE_QUEUE_SIZE,
                  publish_queue: int = 10,
                  logger: Optional[logging.Logger] = None) -> None:
@@ -107,7 +109,8 @@ class Mp4ImageReplayer:
             conn: 열려 있는 PostgreSQL 커넥션. 본 생성자 동안에만 사용된다.
             episode_id: ``sessions.id``.
             topic_name: 발행 대상 이미지 토픽 이름.
-            mp4_root: ``image_streams.mp4_path`` 의 기준 raoot.
+            mp4_root: ``image_streams.mp4_path`` 의 기준 루트. 여러 개면 앞에서부터 찾는다
+                (``resolve_mp4_path`` — 레코더 mp4 와 bag 인코딩 mp4 의 루트가 다르다).
             decode_queue_size: 디코더 → publisher 큐 깊이 (양의 정수).
             publish_queue: publisher 의 큐 깊이.
             logger: 진단 로거. 생략 시 모듈 로거.
@@ -137,9 +140,7 @@ class Mp4ImageReplayer:
                 f'unsupported pixel_format in image_streams: {self._pixel_format!r}; '
                 f'expected one of {sorted(SUPPORTED_PIXEL_FORMATS)}')
 
-        self._mp4_path: Path = Path(mp4_root) / self._stream['mp4_path']
-        if not self._mp4_path.is_file():
-            raise RuntimeError(f'mp4 file not found: {self._mp4_path}')
+        self._mp4_path: Path = resolve_mp4_path(self._stream['mp4_path'], mp4_root)
 
         self._metadata: ImageMetadata = build_image_metadata(self._stream)
         self._topic_name: str = topic_name

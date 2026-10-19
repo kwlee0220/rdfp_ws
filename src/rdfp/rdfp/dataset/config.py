@@ -62,17 +62,6 @@ class Mp4Config(BaseModel):
     nominal_fps: int = 30
 
 
-class QualityGateConfig(BaseModel):
-    """품질 게이트 설정 (Phase 3).
-
-    감지된 이상은 JSONL 로그에 `event='quality_warning'` 로 기록되지만,
-    에피소드 자체를 제외하거나 실패시키지 않는다.
-    """
-
-    stamp_regression: bool = True
-    idle_gap_sec: float = 0.0     # 0 = 비활성. 양수 지정 시 토픽 간 유휴 감지.
-
-
 _FALLBACK_PATTERN = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}')
 
 
@@ -129,7 +118,9 @@ class DatasetConfig(BaseModel):
     mp4: Mp4Config = Field(default_factory=Mp4Config)
     # Phase 3: 에피소드 단위 병렬 처리 워커 수. 1 이면 기존 단일 프로세스 스트리밍.
     parallelism: int = 1
-    quality_gate: QualityGateConfig = Field(default_factory=QualityGateConfig)
+    # 품질 게이트(`quality_gate`)는 2026-10-18 에 뺐다 — header.stamp 로 정렬한 스트림을 봐서
+    # 역행 검사가 걸릴 수 없었고, 병렬 모드에서는 돌지도 않았다. 옛 설정에 키가 남아 있어도
+    # 모르는 키라 무시된다.
     # True 이면 import 가 예외 없이 끝난 뒤 사용된 split (.mcap) 과, 그 결과
     # 비게 된 세션 디렉터리(metadata.yaml 만 남은 경우) 를 제거한다.
     delete_splits_after_import: bool = False
@@ -145,6 +136,14 @@ class DatasetConfig(BaseModel):
         if SESSION_TOPIC not in self.topics:
             return [SESSION_TOPIC, *self.topics]
         return list(self.topics)
+
+    def mp4_roots(self) -> list[str]:
+        """재생이 `image_streams.mp4_path` 를 찾을 루트 — 레코더 출력 먼저, bag 인코딩 다음.
+
+        `mp4_path` 는 그 영상을 만든 쪽의 출력 루트 기준 상대 경로라 루트가 둘이다.
+        설정에 없는 것은 뺀다 (빈 목록이면 이미지 토픽을 재생할 수 없다).
+        """
+        return [p for p in (self.recordings_dir, self.output_mp4_dir) if p]
 
 
 def _read_topics_file(path: Path) -> list[str]:
@@ -211,7 +210,6 @@ __all__ = [
     'EpisodeFilter',
     'SessionFilter',
     'Mp4Config',
-    'QualityGateConfig',
     'DatasetConfig',
     'load_dataset_config',
 ]

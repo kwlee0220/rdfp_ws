@@ -47,21 +47,21 @@ def _stamp_ns(msg: StampedMessage) -> int:
 
 
 def _open_stream(conn, episode_id: int, topic_name: str,
-                 mp4_root: Path | None) -> ReplayStream | None:
+                 mp4_roots: list[Path]) -> ReplayStream | None:
     """토픽 종류에 맞는 ``ReplayStream`` 을 연다.
 
-    이미지 토픽이면 mp4 + sidecar 기반 lazy 스트림, 그 외는 message_reader
-    결과를 list 기반 ReplayStream 으로 wrap. 빈 source 또는 mp4_root 미설정
-    (이미지 토픽인 경우) 시 ``None``.
+    이미지 토픽이면 mp4 + ``image_frames`` 기반 lazy 스트림, 그 외는 message_reader
+    결과를 list 기반 ReplayStream 으로 wrap. 빈 source 또는 영상 루트가 하나도
+    없으면(이미지 토픽인 경우) ``None``.
     """
     if is_image_topic_in_db(conn, topic_name):
-        if mp4_root is None:
+        if not mp4_roots:
             logging.error(
-                'output_mp4_dir is required to replay image topic %s; '
+                'recordings_dir or output_mp4_dir is required to replay image topic %s; '
                 'set it in the dataset config', topic_name,
             )
             return None
-        return open_image_replay_source(conn, episode_id, topic_name, mp4_root)
+        return open_image_replay_source(conn, episode_id, topic_name, mp4_roots)
 
     messages = read_topic_messages_by_name(conn, episode_id, topic_name)
     if not messages:
@@ -92,7 +92,7 @@ def cmd_replay(args: argparse.Namespace, config_path: str) -> int:
 
     # 토픽별 ReplayStream 을 생성한다. 이미지 토픽은 mp4 + image_frames lazy 디코딩.
     # rclpy 초기화 전에 연결이 끝나도록 먼저 수행한다.
-    mp4_root = Path(cfg.output_mp4_dir) if cfg.output_mp4_dir else None
+    mp4_roots = [Path(p) for p in cfg.mp4_roots()]
     streams: list[ReplayStream] = []
     try:
         with open_connection(cfg.db) as conn:
@@ -103,7 +103,7 @@ def cmd_replay(args: argparse.Namespace, config_path: str) -> int:
                     return 2
             for topic in args.topic:
                 try:
-                    s = _open_stream(conn, args.episode_id, topic, mp4_root)
+                    s = _open_stream(conn, args.episode_id, topic, mp4_roots)
                 except ValueError as exc:
                     logging.error('%s', exc)
                     _close_all(streams)
