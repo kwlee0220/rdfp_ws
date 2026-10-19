@@ -28,6 +28,7 @@ from moveit_msgs.srv import GetCartesianPath
 from sensor_msgs.msg import JointState
 from rcl_interfaces.srv import GetParameters
 
+from robot_control.errors import PlanningError
 from robot_control.ros2_utils import (
     await_future_spin, await_future_spin_nospin, check_timeout_and_get_remains
 )
@@ -285,6 +286,23 @@ class MoveGroupClient(abc.ABC):
         self._node.get_logger().info(f'cancel requested for {len(goals)} active goal(s)')
         return True
 
+    def cancel_orphaned_goals(self, timeout_sec: float = 5.0) -> bool:
+        """이전 프로세스가 남긴 실행 중 궤적을 중단한다 — 기동 직후 한 번 부른다.
+
+        클라이언트 프로세스가 죽어도 컨트롤러는 받은 궤적을 끝까지 실행한다. 새로 뜬
+        클라이언트는 그 goal 의 핸들이 없으므로 :meth:`cancel` 로는 닿지 않는다.
+
+        기본 구현은 아무것도 하지 않는다 — JGPC 는 스트리밍이 곧 실행이라 스트리밍하던
+        프로세스가 죽으면 실행도 함께 끝난다(컨트롤러는 마지막 명령 위치를 유지한다).
+
+        Args:
+            timeout_sec: 취소 수단이 준비되기를 기다리는 한도(초).
+
+        Returns:
+            취소 요청을 보냈으면 ``True``.
+        """
+        return False
+
     # ----- Lifecycle ------------------------------------------------------
 
     def is_ready(self) -> bool:
@@ -485,7 +503,8 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
             TimeoutError: 각 단계가 시간 초과될 때.
-            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 실행이 실패했거나 클라이언트가 close() 되었을 때.
         """
 
     @abc.abstractmethod
@@ -532,7 +551,8 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: ``joint_values`` 가 비었거나 값이 유한하지 않을 때.
             TimeoutError: goal 수락 또는 실행 완료가 시간 초과될 때.
-            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 실행이 실패했거나 클라이언트가 close() 되었을 때.
         """
 
     @abc.abstractmethod
@@ -577,7 +597,8 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: waypoint 가 유효하지 않을 때.
             TimeoutError: 각 단계가 시간 초과될 때.
-            RuntimeError: 계획 비율 미달이거나 실행이 실패했을 때.
+            PlanningError: 계획 비율 미달일 때 (`RuntimeError` 하위).
+            RuntimeError: 실행이 실패했을 때.
         """
 
     @abc.abstractmethod
@@ -622,7 +643,8 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
             TimeoutError: SRDF 조회, goal 수락, 또는 계획 완료가 시간 초과될 때.
-            RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 클라이언트가 close() 되었을 때.
         """
         self._require_open()
         if not isinstance(name, str) or not name:
@@ -652,7 +674,7 @@ class MoveGroupClient(abc.ABC):
                                         'move_group goal response')
         if not goal_handle.accepted:
             self._node.get_logger().error('Move group plan-only goal rejected')
-            raise RuntimeError('Move group plan-only goal rejected')
+            raise PlanningError('Move group plan-only goal rejected')
 
         result_future = goal_handle.get_result_async()
         remains = check_timeout_and_get_remains(started_at, timeout)
@@ -709,7 +731,7 @@ class MoveGroupClient(abc.ABC):
             try:
                 goal_handle = future.result()
                 if not goal_handle.accepted:
-                    result_future.set_exception(RuntimeError('Move group plan-only goal rejected'))
+                    result_future.set_exception(PlanningError('Move group plan-only goal rejected'))
                     return
                 goal_handle.get_result_async().add_done_callback(_on_plan_done)
             except Exception as exc:
@@ -781,7 +803,8 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: ``joint_values`` 가 유효하지 않을 때.
             TimeoutError: goal 수락 또는 계획 완료가 시간 초과될 때.
-            RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 클라이언트가 close() 되었을 때.
         """
         self._require_open()
         values = self._complete_joint_values(_validate_joint_values(joint_values))
@@ -807,7 +830,7 @@ class MoveGroupClient(abc.ABC):
                                         'move_group goal response')
         if not goal_handle.accepted:
             self._node.get_logger().error('Move group plan-only goal rejected')
-            raise RuntimeError('Move group plan-only goal rejected')
+            raise PlanningError('Move group plan-only goal rejected')
 
         result_future = goal_handle.get_result_async()
         remains = check_timeout_and_get_remains(started_at, timeout)
@@ -853,7 +876,7 @@ class MoveGroupClient(abc.ABC):
             try:
                 goal_handle = future.result()
                 if not goal_handle.accepted:
-                    result_future.set_exception(RuntimeError('Move group plan-only goal rejected'))
+                    result_future.set_exception(PlanningError('Move group plan-only goal rejected'))
                     return
                 goal_handle.get_result_async().add_done_callback(_on_plan_done)
             except Exception as exc:
@@ -905,7 +928,7 @@ class MoveGroupClient(abc.ABC):
         Raises:
             ValueError: 입력 매개변수가 유효하지 않을 때.
             TimeoutError: 서비스 응답이 시간 초과될 때.
-            RuntimeError: 경로 계획이 실패했거나 MoveIt 오류 코드를 반환했을 때.
+            PlanningError: 경로 계획이 실패했거나 MoveIt 오류 코드를 반환했을 때 (`RuntimeError` 하위).
         """
         vs = self._resolve_velocity_scaling(velocity_scaling)
         ft = self._resolve_fraction_threshold(fraction_threshold)
@@ -918,12 +941,12 @@ class MoveGroupClient(abc.ABC):
         if response.error_code.val != MoveItErrorCodes.SUCCESS:
             self._node.get_logger().error(
                 f'Path planning returned error code: {response.error_code.val}')
-            raise RuntimeError(f'Path planning failed with error code: {response.error_code.val}')
+            raise PlanningError(f'Path planning failed with error code: {response.error_code.val}')
 
         if response.fraction < ft:
             self._node.get_logger().error(f'Path planning failed (fraction: {response.fraction})')
-            raise RuntimeError(f'Path planning failed: only '
-                               f'{response.fraction * 100:.1f}% of the path was planned')
+            raise PlanningError(f'Path planning failed: only '
+                                f'{response.fraction * 100:.1f}% of the path was planned')
 
         self._node.get_logger().info(f'Path planning successful (fraction: {response.fraction})')
         trajectory = response.solution
@@ -1216,15 +1239,15 @@ def _extract_planned_trajectory(result, name: str) -> RobotTrajectory:
     """MoveGroup plan-only 결과에서 궤적을 꺼내고 유효성을 확인한다.
 
     Raises:
-        RuntimeError: MoveIt 오류 코드를 반환했거나 궤적이 비어 있을 때.
+        PlanningError: MoveIt 오류 코드를 반환했거나 궤적이 비어 있을 때.
     """
     error_code = result.error_code.val
     if error_code != MoveItErrorCodes.SUCCESS:
-        raise RuntimeError(f'Planning to named target "{name}" failed with code: {error_code}')
+        raise PlanningError(f'Planning to named target "{name}" failed with code: {error_code}')
 
     trajectory = result.planned_trajectory
     if not trajectory.joint_trajectory.points:
-        raise RuntimeError(f'Planning to named target "{name}" returned an empty trajectory')
+        raise PlanningError(f'Planning to named target "{name}" returned an empty trajectory')
     return trajectory
 
 

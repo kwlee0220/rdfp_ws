@@ -7,7 +7,7 @@
 ros2 launch robot_control panda_mock.launch.py        # 가장 많이 쓰는 진입점
 ```
 
-> 수집 계층까지 띄우려면 이 launch 위에 `rdfp` 패키지의 `rdfp_collect.launch.py` 를 **따로 얹는다** — [src/rdfp/launch/README.md](../../rdfp/launch/README.md). 백엔드별 묶음 launch 는 2026-09-13 에 전부 삭제됐다. 그쪽 launch 도 helper 는 **이 패키지 것을 쓴다** (§5). 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_framework_design.md).
+> 수집 계층까지 띄우려면 이 launch 위에 `rdfp` 패키지의 `rdfp_collect.launch.py` 를 **따로 얹는다** — [src/rdfp/launch/README.md](../../rdfp/launch/README.md). 백엔드별 묶음 launch 는 2026-09-13 에 전부 삭제됐다. 그쪽 launch 도 helper 는 **이 패키지 것을 쓴다** (§5). 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_프레임워크_전체_구조와_설계.md).
 
 ---
 

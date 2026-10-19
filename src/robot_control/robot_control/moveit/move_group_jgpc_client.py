@@ -7,6 +7,7 @@ from rclpy.task import Future
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
 
+from robot_control.errors import PlanningError
 from robot_control.moveit.move_group_client import (
     DEFAULT_JOINT_TOLERANCE,
     DEFAULT_PLANNING_TIME,
@@ -346,7 +347,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
         Raises:
             ValueError: waypoint 가 유효하지 않을 때.
             TimeoutError: 계획이 시간 초과될 때.
-            RuntimeError: 계획 비율이 임계값에 못 미치거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획 비율이 임계값에 못 미칠 때 (`RuntimeError` 하위).
+            RuntimeError: 클라이언트가 close() 되었을 때.
         """
         self._node.get_logger().info(
             f'Moving through {len(waypoints)} cartesian waypoints via command streaming...'
@@ -416,7 +418,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
                         f'Path planning returned error code: {response.error_code.val}'
                     )
                     self._publish_failed(goal, f'error_code={response.error_code.val}')
-                    result_future.set_exception(RuntimeError(
+                    result_future.set_exception(PlanningError(
                         f'Path planning failed with error code: {response.error_code.val}'
                     ))
                     return
@@ -426,7 +428,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
                         f'Path planning failed (fraction: {response.fraction})'
                     )
                     self._publish_failed(goal, f'fraction {response.fraction:.3f} < {ft:.3f}')
-                    result_future.set_exception(RuntimeError(
+                    result_future.set_exception(PlanningError(
                         f'Path planning failed: only '
                         f'{response.fraction * 100:.1f}% of the path was planned'
                     ))
@@ -542,7 +544,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
         Raises:
             ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
             TimeoutError: SRDF 조회 또는 계획이 시간 초과될 때.
-            RuntimeError: 계획이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 클라이언트가 close() 되었을 때.
         """
         try:
             trajectory = self.plan_named_target(name, velocity_scaling=velocity_scaling,

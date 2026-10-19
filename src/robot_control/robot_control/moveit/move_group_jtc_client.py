@@ -14,6 +14,7 @@ from geometry_msgs.msg import Pose
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
 
+from robot_control.errors import PlanningError
 from robot_control.moveit.motion_event_publisher import (
     OPERATION_CARTESIAN,
     OPERATION_JOINTS,
@@ -161,6 +162,51 @@ class MoveGroupJtcClient(MoveGroupClient):
         )
         return True
 
+    def cancel_orphaned_goals(self, timeout_sec: float = 5.0) -> bool:
+        """컨트롤러에 남은 궤적을 모두 취소한다 (:meth:`MoveGroupClient.cancel_orphaned_goals`).
+
+        :meth:`cancel` 과 같은 "모든 goal 취소" 요청이지만 서비스를 ``timeout_sec`` 까지
+        **기다린다.** 기동 직후의 클라이언트는 아직 서비스와 매칭되지 않아
+        ``service_is_ready()`` 가 ``False`` 이므로, 기다리지 않으면 매번 아무것도 안 한다.
+
+        **주의**: :meth:`cancel` 과 같이 이 클라이언트가 시작하지 않은 궤적도 끊는다
+        (servo 는 해당 없다 — 액션이 아니라 토픽으로 명령한다).
+
+        Returns:
+            요청을 보냈으면 ``True``. 서비스가 ``timeout_sec`` 안에 나타나지 않으면
+            ``False`` — 컨트롤러가 아직 없으면 끊을 궤적도 없다.
+        """
+        if timeout_sec <= 0:
+            raise ValueError('timeout_sec must be positive')
+        self._require_open()
+        if not self._controller_cancel_client.wait_for_service(timeout_sec=timeout_sec):
+            self._node.get_logger().info(
+                f'controller cancel service not found within {timeout_sec}s; '
+                f'no orphaned goals to cancel ({self._controller_cancel_service})'
+            )
+            return False
+
+        future = self._controller_cancel_client.call_async(CancelGoal.Request())
+        future.add_done_callback(self._log_orphan_cancel)
+        return True
+
+    def _log_orphan_cancel(self, future) -> None:
+        """기동 시 취소 요청의 결과를 남긴다 — 실제로 끊긴 goal 이 있었는지가 단서다.
+
+        rclpy 로거는 호출 지점마다 severity 를 기억하므로 레벨별로 줄을 나눈다.
+        """
+        logger = self._node.get_logger()
+        try:
+            response = future.result()
+        except Exception as exc:
+            logger.warning(f'orphaned goal cancel failed: {exc}')
+            return
+        count = len(response.goals_canceling) if response is not None else 0
+        if count:
+            logger.warning(f'cancelled {count} orphaned controller goal(s) on startup')
+        else:
+            logger.info('no orphaned controller goals on startup')
+
     # ----- Lifecycle ------------------------------------------------------
 
     def is_ready(self) -> bool:
@@ -228,7 +274,8 @@ class MoveGroupJtcClient(MoveGroupClient):
         Raises:
             ValueError: ``name`` 이 유효하지 않거나 SRDF에 존재하지 않을 때.
             TimeoutError: SRDF 조회, goal 수락, 또는 실행 완료가 시간 초과될 때.
-            RuntimeError: 계획/실행이 실패했거나 클라이언트가 close() 되었을 때.
+            PlanningError: 계획이 실패했을 때 (`RuntimeError` 하위).
+            RuntimeError: 실행이 실패했거나 클라이언트가 close() 되었을 때.
         """
         self._require_open()
         if not isinstance(name, str) or not name:
@@ -706,7 +753,7 @@ class MoveGroupJtcClient(MoveGroupClient):
                         f'Path planning returned error code: {response.error_code.val}'
                     )
                     _plan_failed(_moveit_error_name(response.error_code.val))
-                    result_future.set_exception(RuntimeError(
+                    result_future.set_exception(PlanningError(
                         f'Path planning failed with error code: {response.error_code.val}'
                     ))
                     return
@@ -715,7 +762,7 @@ class MoveGroupJtcClient(MoveGroupClient):
                     self._node.get_logger().error(
                         f'Path planning failed (fraction: {response.fraction})')
                     _plan_failed(f'fraction {response.fraction:.3f} < {ft:.3f}')
-                    result_future.set_exception(RuntimeError(
+                    result_future.set_exception(PlanningError(
                         f'Path planning failed: only '
                         f'{response.fraction * 100:.1f}% of the path was planned'
                     ))
