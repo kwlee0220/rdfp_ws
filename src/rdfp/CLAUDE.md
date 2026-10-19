@@ -15,11 +15,12 @@ This file only adds package-internal details that aren't covered there.
 When in doubt, the in-tree READMEs are the source of truth — CLAUDE.md is a
 hint sheet, not a spec.
 
-- [README.md](README.md) — full package walkthrough: `MoveGroupClient` API
-  surface, `camera_node`/`image_recorder_node`/`rdfp_image_recorder` parameter
+- [README.md](README.md) — full package walkthrough: manual collection steps,
+  the teleop key map, `rdfp_image_recorder`/`image_recorder_node` parameter
   tables, the `session_control_node` state machine + topic QoS, the dataset
-  CLI reference, and the replay GUI overview. Update this file (not just
-  CLAUDE.md) when public behavior changes.
+  CLI reference, and the replay GUI overview. (`MoveGroupClient` / `camera_node`
+  are control-layer APIs documented under `docs/control/`.) Update this file
+  (not just CLAUDE.md) when public behavior changes.
 - [launch/README.md](launch/README.md) — per-launch / per-helper inventory and
   the Panda startup ordering rationale.
 - [rdfp/recorder/README.md](rdfp/recorder/README.md) — `FFMpegMp4Recorder`
@@ -74,7 +75,7 @@ pip install --user 'mcap' 'mcap-ros2-support' 'pydantic>=2' 'psycopg[binary]>=3'
 
 `rosdep install` will not catch these. New code under `rdfp/dataset/` or
 `rdfp/rosbag/` that pulls in additional pip-only deps should also be documented
-in the README.md "Post-processor 의존성" section, not just installed locally.
+in the README.md §4 "의존성" section, not just installed locally.
 
 ## Two image recorder nodes — don't confuse them
 

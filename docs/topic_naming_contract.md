@@ -46,7 +46,7 @@
 | 채널 | 정규 이름 | 타입 | 비고 |
 |---|---|---|---|
 | 관절 상태 | `joint_states` | `sensor_msgs/JointState` | ROS 표준 이름. 바꾸지 않는다 |
-| 엔드이펙터 자세 | `ee_pose` | `geometry_msgs/PoseStamped` | **단수** — 한 시점의 값 하나다. **그리퍼 파지 중심(TCP)의 자세**이며 의미 계약은 [rdfp_framework_design.md](rdfp_framework_design.md) §2.1 에 있다 (설계안) |
+| 엔드이펙터 자세 | `ee_pose` | `geometry_msgs/PoseStamped` | **단수** — 한 시점의 값 하나다. **그리퍼 파지 중심(TCP)의 자세**이며 의미 계약은 [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) §2.1 에 있다 (설계안) |
 | 카메라 이미지 | `camera/image_raw` | `sensor_msgs/Image` | `image_transport` 규약 |
 | 카메라 압축 이미지 | `camera/image_compressed` | `sensor_msgs/CompressedImage` | |
 | 카메라 정보 | `camera/camera_info` | `sensor_msgs/CameraInfo` | `image_raw` 와 짝 |

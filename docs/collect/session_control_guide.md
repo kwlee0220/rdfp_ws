@@ -504,6 +504,6 @@ echo` 도 두 플래그가 필요하다. 그래도 안 오면 `ros2 daemon stop`
 - [../../src/rdfp_msgs/](../../src/rdfp_msgs/) — `SessionCommand.msg`, `StopEpisode.srv`, `SetString.srv`, `GetSessionState.srv`
 - [../recorder/rdfp_image_recorder_node_guide.md](rdfp_image_recorder_node_guide.md) — `/session` 을 따라 자동 분절하는 레코더
 - [../camera/rdfp_session_camera_nodes_guide.md](session_camera_nodes_guide.md) — 세션에 맞춰 켜고 끄는 카메라
-- [../rosbag2/dataset_ingest_design.md](dataset_ingest_design.md) — `/session` 으로 에피소드를 자르는 규칙과 `outcome`/`metadata` 의 적재
-- [../robot_twin/robot_twin_design.md](../twin/robot_twin_design.md) — 트윈이 이 클라이언트를 쓰는 방식 (`robot_twin.backends` 엔트리포인트)
+- [../rosbag2/데이터셋_적재_시스템_설계서.md](데이터셋_적재_시스템_설계서.md) — `/session` 으로 에피소드를 자르는 규칙과 `outcome`/`metadata` 의 적재
+- [../twin/로봇_트윈_설계서.md](../twin/로봇_트윈_설계서.md) — 트윈이 이 클라이언트를 쓰는 방식 (`robot_twin.backends` 엔트리포인트)
 - [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — 같은 Node 주입 패턴의 `ServoClient`

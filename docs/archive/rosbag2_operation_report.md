@@ -1,7 +1,7 @@
 # rosbag2 운영 방안 보고서
 
 > **보관본 (2026-09-21).** 이 문서는 갱신하지 않는다 — 본문의 상태 서술은 작성 시점 기준이다.
-> 현행 정본: [collect/dataset_ingest_design.md](../collect/dataset_ingest_design.md)
+> 현행 정본: [collect/데이터셋_적재_시스템_설계서.md](../collect/데이터셋_적재_시스템_설계서.md)
 
 
 **주제:** 지정 토픽 대상 MCAP 기반 장기 저장 및 날짜-시간/토픽 기준 조회를 고려한 운영 설계

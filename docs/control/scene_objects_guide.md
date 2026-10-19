@@ -461,9 +461,9 @@ ORDER BY s.stamp_ts DESC;
 
 ## 12. 참고
 
-- [robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) — §4.1 변수 응답 형식, §4.2 `reset_scene`, §4.4 자원 락
-- [robot_twin_design.md](../twin/robot_twin_design.md) — §5.5 projection 어휘(`scene_object_map`), §6.3 `reset_scene` 의 `[scene, arm]` 자원
-- [../twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) 「자동 에피소드 수집」 · [../backends/isaac/isaac_bringup_runbook.md](../backends/isaac/isaac_bringup_runbook.md) §2 — `reset_scene` 을 쓰는 자동 생성 루프(`robot-twin-collect`)와 초기 배치 기록
+- [로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) — §4.1 변수 응답 형식, §4.2 `reset_scene`, §4.4 자원 락
+- [로봇_트윈_설계서.md](../twin/로봇_트윈_설계서.md) — §5.5 projection 어휘(`scene_object_map`), §6.3 `reset_scene` 의 `[scene, arm]` 자원
+- [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) 「자동 에피소드 수집」 · [../backends/isaac/isaac_bringup_runbook.md](../backends/isaac/isaac_bringup_runbook.md) §2 — `reset_scene` 을 쓰는 자동 생성 루프(`robot-twin-collect`)와 초기 배치 기록
 - [scene_objects_observation_decision.md](../learning/scene_objects_observation_decision.md) — 학습 입력에 넣을 것인가 (미결)
 - [README.md](../backends/README.md) — §5 백엔드 계약. 이 토픽은 그 §5.3 의 "환경 오브젝트"(선택)를 계약으로 승격한 것이다
 - [robot_control/launch/README.md](../../src/robot_control/launch/README.md) — §5 헬퍼 인벤토리

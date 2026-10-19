@@ -448,6 +448,8 @@ mgc.follow_trajectory(waypoints, publish_rate=200.0)  # 200Hz 보간 발행
 ## 9. 에러 처리
 
 ```python
+from robot_control.errors import PlanningError
+
 try:
     mgc.move_to_named_target('ready')
 except ValueError as exc:
@@ -456,8 +458,11 @@ except ValueError as exc:
 except TimeoutError as exc:
     # SRDF 조회 / 계획 / joint 순서 조회 시간 초과
     ...
+except PlanningError as exc:
+    # 계획 실패(MoveIt 오류 코드), 빈 궤적 — robot_control.errors, RuntimeError 하위
+    ...
 except RuntimeError as exc:
-    # 계획 실패(MoveIt 오류 코드), 빈 궤적, close() 된 클라이언트
+    # close() 된 클라이언트 등
     ...
 ```
 

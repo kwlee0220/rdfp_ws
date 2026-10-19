@@ -18,7 +18,7 @@
 
 | | mock / mock_jgpc | Isaac | 펑션베이 | Gazebo |
 |---|---|---|---|---|
-| 팔 제어 | ros2_control `GenericSystem` — JTC / **JGPC** | ros2_control `TopicBasedSystem` + JTC (`open_loop_control: true`) | **ros2_control 없음** — `MoveGroupJgpcClient` 가 `/input/panda_joint` 로 50 Hz 스트리밍 + 중력 보상 | `ign_ros2_control` + JTC |
+| 팔 제어 | ros2_control `GenericSystem` — JTC / **JGPC** | ros2_control `TopicBasedSystem` + JTC (`open_loop_control: true`) | **ros2_control 없음** — `MoveGroupJgpcClient` 가 `/input/panda_joint` 로 50 Hz 스트리밍. 처짐 보상은 현재 씬 `r2` 에서 벤더 솔버가 하고, 우리 중력 보상은 `t1` 씬에서만 켠다 | `ign_ros2_control` + JTC |
 | 관절 상태 | `joint_state_broadcaster` 100 Hz | `joint_state_broadcaster` 100 Hz (Isaac 은 `/isaac_joint_states` 로 비킨다) | `joint_state_fusion` ← `/output/panda_joint` 50 Hz, 벽시계로 정렬 | broadcaster |
 | 시각 | 벽시계 | **`use_sim_time: true`** (`/clock`) | 벽시계 (`/clock` 은 쓰지 않는다) | `/clock` |
 | `/scene/objects` · `/scene/reset` | `mock_scene_state_node` — 둘 다 | `isaac_scene_state_node` — 둘 다 (`simulation_interfaces`) | `functionbay_scene_state_node` — **`/scene/reset` 없음** | 미구현 |

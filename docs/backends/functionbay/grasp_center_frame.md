@@ -41,7 +41,7 @@ peg(지름 16 mm, 높이 50 mm, 탁자 위에 서 있음)를 잡으려고 `grasp
 > **이름에 대상을 붙이는 이유** — 저장소에 "A안/B안"이 세 갈래 있다. **EE 프레임**
 > A안·B안(여기, 설계서 §6.2), **연동** A안·B안(`isaac_backend_skeleton.md` — ros2_control
 > 플러그인 대 토픽 브리지), **projection 어휘** B안
-> (`robot_twin/robot_twin_design.md` §5.5). 맨 A/B 로 적으면 링크 없이는
+> (`twin/로봇_트윈_설계서.md` §5.5). 맨 A/B 로 적으면 링크 없이는
 > 구별되지 않으므로 항상 대상을 앞에 붙인다.
 
 ```

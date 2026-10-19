@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-ROS 2 (Humble) workspace for Franka Emika Panda robot development with MoveIt2, and the "real/virtual robot environment" subsystem of an imitation-learning data platform (see [docs/rdfp_framework_design.md](docs/rdfp_framework_design.md)).
+ROS 2 (Humble) workspace for Franka Emika Panda robot development with MoveIt2, and the "real/virtual robot environment" subsystem of an imitation-learning data platform (see [docs/rdfp_프레임워크_전체_구조와_설계.md](docs/rdfp_프레임워크_전체_구조와_설계.md)).
 
 **Four code packages, split along a layer boundary** (plus `panda_ftsensor_robotiq`, an asset-only description package). The lower layer is usable standalone as a plain ROS 2 robot-control stack; the upper layer adds learning-data collection on top.
 
@@ -50,7 +50,7 @@ YAML-driven launches take a `config_file:=<path>` argument. **The default resolv
 | `config/panda.rviz`, `description/*` | `robot_control` | all Panda launches | (fixed) |
 | `config/replay_panda_mock.yaml` | `rdfp` | `replay_panda_mock` | `config_file` |
 | `config/teleop_mirror.yaml` | `rdfp` | `teleop_mirror` | `config_file` |
-| `config/recording_topics_isaac.list` | (워크스페이스 루트) | `record_rosbag.sh` (`RECORDING_TOPICS_FILE`), `dataset_config.yaml` 의 `topics_file` | 환경변수 |
+| `config/recording_topics.list` | (워크스페이스 루트) | `scripts/rosbag.sh record` (→ `record_rosbag.sh` 의 `RECORDING_TOPICS_FILE` 기본값), `dataset_config.yaml` 의 `topics_file`, `run_collect_isaac.sh` · `run_collect_functionbay.sh` — **모든 백엔드 공용** | `--topics-file` (또는 환경변수) |
 | `config/backends/*.yaml` | `robot_control` | `panda_mock`/`panda_mock_jgpc`/`panda_isaac`/`panda_functionbay` launch, `rdfp_collect` (`backend`), `robot_twin` (`moveit.backend`), `teleop_keyboard` (`backend`) | (fixed — 백엔드 이름으로 고른다) |
 | `config/isaac_scene.json` | `robot_control` | `rdfp_collect backend:=isaac` (카메라 기본값), Isaac 쪽 스크립트, `isaac_scene_state_node` | (fixed) |
 | `config/robot_twin_panda01.yaml` | `robot_twin` | `robot_twin` (mock 스택) | `--config` |
@@ -87,7 +87,13 @@ ros2 run rdfp rosbag   list-topics --rosbag-dir /data/rosbag
 ros2 run rdfp rosbag   export --config dataset_config.yaml --episodes 1-3   # 골라서 적재
 # rosbag 서브커맨드 5개: list-topics / clear / list-episodes / export / delete.
 # `--config` · `--rosbag-dir` 는 서브커맨드 쪽 인자다 (최상위에는 `--log-level` 만 있다).
+
+# 셸 통합 진입점 — 녹화 + 위 서브커맨드 + import 를 한 이름으로 (docs/collect/rosbag_명령_가이드.md)
+./scripts/rosbag.sh record                                                    # 기본 목록(전 백엔드 공용). Ctrl+C 로 끝낸다
+./scripts/rosbag.sh list-episodes | import | export | delete | clear …        # 옵션은 그대로 넘긴다
 ```
+
+`scripts/rosbag.sh` 는 모든 명령을 **`exec`** 로 넘긴다 — 녹화 PID 에 보낸 SIGINT 가 `ros2 bag record` 에 닿아야 `metadata.yaml` 이 남기 때문이다(`run_collect_isaac.sh` · `run_collect_functionbay.sh` 가 이 PID 로 끈다). 위임 단계에 `exec` 없는 호출을 끼우면 신호가 bash 에서 멈추고 결국 SIGKILL 로 끝나, 그 세션은 적재에서 조용히 빠진다. bag 루트에는 **숨은 기본값이 없다**(`--rosbag-dir` 또는 `RDFP_ROSBAG_DIR`).
 
 ## Tests
 
@@ -359,7 +365,7 @@ Tk-based control surface. Uses `Mp4ImageReplayer` for image topics and a single 
 
 - **시뮬레이터를 재기동한 뒤 모은 bag 을 이전 bag 과 같은 `rosbag_dir` 에 두고 적재하면 안 된다 — 관절 데이터가 조용히 0 건이 된다 (2026-09-20 실측).** sim 시계는 재기동마다 0 으로 되감기므로 **에피소드 키 `(start_sec, start_nanosec)` 가 회차 간에 유일하지 않다.** 실측에서 옛 bag 이 sim 31.9~896.6 초, 새 bag 이 701.1~779.4 초라 **구간이 통째로 겹쳤고**, 함께 적재하니 새 에피소드 둘이 `joint_states` · `motion_*` · `gripper_*` 전부 **0 건**으로 커밋됐다. **증상이 "에피소드가 없다"가 아니라 "에피소드는 있는데 속이 비었다"** 라 더 안 보인다 — `image_frames` 는 레코더 sidecar 의 `episode_key` 로 붙으므로 **이미지만 정상으로 들어가** 겉보기에 멀쩡하다. 같은 bag 을 **혼자** 적재하면 974 · 2085 건이 제대로 들어간다. 그래서 **적재가 끝난 bag 은 `rosbag_dir` 밖으로 뺀다** (`/data/rdfp/rosbag_imported/` 로 옮기거나 `ros2 run rdfp rosbag delete`). 확인은 적재 후 `select count(*) from joint_states where episode_id=…` 가 0 인 에피소드가 있는지 보는 것이다.
 
-- **녹화 토픽 목록은 백엔드마다 다르다.** `config/recording_topics.list` 는 mock 기준(`/camera/image_raw`)이라 Isaac(`/isaac/camera/image_raw`)에 그대로 쓰면 **이미지가 한 장도 안 담긴다** — rosbag2 는 없는 토픽을 조용히 건너뛴다. mp4 레코더는 launch 가 remap 해 주므로 증상이 "mp4 는 있는데 rosbag 에 이미지가 없다"로만 보인다. Isaac 은 `config/recording_topics_isaac.list` 를 `RECORDING_TOPICS_FILE` 로 지정한다. **`dataset_config.yaml` 의 `topics_file` 도 같은 파일을 가리켜야 한다.**
+- **녹화 토픽 목록은 하나다 — `config/recording_topics.list` 를 모든 백엔드가 쓴다 (2026-10-18).** 그 전에는 Isaac 판(`recording_topics_isaac.list`)이 따로 있었는데 갈리는 것이 카메라 토픽뿐이었고, 카메라를 bag 에 담지 않게 되면서(위 I4 항목) 내용이 같아져 합쳤다. 나머지 11개는 상위 계층의 정규 이름이라 백엔드와 무관하며, 펑션베이에서도 전부 벽시계 축으로 stamp 된다(`/joint_states` 는 `joint_state_fusion` 이 정렬하고 나머지는 노드 시계). **카메라를 되살리려면 이름이 백엔드마다 다르다** — mock `/camera/image_raw`, Isaac `/isaac/camera/image_raw`이고 틀리면 rosbag2 가 없는 토픽을 조용히 건너뛰어 이미지가 한 장도 안 담긴다. **펑션베이는 되살릴 수 없다** — `CompressedImage` 만 발행하는데 적재는 `sensor_msgs/Image` 만 인코딩하고 `CompressedImage` 는 registry 에도 없어 `no writer registered … ignored` 경고만 남기고 무시한다. 펑션베이 원시 채널(`/output/*`)도 넣지 않는다 — stamp 가 벤더 기준이라 회차에 따라 에피소드 창 밖으로 조용히 빠진다. **`dataset_config.yaml` 의 `topics_file` 도 같은 파일을 가리켜야 한다** (기본값이 이미 그렇다).
 
 ## External docs
 
@@ -368,13 +374,13 @@ Tk-based control surface. Uses `Mp4ImageReplayer` for image topics and a single 
 - **`docs/INDEX.md` — 모든 markdown 문서의 색인.** 폴더별 한 줄 표와 "하고 싶은 것 → 문서". 2026-09-21 재편 후 폴더는 코드 계층을 따른다 — `docs/control/`(robot_control: MoveIt · 그리퍼 · 카메라 · scene) · `docs/collect/`(rdfp: 세션 · 레코더 · rosbag → DB → 재생) · `docs/learning/`(학습 데이터 결정 · 사양 · 현황) · `docs/twin/` · `docs/teleop/` · `docs/backends/`(isaac · functionbay · gazebo · 실기) · `docs/archive/`(이력 — 갱신하지 않고, **코드 · 설정에서 가리키지 않는다**). 링크 검사는 `./scripts/check_doc_links.sh` (출력 없음 = 전부 유효).
 - **`docs/topic_naming_contract.md` — 토픽 이름 규약.** 논리 채널별 정규 이름(상대 경로), arm 명령을 규약에서 제외한 이유, remap 은 백엔드 경계에서만, 로봇별 네임스페이스 설계(미구현).
 - **`docs/learning/결정_기록.md` — 학습 데이터 결정 38건과 이유.** `docs/learning/학습_샘플_사양.md` 가 채널(R1 · R2 메시지) · 명령 체인 · 샘플 구조 · 배치 규약의 현행 사양, `docs/learning/저장_형식.md` 가 export 파일 형식, `docs/learning/미구현_목록.md` · `열린_결정.md` 가 남은 것이다. 옛 설계 원문(수집 설계 · 좌표 공간 · ACT · R1 · R2 …)은 `docs/archive/learning/` 에 있다.
-- **`docs/collect/학습_데이터_전_과정_지도.md`** — 생성 → 수집 → 적재 → export → 학습 여섯 단계를 한 화면에. Isaac 전 과정 명령은 `docs/backends/isaac/isaac_bringup_runbook.md` §2.
-- `src/rdfp/README.md` — package usage walkthrough: MoveGroup client API, both recorder nodes, `session_control_node` state machine + QoS, dataset CLI reference.
+- **`docs/collect/학습_데이터_파이프라인_개요.md`** — 생성 → 수집 → 적재 → export → 학습 여섯 단계를 한 화면에. Isaac 전 과정 명령은 `docs/backends/isaac/isaac_bringup_runbook.md` §2.
+- `src/rdfp/README.md` — collection-layer walkthrough: manual collection steps, teleop key map, both recorder nodes, `session_control_node` state machine + QoS, dataset CLI reference (incl. `export`), replay GUI. MoveIt/camera APIs are in `docs/control/`.
 - `src/rdfp/CLAUDE.md` — package-level hints (two recorder nodes, rosbag2 metadata.yaml caveat, replay subsystem coupling).
 - `src/robot_control/launch/README.md` — control-layer launches + **full helper inventory** (self-contained).
 - `src/rdfp/launch/README.md` — collection-layer launches (`rdfp_collect` · `replay_panda_mock` · `teleop_mirror`) + YAML↔argument tables.
 - `src/rdfp/rdfp/recorder/README.md` — `FFMpegMp4Recorder` 요약 · 테스트 · 샘플 실행 (API 정본은 `docs/collect/ffmpeg_mp4_recorder_guide.md`).
-- `docs/collect/` — 절차서(`수집_계층_얹기_절차서.md`), `session_control_guide.md`, 레코더 둘(`rdfp_image_recorder_node_guide.md` 가 수집의 유일한 레코더, `image_recorder_node_guide.md` 는 보조), `rosbag_cli_user_guide.md` · `dataset_postproc_user_guide.md` · `dataset_ingest_design.md`(스키마 정본은 `sql/schema.sql`), `replay_mock_stack_guide.md`.
+- `docs/collect/` — 절차서(`수집_계층_얹기_절차서.md`), `session_control_guide.md`, 레코더 둘(`rdfp_image_recorder_node_guide.md` 가 수집의 유일한 레코더, `image_recorder_node_guide.md` 는 보조), `rosbag_명령_가이드.md`(rosbag 녹화 · 조회 · 적재 · 삭제) · `데이터셋_적재_운영_가이드.md` · `데이터셋_적재_시스템_설계서.md`(스키마 정본은 `sql/schema.sql`), `replay_mock_stack_guide.md`.
 - **`docs/control/` — 제어 계층.** 진입점 `docs/control/README.md`. 그리퍼는 계약([gripper_node_design.md](docs/control/gripper_node_design.md)) 하나에 구현 둘(`gripper_action_node_guide.md` — §9 가 액션 서버 노트 / `robotiq_2f_gripper_node_guide.md`). 카메라 노드 셋은 `camera_nodes_guide.md` §0 에서 고른다.
 - **`docs/backends/`** — `README.md`(비교표 · 프로파일 · 공통 함정), `isaac/`(runbook · `isaac_backend.md` 함정 사전 · Windows 구축 · scene reset), `functionbay/`(**띄우는 순서는 `펑션베이_시뮬레이터_사용법.md`** · 설계 · **인수 절차는 `펑션베이_인수_체크리스트.md`, 회차별 결과는 워크스페이스 루트 `checklist_results/`** · 요청 목록 · 남은 작업 · 중력 보상 · `grasp_center_frame.md` · peg-in-hole 기록), `gazebo_bringup_guide.md`(미검증 · 보류), `franka_panda_bringup_prep.md`.
-- `docs/twin/`, `docs/teleop/` — REST 게이트웨이 · MCP 설계와 사용 설명서, 텔레오퍼레이션(진입점 `docs/teleop/README.md`).
+- `docs/twin/`, `docs/teleop/` — REST 게이트웨이 · MCP 설계와 사용자 가이드, 텔레오퍼레이션(진입점 `docs/teleop/README.md`).

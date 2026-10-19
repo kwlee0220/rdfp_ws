@@ -187,7 +187,7 @@ ros2 launch robot_control panda_isaac.launch.py \
 | 자유 공간에서 눈대중으로 자세를 잡는다 | `teleop_keyboard` (servo) |
 | 정해진 자세로 복귀한다 | `move_to_named_target` (`teleop_keyboard` 의 `/`) |
 
-트윈으로 집고 옮기는 전 과정은 [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md)
+트윈으로 집고 옮기는 전 과정은 [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md)
 를 본다. 외부 저장소 `mdtpy/robot-twin-client` 의 `robot-twin-stack` 이 그 흐름을 그대로
 구현한 예다 — 거기에는 **쥔 뒤 손끝과 물체 중심의 실제 차이를 재서** 놓을 좌표를
 보정하는 부분이 있다. 파지 미끄러짐이 실측에서 12 mm / 1.0 mm / −3.2 mm 로 매번
@@ -241,7 +241,7 @@ ros2 service call /servo_node/start_servo std_srvs/srv/Trigger   # 다시 쓸 �
 
 - [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — `/servo_node` 시작·정지·상태
 - [../moveit/move_group_client_user_guide.md](../control/move_group_client_user_guide.md) — 카테시안 계획·실행
-- [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) — `move_linear` / `move_gripper_to_target`
+- [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) — `move_linear` / `move_gripper_to_target`
 - [../simulation/isaac_backend.md](../backends/isaac/isaac_backend.md) — Isaac 백엔드 구성과 실측
 - [README.md](README.md) — teleop 문서 진입점
 

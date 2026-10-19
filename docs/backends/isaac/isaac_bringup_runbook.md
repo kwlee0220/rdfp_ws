@@ -215,20 +215,20 @@ find "$RDFP_DATA_ROOT/rosbag" -name '*.mcap' | wc -l
 
 **모은 것을 지우고 다시 시작하려면** — 씬이나 조명을 바꿔 옛 데이터가 새 것과 섞이면
 안 될 때가 그렇다 —
-[dataset_postproc_user_guide.md](../../collect/dataset_postproc_user_guide.md) **§8.6** 이
+[데이터셋_적재_운영_가이드.md](../../collect/데이터셋_적재_운영_가이드.md) **§8.6** 이
 다섯 덩어리(DB · 적재 대기 bag · 보관 bag · 레코더 mp4 · 학습 샘플)를 한자리에 모아
 둔다. ⚠️ `scripts/clear_dataset.sh` 는 **절반만 지운다** — mp4 가 남는다.
 
 배선의 정본은 [src/rdfp/launch/README.md](../../../src/rdfp/launch/README.md), 백엔드 중립
 설명은 [docs/collect/수집_계층_얹기_절차서.md](../../collect/수집_계층_얹기_절차서.md) 다.
-**여섯 단계(수집부터 학습 · 추론 배치까지)의 지도**와 단계 사이 함정은
-[docs/collect/학습_데이터_전_과정_지도.md](../../collect/학습_데이터_전_과정_지도.md) 에 있다 —
+**여섯 단계(수집부터 학습 · 추론 배치까지)의 개요**와 단계 사이 함정은
+[docs/collect/학습_데이터_파이프라인_개요.md](../../collect/학습_데이터_파이프라인_개요.md) 에 있다 —
 위 「전 과정 한눈에」는 그중 **Isaac 경로의 명령 정본**이다.
 `rdfp_collect` 에서 알아 둘 것 둘:
 
 - **`enable_rviz` 기본이 `true` 로 뒤집힌다** (제어 launch 는 `false`)
-- 녹화 토픽 목록은 **`config/recording_topics_isaac.list`** 다 — mock 용을 그대로 쓰면
-  카메라 토픽 이름이 달라 **이미지가 한 장도 안 담긴다**
+- 녹화 토픽 목록은 **`config/recording_topics.list`** 다 — 모든 백엔드 공용이고(2026-10-18
+  에 Isaac 판을 합쳤다) 카메라는 bag 에 담지 않는다. 영상은 레코더 mp4 가 원본이다
 
 ---
 

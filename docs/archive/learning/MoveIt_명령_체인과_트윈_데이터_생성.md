@@ -68,7 +68,7 @@ mock 은 변수·연산·기록 경로가 도는지 확인하는 **배관 검증
 
 ### 1.3 생성 루프
 
-사람이 티칭하지 않고, 물체 배치를 바꿔 가며 스크립트 작업을 반복해 에피소드를 자동으로 만든다. 클라이언트는 **트윈 REST 만으로** 루프를 돈다. 중간에 ROS 서비스를 직접 불러야 한다면 트윈을 쓰는 의미가 사라진다. 구현 예제는 [robot_twin_user_guide.md](../../twin/robot_twin_user_guide.md) §5.10 에 있다.
+사람이 티칭하지 않고, 물체 배치를 바꿔 가며 스크립트 작업을 반복해 에피소드를 자동으로 만든다. 클라이언트는 **트윈 REST 만으로** 루프를 돈다. 중간에 ROS 서비스를 직접 불러야 한다면 트윈을 쓰는 의미가 사라진다. 구현 예제는 [robot_twin_user_guide.md](../../twin/로봇_트윈_사용자_가이드.md) §5.10 에 있다.
 
 ```
 start_session(task_label)
@@ -136,7 +136,7 @@ stop_session
 | 권고 2 의 **실행 궤적 채널(R1)** | **완료 (2026-09-18)** — `rdfp_msgs/MotionTrajectory` · 발행 지점 셋 · 단위 시험 14건. 검증 일부 남음 |
 | 그 밖의 권고 (녹화 목록, 연산 이벤트 채널 등) | 미착수 (§8). 항목별 현황은 [학습_데이터_미구현_목록.md](../../learning/미구현_목록.md) |
 
-이 루프의 설계 경위(2026-08-17~09-13 작업 기록)는 해당 정식 문서로 옮겼다. `/scene/objects` 계약과 `reset_scene` 은 [scene_objects_guide.md](../../control/scene_objects_guide.md) §3·§5·§8, 자원 락과 projection 어휘는 [robot_twin_design.md](../../twin/robot_twin_design.md) §5.5·§6.3, 세션 연산은 [robot_twin_user_guide.md](../../twin/robot_twin_user_guide.md) §4.2 와 [session_control_guide.md](../../collect/session_control_guide.md) 에 있다.
+이 루프의 설계 경위(2026-08-17~09-13 작업 기록)는 해당 정식 문서로 옮겼다. `/scene/objects` 계약과 `reset_scene` 은 [scene_objects_guide.md](../../control/scene_objects_guide.md) §3·§5·§8, 자원 락과 projection 어휘는 [robot_twin_design.md](../../twin/로봇_트윈_설계서.md) §5.5·§6.3, 세션 연산은 [robot_twin_user_guide.md](../../twin/로봇_트윈_사용자_가이드.md) §4.2 와 [session_control_guide.md](../../collect/session_control_guide.md) 에 있다.
 
 ### 1.4 teleop 과 mock 을 제외하면 달라지는 전제
 
@@ -566,9 +566,9 @@ isaac 은 레이블과 관측을 sim time 축에서 맞춘다. ros2_control 스�
 - [학습_데이터_미구현_목록.md](../../learning/미구현_목록.md) — 구현 현황과 구현 전에 정할 것 — §8 · §12 · §13 의 정본
 - [학습_데이터의_좌표_공간_비교.md](학습_데이터의_좌표_공간_비교.md) — 레이블 이름(관절-명령 · 관절-계획 · 관절-도달점), L0~L4 대응표
 - [scene_objects_guide.md](../../control/scene_objects_guide.md) — `/scene/objects` 계약, `reset_scene` 의 설계 경위, mock 의 한계(§6.2.5)
-- [robot_twin_user_guide.md](../../twin/robot_twin_user_guide.md) — §4.2 세션 연산, §5.10 자동 에피소드 수집 루프 예제
+- [robot_twin_user_guide.md](../../twin/로봇_트윈_사용자_가이드.md) — §4.2 세션 연산, §5.10 자동 에피소드 수집 루프 예제
 - [session_control_guide.md](../../collect/session_control_guide.md) — 에피소드 경계 상태 기계, `outcome`·`metadata`
-- [rdfp_framework_design.md](../../rdfp_framework_design.md) — §2.2 action/observation 정의, §5.6 export
+- [rdfp_framework_design.md](../../rdfp_프레임워크_전체_구조와_설계.md) — §2.2 action/observation 정의, §5.6 export
 - [수집_계층_얹기_절차서.md](../../collect/수집_계층_얹기_절차서.md) — 수집 계층 기동 절차
 - [isaac_backend_skeleton.md](../../backends/isaac/isaac_backend.md) — isaac 백엔드 구성과 실측
 - [펑션베이_인수_체크리스트.md](../../backends/functionbay/펑션베이_인수_체크리스트.md) — 펑션베이 점검 항목, 회차별 stamp 기준

@@ -283,7 +283,7 @@ create_move_group_client(
 |---|---|---|
 | `waypoints` | (필수) | 통과할 Cartesian `Pose` 목록. 위치·쿼터니언이 모두 유한하고 norm ≈ 1 이어야 한다 ([검증 규칙](#83-waypoint-유효성-검증-규칙)) |
 | `velocity_scaling` | 생성자 기본값 (`1.0`) | 계획된 trajectory 의 속도 배율. `None` 이면 생성자 값 |
-| `fraction_threshold` | 생성자 기본값 (`0.60`) | 계획 성공으로 인정할 최소 경로 비율. 미달이면 `RuntimeError` |
+| `fraction_threshold` | 생성자 기본값 (`0.60`) | 계획 성공으로 인정할 최소 경로 비율. 미달이면 `PlanningError` (13.1) |
 | `max_step` | 생성자 기본값 (`0.01`) | Cartesian 보간 최대 단계 간격(미터) |
 | `jump_threshold` | 생성자 기본값 (`5.0`) | 관절 공간 점프 임계값(라디안). `0.0` 이면 검사 비활성 |
 | `timeout` | `follow_trajectory` → `140.0`<br>`plan_trajectory` → `20.0` | 허용 최대 시간(초). 아래 주석 참고 |
@@ -411,8 +411,9 @@ create_move_group_client(
 |---|---|
 | `cancel() -> bool` | 진행 중인 동작을 중단한다. **비동기** — `True` 는 취소 요청을 보냈다는 뜻이지 로봇이 이미 멈췄다는 뜻이 아니다 |
 | `has_active_goal() -> bool` | 취소할 수 있는 진행 중 goal 이 있는지 반환 |
+| `cancel_orphaned_goals(timeout_sec=5.0) -> bool` | **이전 프로세스가 남긴** 컨트롤러 궤적을 끊는다 — 기동 직후 한 번 부른다 (11.3) |
 
-두 메서드 모두 **인자를 받지 않는다.** `cancel()` 은 이 클라이언트가 시작한 goal 만 골라 취소하는 것이 아니므로(상세는 아래) 대상 지정 인자도 없다.
+`cancel()` · `has_active_goal()` 은 **인자를 받지 않는다.** `cancel()` 은 이 클라이언트가 시작한 goal 만 골라 취소하는 것이 아니므로(상세는 아래) 대상 지정 인자도 없다.
 
 상세는 [동작 중단](#11-동작-중단) 참조.
 
@@ -550,7 +551,7 @@ move_to_named_target_async(name)
 ### 5.7 주의사항
 
 - **잘못된 이름**: SRDF에 없는 이름 전달 시 사용 가능한 이름 목록과 함께 `ValueError` 가 발생한다.
-- **계획 실패**: 장애물 회피가 불가능하거나 IK 해가 없는 경우 `planning_time` 초과 후 `RuntimeError` (MoveIt error code 포함) 발생.
+- **계획 실패**: 장애물 회피가 불가능하거나 IK 해가 없는 경우 `planning_time` 초과 후 `PlanningError` (MoveIt error code 포함, `RuntimeError` 하위 — 13.1) 발생.
 - **그룹 일치**: `move_to_named_target(name)` 은 `moveit_group_name` 으로 지정된 그룹에 속한 state만 대상으로 한다. 다른 그룹의 state로 이동하려면 해당 그룹을 `moveit_group_name` 으로 지정한 새 클라이언트를 생성한다.
 - **is_ready() 무관**: `wait_until_ready()` 는 MoveGroup 액션 서버를 기다리지 않는다. named target 이동의 MoveGroup 준비 대기는 메서드 내부에서 처리된다.
 
@@ -755,7 +756,7 @@ client = create_move_group_client(node, fraction_threshold=0.95)
 client = create_move_group_client(node, fraction_threshold=0.0)
 ```
 
-`fraction < threshold`이면 `RuntimeError`가 발생한다.
+`fraction < threshold`이면 `PlanningError`(`RuntimeError` 하위)가 발생한다.
 
 ### 9.3 `max_step` — Cartesian 보간 해상도
 
@@ -899,6 +900,19 @@ JTC 구현이 컨트롤러를 직접 끊는 이유: `move_group` 이 goal 을 �
 
 > **부작용**: JTC 구현의 취소 요청은 `goal_id` 와 `stamp` 를 채우지 않는다. ROS 2 action 규격상 이는 **해당 서버의 모든 goal 취소**를 뜻하므로, 이 클라이언트가 시작하지 않은 궤적도 함께 취소된다. 한 팔을 여러 주체가 동시에 지휘하지 않는다는 전제 위에서 안전한 동작이다.
 
+### 11.3 이전 프로세스가 남긴 궤적 — `cancel_orphaned_goals()`
+
+클라이언트 프로세스가 죽어도 컨트롤러는 받은 궤적을 끝까지 실행한다. 새로 뜬 클라이언트는 그 goal 의 핸들이 없어 `cancel()` 로 닿지 않고, `cancel()` 은 추적 중인 goal 이 없으면 컨트롤러에 아무것도 보내지 않는다 — 게다가 기동 직후의 클라이언트는 아직 컨트롤러 취소 서비스와 매칭 전이라 `service_is_ready()` 가 `False` 다.
+
+`cancel_orphaned_goals(timeout_sec)` 는 그 서비스를 `timeout_sec` 까지 **기다린 뒤** 같은 "모든 goal 취소"를 보낸다. 장기 실행 프로세스(트윈 등)가 기동할 때 한 번 부르는 용도다.
+
+| 구현 | 동작 | 반환 |
+|---|---|---|
+| `MoveGroupJtcClient` | 컨트롤러의 `FollowJointTrajectory` 액션에 "모든 goal 취소". 끊긴 goal 수를 로그로 남긴다(있으면 WARN) | 요청을 보냈으면 `True`. 서비스가 시간 안에 안 나타나면 `False` — 컨트롤러가 없으면 끊을 궤적도 없다 |
+| `MoveGroupJgpcClient` | 아무것도 하지 않는다 — 스트리밍이 곧 실행이라 프로세스가 죽으면 명령도 멈춘다 | `False` |
+
+위 부작용이 그대로 적용된다 — **이 클라이언트가 시작하지 않은 궤적도 끊는다.** 다른 주체(RViz 의 Plan & Execute 등)가 팔을 움직이는 중에 부르면 그 동작이 멈춘다.
+
 ---
 
 ## 12. JGPC command 스트리밍
@@ -916,7 +930,21 @@ JTC 구현이 컨트롤러를 직접 끊는 이유: `move_group` 이 goal 을 �
 ```
 ValueError          — 잘못된 파라미터 (즉시 발생)
 TimeoutError        — 서버 응답/실행 시간 초과
-RuntimeError        — 계획 실패, goal 거부, 실행 실패, close 후 호출
+RuntimeError        — goal 거부, 실행 실패, close 후 호출
+ └ PlanningError    — 계획 실패: MoveIt 오류 코드, 빈 궤적, 계획 비율 미달, plan-only goal 거부
+```
+
+**`PlanningError` 면 로봇은 움직이지 않았다.** 같은 목표로 다시 불러도 결과가 같으므로 목표나 시작 자세를 바꿔야 한다 — 실행 실패와 대응이 달라 따로 둔다. `robot_control.errors` 에 있고(ROS 를 import 하지 않는다) `RuntimeError` 를 상속하므로 기존 `except RuntimeError` 는 그대로 동작한다. 따로 다루려면 먼저 잡는다.
+
+```python
+from robot_control.errors import PlanningError
+
+try:
+    client.move_to_named_target('extended')
+except PlanningError as exc:      # 계획 실패 — 로봇은 제자리
+    ...
+except RuntimeError as exc:       # 실행 중 실패 — 로봇은 경로 중간에 있을 수 있다
+    ...
 ```
 
 `follow_trajectory_async`의 경우 예외가 반환된 `Future`에 설정된다. `future.exception()`으로 확인한다.

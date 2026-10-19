@@ -6,7 +6,7 @@
 관련 문서:
 
 - **§0 배경** — 왜 어떤 명령 타입을 골라야 하는지 (옛 `replay_approaches.md` 를 흡수했다)
-- [../rosbag2/dataset_postproc_user_guide.md](dataset_postproc_user_guide.md) —
+- [../rosbag2/데이터셋_적재_운영_가이드.md](데이터셋_적재_운영_가이드.md) —
   에피소드 적재(`import`) 및 조회(`list` / `stats`)
 - [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 런치 헬퍼 인벤토리 (제어 계열)
 - [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — `replay_panda_mock` 인자 표
@@ -734,13 +734,17 @@ ros2 run rdfp replay <episode_id> \
     --topic /target_joint_cmds /camera/image_raw --config dataset_config.yaml
 ```
 
-이때 `dataset_config.yaml` 의 **`output_mp4_dir` 이 설정되어 있어야 한다.**
-비어 있으면 다음 로그와 함께 해당 토픽만 조용히 건너뛴다.
+이때 `dataset_config.yaml` 에 **영상 루트가 있어야 한다** — 재생은 `image_streams.mp4_path` 를
+`recordings_dir`(레코더 mp4) → `output_mp4_dir`(bag 에서 인코딩한 mp4) 순서로 찾는다. 둘 다 비어 있으면
+다음 로그와 함께 해당 토픽만 조용히 건너뛴다.
 
 ```
-output_mp4_dir is required to replay image topic /camera/image_raw;
+recordings_dir or output_mp4_dir is required to replay image topic /camera/image_raw;
 set it in the dataset config
 ```
+
+루트는 있는데 파일이 없으면 `mp4 file not found: … (tried: …)` 로 찾아 본 경로를 모두 적는다 — 적재 때와 같은
+설정인지 본다. (2026-10-18 까지는 `output_mp4_dir` 만 봐서, 두 루트가 다른 구성에서 레코더 영상을 못 찾았다.)
 
 `replay_gui` 는 이미지(`Mp4ImageReplayer`)와 그 외 토픽(`TopicMessageReplayer`)을
 분리해 lock-step 으로 구동하므로 시간 정렬이 더 정확하다. 영상까지 함께 볼 때는

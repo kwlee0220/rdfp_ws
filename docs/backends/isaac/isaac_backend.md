@@ -156,7 +156,6 @@ src/robot_control/config/
     fastdds_wsl_bridge.xml                                DDS 전송 프로파일 (Windows+WSL2 전용)
     panda_real_joint_limits.yaml                          실제 Franka 관절 한계 (Q6)
 src/robot_twin/config/robot_twin_panda_isaac.yaml         트윈 설정
-config/recording_topics_isaac.list                        녹화 토픽 (카메라만 mock 과 다르다)
 
 ── 검증 스크립트 (ROS 쪽) ──────────────────────────────────────────────────
 scripts/isaac/is_backend.py                               검사들이 공유하는 백엔드 계약

@@ -1,7 +1,8 @@
 # data/
 
 검증·재생용 데이터 파일을 둔다. 빌드 산출물이 아니며 패키지에 설치되지 않는다
-(`setup.py` 의 `data_files` 는 `src/rdfp/config/` 만 다룬다).
+(각 패키지의 `setup.py` 는 자기 `src/<pkg>/` 아래만 share 로 설치한다 — 워크스페이스 루트의
+`data/` 는 어느 패키지에도 속하지 않는다).
 
 | 항목 | 내용 |
 |---|---|
@@ -23,7 +24,7 @@ ros2 bag play data/ee_pose_bag --remap /leader/ee_pose_states:=/ee_pose
 
 - **`-r` 로 배속을 올리면 로봇이 오히려 덜 움직인다.** 속도는 stamp 기준으로
   계산되어 배속과 무관한데 재생 지속시간만 짧아지기 때문이다. 상세는
-  [docs/replay/replay_mock_stack_guide.md](../docs/replay/replay_mock_stack_guide.md) §3-4-1.
+  [docs/collect/replay_mock_stack_guide.md](../docs/collect/replay_mock_stack_guide.md) §3-4-1.
 - 발행은 200 Hz 지만 **실효 주기는 19.3 Hz** 다 (90.4% 가 직전과 완전히 동일한
   메시지라 `dt<=0` 으로 버려진다). 정보 손실은 없다. 같은 문서 §3-4-3.
 - 녹화 시점(2026-07-29)의 `header.stamp` 를 그대로 내보내므로, `ee_twist_publisher`

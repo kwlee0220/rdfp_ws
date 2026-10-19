@@ -12,7 +12,7 @@ ros2 launch rdfp rdfp_collect.launch.py backend:=mock        # 터미널 2 — �
 > **제어 스택만 필요하면** `robot_control` 패키지의 `panda_mock` 계열을 쓴다 —
 > [src/robot_control/launch/README.md](../../robot_control/launch/README.md).
 > 그 문서는 제어 계열 launch 3개와 **helper 모듈 전체**를 자체적으로 담고 있다.
-> 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_framework_design.md).
+> 패키지를 나눈 근거는 설계서 [§7.6](../../../docs/rdfp_프레임워크_전체_구조와_설계.md).
 
 ## helper 는 하위 패키지에 있다
 

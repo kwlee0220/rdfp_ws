@@ -1,10 +1,10 @@
 # 데이터셋 후처리기 실환경 검증 절차
 
 > **보관본 (2026-09-21).** 이 문서는 갱신하지 않는다 — 본문의 상태 서술은 작성 시점 기준이다.
-> 현행 정본: [collect/dataset_postproc_user_guide.md](../collect/dataset_postproc_user_guide.md)
+> 현행 정본: [collect/데이터셋_적재_운영_가이드.md](../collect/데이터셋_적재_운영_가이드.md)
 
 
-본 문서는 [데이터셋 후처리기 설계서](../collect/dataset_ingest_design.md) 의 Phase 1~3 구현을 **실 인프라(Docker PostgreSQL · 실 rosbag · 실 성능 측정)** 로 검증하기 위한 절차를 정리한 **실행용 runbook** 이다.
+본 문서는 [데이터셋 후처리기 설계서](../collect/데이터셋_적재_시스템_설계서.md) 의 Phase 1~3 구현을 **실 인프라(Docker PostgreSQL · 실 rosbag · 실 성능 측정)** 로 검증하기 위한 절차를 정리한 **실행용 runbook** 이다.
 
 개발 환경의 mock 기반 단위/통합 테스트 (`pytest rdfp/postproc/tests/`) 는 완료되어 있으며, 본 문서는 그 다음 단계에서 **실 운영 환경이 준비되었을 때 즉시 수행 가능한** 검증 작업만 다룬다.
 

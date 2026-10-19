@@ -15,7 +15,7 @@
 | **적재** | rosbag/DB 에 남길 것인가 | ✅ **남긴다** (2026-08-23 구현) | ❌ 안 남기면 그 에피소드는 영구 손실 |
 | **관측** | 정책의 입력 벡터에 넣을 것인가 | ⬜ **본 문서의 주제** | ✅ export 는 읽기 전용 소비자라 언제든 번복 |
 
-적재를 먼저 확정한 이유는 비대칭 때문이다. 관측 포함 여부는 [framework_design §5.6](../rdfp_framework_design.md)이 보장하듯 **export 시점에 컬럼 매핑으로 고르는 문제**라 나중에 바꿔도 비용이 없다. 반면 적재하지 않은 에피소드는 사후에 ground truth 를 복원할 방법이 없다.
+적재를 먼저 확정한 이유는 비대칭 때문이다. 관측 포함 여부는 [rdfp_프레임워크_전체_구조와_설계 §5.6](../rdfp_프레임워크_전체_구조와_설계.md)이 보장하듯 **export 시점에 컬럼 매핑으로 고르는 문제**라 나중에 바꿔도 비용이 없다. 반면 적재하지 않은 에피소드는 사후에 ground truth 를 복원할 방법이 없다.
 
 그래서 남은 결정은 **"이미 있는 컬럼을 정책에 먹일 것인가"** 하나다.
 
@@ -169,8 +169,8 @@ ORDER BY s.stamp_ts DESC;
 
 - [학습_샘플_사양.md](학습_샘플_사양.md) — §1.3
   생성 루프, 자동 라벨링과 구현 현황 (옛 자동 수집 초안의 수집 부분을 흡수했다)
-- [rdfp_framework_design.md](../rdfp_framework_design.md) — §2.2 action/observation 구분,
+- [rdfp_프레임워크_전체_구조와_설계.md](../rdfp_프레임워크_전체_구조와_설계.md) — §2.2 action/observation 구분,
   §5.6 export 가 읽기 전용 소비자라는 근거
 - [scene_objects_guide.md](../control/scene_objects_guide.md) — `SceneObject` 필드 계약,
   발행 노드, 트윈 연산, 함정 모음 (본 문서의 전제가 되는 계약 문서)
-- [dataset_ingest_design.md](../collect/dataset_ingest_design.md) — 적재 파이프라인 전반
+- [데이터셋_적재_시스템_설계서.md](../collect/데이터셋_적재_시스템_설계서.md) — 적재 파이프라인 전반

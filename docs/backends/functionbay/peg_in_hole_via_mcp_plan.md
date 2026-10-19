@@ -42,7 +42,7 @@ MCP 서버        /home/kwlee/development/mdtpy/robot-twin-client/src/robot_twin
 
 MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈의 `/variables` ·
 `/operations` 카탈로그를 읽어 도구 목록을 자동 생성한다. 설계서:
-[mcp_server_design.md](../../twin/mcp_server_design.md) (구현 완료 v1).
+[로봇_트윈_MCP_서버_설계서.md](../../twin/로봇_트윈_MCP_서버_설계서.md) (구현 완료 v1).
 
 ### 1.2 트윈이 이미 주는 것
 
@@ -677,8 +677,8 @@ peg 을 놓는 순간 물체를 잃는다 — **도구 이름을 대어 막는�
 
 ## 6. 참고
 
-- [mcp_server_design.md](../../twin/mcp_server_design.md) — MCP 서버 설계 (구현 완료 v1)
-- [robot_twin_design.md](../../twin/robot_twin_design.md) · [robot_twin_user_guide.md](../../twin/robot_twin_user_guide.md)
+- [로봇_트윈_MCP_서버_설계서.md](../../twin/로봇_트윈_MCP_서버_설계서.md) — MCP 서버 설계 (구현 완료 v1)
+- [로봇_트윈_설계서.md](../../twin/로봇_트윈_설계서.md) · [로봇_트윈_사용자_가이드.md](../../twin/로봇_트윈_사용자_가이드.md)
 - [../simulation/펑션베이_중력_보상.md](펑션베이_중력_보상.md) — 중력 보상
 - [../simulation/펑션베이_인수_체크리스트.md](펑션베이_인수_체크리스트.md) §B-18 — peg-in-hole 왕복 실측
 - [../gripper/grasp_center_frame.md](grasp_center_frame.md) — `grasp_center` ≠ 손끝, 149 mm

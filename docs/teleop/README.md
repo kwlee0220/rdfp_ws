@@ -77,7 +77,7 @@ OMY-L100 ─(omy_leader_bridge)─▶ /leader/ee_pose
 ## 관련 (teleop 밖)
 
 - [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — `servo_node` 서비스·상태 코드
-- [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) — 물체를 들고 옮기는 구간은 트윈 `move_linear` 로 한다
+- [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) — 물체를 들고 옮기는 구간은 트윈 `move_linear` 로 한다
 - [../../src/rdfp/launch/README.md](../../src/rdfp/launch/README.md) — `teleop_mirror.launch.py` 인벤토리
 - [../INDEX.md](../INDEX.md) — 저장소 전체 문서 인덱스
 - 외부 저장소 `omy_leader_bridge` — OMY-L100 어댑터 구현

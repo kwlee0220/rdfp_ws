@@ -31,7 +31,8 @@
 | `isaac/isaac_phase_log.md` | Isaac 백엔드 Phase 0~11 단계 계획 · 실측 · 닫힌 결정 | [../backends/isaac/isaac_backend.md](../backends/isaac/isaac_backend.md) |
 | `isaac/multi_simulator_backend_design.md` | 멀티 시뮬레이터 launch 재배치 설계안 (§4 미채택) | [../backends/README.md](../backends/README.md) |
 | `recorder_initial_requirements.md` | MP4 recorder 노드 최초 요구사항 | [../collect/rdfp_image_recorder_node_guide.md](../collect/rdfp_image_recorder_node_guide.md) |
-| `dataset_postproc_verification_runbook.md` | 후처리기 Phase 1~3 실환경 검증 runbook (구 CLI · 구 경로) | [../collect/dataset_postproc_user_guide.md](../collect/dataset_postproc_user_guide.md) |
-| `rosbag2_operation_report.md` | rosbag2 장기 저장 운영 방안 보고서 (systemd · 인덱스 · retention 은 미구현) | [../collect/dataset_ingest_design.md](../collect/dataset_ingest_design.md) §0 |
+| `dataset_postproc_verification_runbook.md` | 후처리기 Phase 1~3 실환경 검증 runbook (구 CLI · 구 경로) | [../collect/데이터셋_적재_운영_가이드.md](../collect/데이터셋_적재_운영_가이드.md) |
+| `rosbag2_operation_report.md` | rosbag2 장기 저장 운영 방안 보고서 (systemd · 인덱스 · retention 은 미구현) | [../collect/데이터셋_적재_시스템_설계서.md](../collect/데이터셋_적재_시스템_설계서.md) §0 |
 | `leader_gripper_mapping_design.md` | 리더 트리거 → 그리퍼 연속 매핑 — `GripperCommand` 가 숫자를 안 실어 전제 무효 | [../control/gripper_node_design.md](../control/gripper_node_design.md) |
+| `제어_계층_분리_기록.md` | 최상위 설계서 §7 에서 떼어 낸 분리 과정(역행 의존 조사 · 걸림돌과 해법)과 저장/관리기 ROS 결합도 측정 두 회차 (2026-10-18) | [../rdfp_프레임워크_전체_구조와_설계.md](../rdfp_프레임워크_전체_구조와_설계.md) §7 |
 | `문서_재편_계획.md` | 이 재편의 계획서 | — |

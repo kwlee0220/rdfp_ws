@@ -338,5 +338,5 @@ u:  0 ─────── 0.3 ─────── 0.7 ─────── 
 - [omy_leader_teleop_guide.md](../teleop/omy_leader_teleop_guide.md) — 전체 체인 기동 절차
 - [../gripper/gripper_node_design.md](../control/gripper_node_design.md) — open/close 서비스
 - [../gripper/gripper_action_server_notes.md](../control/gripper_action_node_guide.md) — 액션 서버의 feedback/result 성격
-- [../robot_twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) 4.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
+- [../robot_twin/robot_twin_user_guide.md](../twin/로봇_트윈_사용자_가이드.md) 4.2 — 트윈의 그리퍼 연산 (`open`/`close`/`grasp` 목표)
 - 외부 저장소 `omy_leader_bridge` — `bridge_topics.json` 이 릴레이 토픽의 단일 출처

@@ -110,7 +110,7 @@ MoveIt 스택과 함께 뜨지만 **쓰이는 문맥이 다른** 모듈은 다�
 | 백엔드 프로파일 (`config/backends/*.yaml`) | [../../src/robot_control/config/backends/README.md](../../src/robot_control/config/backends/README.md) · [../backends/README.md](../backends/README.md) |
 | 토픽 이름 규약 (`~/` 가 아니라 루트 상대인 이유) | [../topic_naming_contract.md](../topic_naming_contract.md) |
 | 세션 인지 카메라·뷰어 / 레코더 | [../collect/session_camera_nodes_guide.md](../collect/session_camera_nodes_guide.md) · [../collect/rdfp_image_recorder_node_guide.md](../collect/rdfp_image_recorder_node_guide.md) |
-| REST 로 팔·그리퍼를 조작한다 | [../twin/robot_twin_user_guide.md](../twin/robot_twin_user_guide.md) |
+| REST 로 팔·그리퍼를 조작한다 | [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) |
 | 리더 트리거 → 그리퍼 매핑 (설계안, 전제 무효) | [../archive/leader_gripper_mapping_design.md](../archive/leader_gripper_mapping_design.md) |
 
 전체 문서 색인은 [../INDEX.md](../INDEX.md) 에 있다.

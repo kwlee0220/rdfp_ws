@@ -356,7 +356,7 @@ FCI 연결 확인 → collision_behavior 설정 → (기존 체인) → error_re
 | 읽기 (`/scene/objects`) | ⚠️ 발행 노드를 새로 만들어야 한다 — AprilTag / 모션캡처 / pose estimation |
 | 쓰기 (`reset_scene`) | ❌ **원리적으로 불가.** 물체를 순간이동시킬 수단이 없다. 연산을 노출하지 않는 것이 자연스럽다 |
 
-즉 `panda_franka.launch.py` 는 **팔·그리퍼·카메라·수집 경로까지는 정상 동작**하고 scene 만 남는다. 이는 [rdfp_framework_design.md §9](../rdfp_framework_design.md) 미결 2번 ("시뮬레이터는 ground truth 가 있고 실기는 인식이 필요하다 — 두 경로의 인터페이스를 하나로 정의해야 한다")과 같은 항목이다.
+즉 `panda_franka.launch.py` 는 **팔·그리퍼·카메라·수집 경로까지는 정상 동작**하고 scene 만 남는다. 이는 [rdfp_프레임워크_전체_구조와_설계.md §9](../rdfp_프레임워크_전체_구조와_설계.md) 미결 2번 ("시뮬레이터는 ground truth 가 있고 실기는 인식이 필요하다 — 두 경로의 인터페이스를 하나로 정의해야 한다")과 같은 항목이다.
 
 ---
 
@@ -409,5 +409,5 @@ FCI 연결 확인 → collision_behavior 설정 → (기존 체인) → error_re
 - [scene/scene_objects_guide.md](../control/scene_objects_guide.md) — §6 이 scene 발행 노드
   계약. 실기용 인식 노드를 만들 때의 기준
 - `~/ansible/roles/franka_ros2` — franka_ros2 + libfranka 소스 빌드 role (§3.1)
-- [rdfp_framework_design.md](../rdfp_framework_design.md) — §2.2 가 "② 실/가상 로봇 환경"에
+- [rdfp_프레임워크_전체_구조와_설계.md](../rdfp_프레임워크_전체_구조와_설계.md) — §2.2 가 "② 실/가상 로봇 환경"에
   `Franka Panda(실기 · mock)` 을 이미 범위로 명시, §9 미결 2번이 인식 경로

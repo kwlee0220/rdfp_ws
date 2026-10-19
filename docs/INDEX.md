@@ -4,11 +4,11 @@
 **요약은 한 줄이다** — 무엇을 담았는지는 각 문서 머리의 상태 · 요약 블록이 정본이다(색인의 긴 요약이
 두 번째 정본이 되어 낡았던 것이 2026-09-21 재편의 이유다).
 
-> **전체 구조를 먼저 알고 싶다면** [rdfp_framework_design.md](rdfp_framework_design.md) — 세 서브시스템과 그 사이의
+> **전체 구조를 먼저 알고 싶다면** [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) — 세 서브시스템과 그 사이의
 > 인터페이스 계약을 다루는 최상위 문서다. **학습 데이터를 만드는 전 과정(생성 → 수집 → 적재 → export → 학습)** 은
-> [collect/학습_데이터_전_과정_지도.md](collect/학습_데이터_전_과정_지도.md) 가 한 화면에 잇는다.
+> [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) 가 한 화면에 잇는다.
 
-- **현행 문서 62개** (이 색인 제외) + `archive/` 보관 21개. 경로는 `docs/` 기준이다.
+- **현행 문서 62개** (이 색인 제외) + `archive/` 보관 22개. 경로는 `docs/` 기준이다.
 - **종류** — `절차`(사람이 실행하며 읽는다) · `사양`(코드와 1:1 인 계약 · 레퍼런스) · `설계`(왜 그렇게 했나) ·
   `현황`(무엇이 남았나 · 정하지 않았나) · `설계안`(코드 미반영) · `기록`(작업 기록 · 교훈). `archive/` 는 전부 `이력`(갱신하지 않는다).
 - 폴더는 코드 계층을 따른다 — `control/`(robot_control) · `collect/`(rdfp) · `learning/`(학습 데이터) · `twin/`(robot_twin) ·
@@ -35,7 +35,7 @@
 
 | 문서 | 종류 | 한 줄 |
 |---|:-:|---|
-| [rdfp_framework_design.md](rdfp_framework_design.md) | 설계 | ⭐ 최상위 구조 — 세 서브시스템 · 표준 인터페이스 계약 · 2단 저장 · 에피소드 생명주기 · 패키지 분리(§7) · 현재 상태(§8) |
+| [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) | 설계 | ⭐ 최상위 구조 — 세 서브시스템 · 표준 인터페이스 계약 · 2단 저장 · 에피소드 생명주기 · 패키지 분리(§7) · 현재 상태(§8) |
 | [topic_naming_contract.md](topic_naming_contract.md) | 사양 | ⭐ 토픽 이름 규약 — 논리 채널별 정규 이름(루트 상대), arm 명령이 규약 밖인 이유, remap 은 백엔드 경계에서만, 2단계 네임스페이스(미구현) |
 | [python_env_guide.md](python_env_guide.md) | 절차 | ROS 2 와 uv venv 가 한 머신에서 공존하는 법 — venv 가 깨지는 세 원인, 옵트인 셸, 24.04/Jazzy 이전 |
 
@@ -60,16 +60,16 @@
 
 | 문서 | 종류 | 한 줄 |
 |---|:-:|---|
-| [collect/학습_데이터_전_과정_지도.md](collect/학습_데이터_전_과정_지도.md) | 절차 | ⭐ 생성 → 수집 → 적재 → export → 학습 여섯 단계 — 명령 한 화면, 단계별 정본, 단계 *사이*의 함정 |
+| [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) | 절차 | ⭐ 생성 → 수집 → 적재 → export → 학습 여섯 단계 — 명령 한 화면, 단계별 정본, 단계 *사이*의 함정 |
 | [collect/수집_계층_얹기_절차서.md](collect/수집_계층_얹기_절차서.md) | 절차 | ⭐ `rdfp_collect` — 백엔드별 기동, 에피소드 한 번 수집, rosbag · 적재로 잇기, 함정, 인자 22개 |
 | [collect/session_control_guide.md](collect/session_control_guide.md) | 사양 | ⭐ `session_control_node` + CLI + `SessionControlClient` — 상태 머신 · 서비스 6종 · TRANSIENT_LOCAL |
 | [collect/session_camera_nodes_guide.md](collect/session_camera_nodes_guide.md) | 사양 | `rdfp_camera_node`(§A) · `rdfp_image_viewer_node`(§B) — `/session` 을 따르는 카메라 · 뷰어 |
 | [collect/rdfp_image_recorder_node_guide.md](collect/rdfp_image_recorder_node_guide.md) | 사양 | `rdfp_image_recorder` — `/session` 자동 녹화, 타임스탬프 분절, sidecar · metadata(`episode_key`), `Image` · `CompressedImage` |
 | [collect/image_recorder_node_guide.md](collect/image_recorder_node_guide.md) | 사양 | `image_recorder_node` — 서비스 구동 레코더 (**보조** — launch 없음, 압축 미지원) |
 | [collect/ffmpeg_mp4_recorder_guide.md](collect/ffmpeg_mp4_recorder_guide.md) | 사양 | `FFMpegMp4Recorder` — ffmpeg subprocess MP4 코어 (ROS 비의존) |
-| [collect/rosbag_cli_user_guide.md](collect/rosbag_cli_user_guide.md) | 절차 | ⭐ `rosbag` CLI — `list-topics` · `list-episodes` · `export` · `delete` · `clear`, 시간 범위는 log time 기준 |
-| [collect/dataset_postproc_user_guide.md](collect/dataset_postproc_user_guide.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6) |
-| [collect/dataset_ingest_design.md](collect/dataset_ingest_design.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 14 테이블(§5), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
+| [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) | 절차 | ⭐ `scripts/rosbag.sh` — rosbag2 녹화 · 조회 · 적재 · 삭제의 통합 진입점과 그 아래 `ros2 run rdfp rosbag` 서브커맨드 전부. 녹화 옵션 · 적재 설정 대조 경고, 에피소드 선택(시간 범위는 log time 기준), `export` · `delete` 동작, 활용 절차, Python API |
+| [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6) |
+| [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 14 테이블(§5), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) | 절차 | `replay_panda_mock` — 왜 어떤 명령 타입인가(§0), 구조, `replay_arm_path`, 함정 12가지 |
 
 ## learning/ — 학습 데이터
@@ -89,9 +89,9 @@
 
 | 문서 | 종류 | 한 줄 |
 |---|:-:|---|
-| [twin/robot_twin_user_guide.md](twin/robot_twin_user_guide.md) | 절차 · 사양 | 트윈 사용 설명서 — 기동, REST 전체, 변수 · 연산, 자동 에피소드 수집, 확장, 운영 주의 |
-| [twin/robot_twin_design.md](twin/robot_twin_design.md) | 설계 | 트윈 설계 근거 — 스레드 모델 · 스냅샷 · 세션 · 자원 락 · 오류 코드 · 결정 이력 |
-| [twin/mcp_server_design.md](twin/mcp_server_design.md) | 설계 | MCP 서버(`robot-twin-client`) — 카탈로그 노출, 도구 구성, 결정 13건 |
+| [twin/로봇_트윈_사용자_가이드.md](twin/로봇_트윈_사용자_가이드.md) | 절차 · 사양 | 트윈 사용자 가이드 — 기동, REST 전체, 변수 · 연산, 자동 에피소드 수집, 확장, 운영 주의 |
+| [twin/로봇_트윈_설계서.md](twin/로봇_트윈_설계서.md) | 설계 | 트윈 설계 근거 — 스레드 모델 · 스냅샷 · 세션 · 자원 락 · 오류 코드 · 결정 이력 |
+| [twin/로봇_트윈_MCP_서버_설계서.md](twin/로봇_트윈_MCP_서버_설계서.md) | 설계 | MCP 서버(`robot-twin-client`) — 카탈로그 노출, 도구 구성, 결정 13건 |
 
 ## teleop/
 
@@ -139,7 +139,7 @@
 | 펑션베이 (5) | 미해결 작업 원문 · 인수 체크리스트 이력 20260917 · 20261001 · 벤더 메일 2 |
 | Isaac (2) | Phase 0~11 단계 계획 · 멀티 시뮬레이터 backend 설계안 |
 | 1차 과제 진척 기록 (1) | isaac 쌓기 과제의 A0~D4 실측 · 경위와 옛 결정 D1~D8 (2026-09-19~20) |
-| 그 밖 (4) | recorder 최초 요구사항 · 후처리기 실환경 검증 runbook · rosbag2 운영 방안 · 리더 트리거 그리퍼 매핑 |
+| 그 밖 (5) | recorder 최초 요구사항 · 후처리기 실환경 검증 runbook · rosbag2 운영 방안 · 리더 트리거 그리퍼 매핑 · 제어 계층 분리 기록 |
 | 재편 계획 | [archive/문서_재편_계획.md](archive/문서_재편_계획.md) |
 
 ## 코드 옆 문서
@@ -163,7 +163,7 @@
 |---|---|
 | 처음 빌드하고 실행해 본다 | [../README.md](../README.md) → [../src/rdfp/README.md](../src/rdfp/README.md) |
 | 학습 데이터 없이 로봇 제어 스택만 쓴다 | [../src/robot_control/README.md](../src/robot_control/README.md) |
-| 패키지가 왜 넷으로 나뉘어 있는지 | [rdfp_framework_design.md](rdfp_framework_design.md) §7.6 |
+| 패키지가 왜 넷으로 나뉘어 있는지 | [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) §7.6 |
 | Python venv 와 ROS 2 가 충돌한다 / 24.04 로 옮긴다 | [python_env_guide.md](python_env_guide.md) |
 | 어떤 launch 를 써야 할지 모르겠다 | 제어 → [../src/robot_control/launch/README.md](../src/robot_control/launch/README.md) / 수집 → [collect/수집_계층_얹기_절차서.md](collect/수집_계층_얹기_절차서.md) |
 | 로봇을 특정 pose 로 움직인다 / JGPC 에서 / servo 로 | [control/README.md](control/README.md) |
@@ -171,12 +171,13 @@
 | 카메라 노드 셋 중 무엇을 쓸지 | [control/camera_nodes_guide.md](control/camera_nodes_guide.md) §0 |
 | scene 에 물체를 놓거나 좌표를 읽는다 | [control/scene_objects_guide.md](control/scene_objects_guide.md) |
 | **Isaac 을 띄우고 수집까지 한 번에** | [backends/isaac/isaac_bringup_runbook.md](backends/isaac/isaac_bringup_runbook.md) §2 |
-| **학습 데이터를 만드는 전 과정을 한눈에** | [collect/학습_데이터_전_과정_지도.md](collect/학습_데이터_전_과정_지도.md) |
+| **학습 데이터를 만드는 전 과정을 한눈에** | [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) |
 | 세션 · 에피소드를 시작 · 종료한다 | [collect/session_control_guide.md](collect/session_control_guide.md) |
 | 영상을 MP4 로 녹화한다 | [collect/rdfp_image_recorder_node_guide.md](collect/rdfp_image_recorder_node_guide.md) |
-| rosbag 의 에피소드를 보거나 내보내거나 지운다 | [collect/rosbag_cli_user_guide.md](collect/rosbag_cli_user_guide.md) |
-| rosbag 을 DB 에 적재한다 / 수집 데이터를 지운다 | [collect/dataset_postproc_user_guide.md](collect/dataset_postproc_user_guide.md) |
-| 적재 파이프라인 내부 · 스키마 | [collect/dataset_ingest_design.md](collect/dataset_ingest_design.md) |
+| 수집 토픽을 rosbag 으로 녹화한다 / rosbag 명령을 한곳에서 쓴다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) |
+| rosbag 의 에피소드를 보거나 내보내거나 지운다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) §4~§8 |
+| rosbag 을 DB 에 적재한다 / 수집 데이터를 지운다 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) |
+| 적재 파이프라인 내부 · 스키마 | [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) |
 | 적재된 에피소드를 재생한다 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) |
 | **왜 관절-계획 · ACT · `.npz` 인가** | [learning/결정_기록.md](learning/결정_기록.md) |
 | 학습 샘플이 정확히 무엇인가 / R1 · R2 필드 / 배치 규약 | [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) |
@@ -184,7 +185,7 @@
 | 무엇이 남았나 · 무엇을 정해야 하나 | [learning/미구현_목록.md](learning/미구현_목록.md) · [learning/열린_결정.md](learning/열린_결정.md) |
 | 학습을 돌린다 | `rdfp-train/docs/학습_실행_절차.md` |
 | 학습한 추론기를 isaac 에서 돌린다 (스택 구성 · P1 · P2 · P3) | [learning/추론기_배치_스택_구성.md](learning/추론기_배치_스택_구성.md) |
-| 외부 시스템에 REST 로 로봇을 노출한다 | [twin/robot_twin_user_guide.md](twin/robot_twin_user_guide.md) |
+| 외부 시스템에 REST 로 로봇을 노출한다 | [twin/로봇_트윈_사용자_가이드.md](twin/로봇_트윈_사용자_가이드.md) |
 | OMY-L100 리더로 로봇을 움직인다 / 새 입력 장치를 붙인다 | [teleop/omy_leader_teleop_guide.md](teleop/omy_leader_teleop_guide.md) · [teleop/external_input_adapters.md](teleop/external_input_adapters.md) |
 | 펑션베이로 돌린다 / 새 빌드를 받았다 / 벤더에 요청한다 | [backends/functionbay/펑션베이_시뮬레이터_사용법.md](backends/functionbay/펑션베이_시뮬레이터_사용법.md) · [backends/functionbay/펑션베이_백엔드_설계.md](backends/functionbay/펑션베이_백엔드_설계.md) · [펑션베이_인수_체크리스트.md](backends/functionbay/펑션베이_인수_체크리스트.md) · [펑션베이_요청_목록.md](backends/functionbay/펑션베이_요청_목록.md) |
 | 토픽 이름을 정하거나 바꾼다 | [topic_naming_contract.md](topic_naming_contract.md) |
