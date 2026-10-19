@@ -27,7 +27,9 @@
 # 수집 노드(session_control · image_recorder · target_joint_cmds_publisher)는 뜨지
 # 않는다. 세션/에피소드와 녹화까지 필요하면 수집 계열을 쓴다:
 #
-#   ./scripts/run_rdfp_panda_functionbay.sh   # 수집 계층 (다른 터미널)
+#   ./scripts/run_collect_functionbay.sh               # 수집 계층 + rosbag (다른 터미널, 이 스택이 떠 있어야 한다)
+#   ./scripts/run_collect_functionbay.sh --with-stack  # 이 스택까지 한 번에 (터미널 하나)
+#   ./scripts/run_rdfp_panda_functionbay.sh            # 수집 계층만 (녹화 없이 확인할 때)
 #
 # 사용 예 — 전체 인자는 `--show-args` 로 본다.
 #

@@ -106,7 +106,7 @@ case "$SHUTDOWN" in
     *) echo "unknown --shutdown: $SHUTDOWN (rdfp | all)" >&2; exit 2 ;;
 esac
 
-TOPICS_FILE="$WS_ROOT/config/recording_topics_isaac.list"
+TOPICS_FILE="$WS_ROOT/config/recording_topics.list"
 ROSBAG_DIR="$DATA_ROOT/rosbag"
 RECORDINGS_DIR="$DATA_ROOT/recordings"
 VIDEOS_DIR="$DATA_ROOT/videos"
@@ -137,6 +137,12 @@ _descendants() {
 
 cleanup() {
     trap - INT TERM EXIT
+    # **정리는 끝까지 간다.** 트랩 안에서도 `set -e` 가 살아 있어, 한 줄이 실패하면 거기서
+    # 끝나 버린다 — 선행 확인 단계(아직 `rosbag/` 이 없다)에서 아래 `find` 파이프가 실패해
+    # **`--with-stack` 으로 띄운 스택을 안 거두고** 성공한 `--check-only` 도 종료 코드 1 이
+    # 됐다 (2026-10-18, 펑션베이 판을 시험하다 발견). 끄면 트랩이 끝까지 돌고 종료 코드는
+    # `exit` 에 준 값 그대로다.
+    set +e
     echo
     if [[ -n "$ROSBAG_PID" ]] && kill -0 "$ROSBAG_PID" 2>/dev/null; then
         echo "[collect] rosbag 종료 (SIGINT — metadata.yaml 을 남기려면 이것이어야 한다)"
@@ -190,7 +196,7 @@ cleanup() {
             echo "[collect]    복구: ros2 bag reindex -s mcap '$session_dir'"
         fi
     fi
-    echo "[collect] 적재:  ros2 run rdfp import --config $DATASET_YAML"
+    echo "[collect] 적재:  ./scripts/rosbag.sh import --config $DATASET_YAML"
 
     # **스택은 가장 마지막에 내린다.** 순서가 중요하다 — 먼저 내리면 마지막 에피소드의
     # `/session` 전이와 관절 상태가 bag 에 안 남는다.
@@ -375,19 +381,12 @@ done
 timeout 5 ros2 service list 2>/dev/null | grep -q '^/session_control/start_episode$' \
     || fail "session_control 이 60초 안에 서지 않았다 — $LOG_DIR/rdfp_collect.log"
 
-# ── rosbag ───────────────────────────────────────────────────────────────────
-
-echo "[collect] rosbag 기동 (로그: $LOG_DIR/rosbag.log)"
-RECORDING_TOPICS_FILE="$TOPICS_FILE" RDFP_ROSBAG_DIR="$ROSBAG_DIR" \
-    "$WS_ROOT/scripts/record_rosbag.sh" > "$LOG_DIR/rosbag.log" 2>&1 &
-ROSBAG_PID=$!
-sleep 3
-kill -0 "$ROSBAG_PID" 2>/dev/null || fail "rosbag 이 뜨지 못했다 — $LOG_DIR/rosbag.log"
-
 # ── 데이터셋 설정 ────────────────────────────────────────────────────────────
 #
 # 적재할 때 쓸 설정을 **여기서 써 둔다** — 위 ②의 네 경로가 손으로 옮겨 적는 순간
 # 어긋날 수 있어서다. `db.dsn_env` 는 값이 아니라 **환경변수 이름**이다.
+# rosbag 보다 먼저 쓴다 — `rosbag.sh record --config` 가 이 설정과 녹화 목록 · 루트를
+# 대조해, 적재에서 조용히 빠질 토픽이 있으면 시작할 때 경고한다.
 cat > "$DATASET_YAML" <<EOF
 # ./scripts/run_collect_isaac.sh 가 생성했다 ($(date '+%F %T')). 손으로 고쳐도 되지만
 # 다음 실행이 덮어쓴다.
@@ -399,6 +398,18 @@ db:
   dsn_env: RDFP_DB_DSN
   schema: public
 EOF
+
+# ── rosbag ───────────────────────────────────────────────────────────────────
+#
+# `rosbag.sh` 는 녹화까지 `exec` 로 넘기므로 `$!` 가 곧 `ros2 bag record` 의 PID 다 —
+# 종료 처리의 `kill -INT "$ROSBAG_PID"` 가 그대로 rosbag2 에 닿는다.
+echo "[collect] rosbag 기동 (로그: $LOG_DIR/rosbag.log)"
+"$WS_ROOT/scripts/rosbag.sh" record \
+    --topics-file "$TOPICS_FILE" --rosbag-dir "$ROSBAG_DIR" --config "$DATASET_YAML" \
+    > "$LOG_DIR/rosbag.log" 2>&1 &
+ROSBAG_PID=$!
+sleep 3
+kill -0 "$ROSBAG_PID" 2>/dev/null || fail "rosbag 이 뜨지 못했다 — $LOG_DIR/rosbag.log"
 
 cat <<EOF
 

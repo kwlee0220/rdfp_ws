@@ -10,7 +10,7 @@
 #
 #   수집한 것을 전부 지우려면 덩어리가 **다섯**이다:
 #     DB · 적재 대기 bag · 보관 bag · 레코더 mp4(`recordings/`) · 학습 샘플(`datasets/`)
-#   절차는 docs/collect/dataset_postproc_user_guide.md **§8.6** 에 있다.
+#   절차는 docs/collect/데이터셋_적재_운영_가이드.md **§8.6** 에 있다.
 #
 # 먼저 스택을 내린다 — 수집 노드가 살아 있으면 레코더가 지우는 족족 다시 쓴다.
 set -euo pipefail
@@ -30,4 +30,4 @@ for leftover in recordings datasets rosbag rosbag_imported; do
     [[ "$n" -gt 0 ]] \
         && echo "[clear] 남아 있음: $dir ($n 파일, $(du -sh "$dir" | cut -f1))" >&2
 done
-echo "[clear] 전부 지우려면: docs/collect/dataset_postproc_user_guide.md §8.6" >&2
+echo "[clear] 전부 지우려면: docs/collect/데이터셋_적재_운영_가이드.md §8.6" >&2

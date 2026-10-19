@@ -10,46 +10,56 @@
 #
 # **로봇 스택이 먼저 떠 있어야 한다.** 트윈은 로봇을 제어하지 않고 중계만 한다.
 #
-#   mock :  ./scripts/run_panda_mock.sh                 # 팔·그리퍼·scene 연산까지
-#           ros2 launch rdfp rdfp_panda_mock.launch.py  # + 세션/에피소드 연산
-#   Isaac:  ./scripts/run_isaac_sim.sh --gui            # ① 시뮬레이터가 Play 중이어야 한다
-#           ./scripts/run_panda_isaac.sh                # ② 제어 스택
-#           ros2 launch rdfp rdfp_panda_isaac.launch.py # ②' + 세션/에피소드 연산
+#   mock    : ./scripts/run_panda_mock.sh               # 팔·그리퍼·scene 연산까지
+#   Isaac   : ./scripts/run_isaac_sim.sh --gui          # ① 시뮬레이터가 Play 중이어야 한다
+#             ./scripts/run_panda_isaac.sh              # ② 제어 스택
+#   펑션베이: 시뮬레이터 · endpoint · /scene/start 후  # docs/backends/functionbay/펑션베이_시뮬레이터_사용법.md
+#             ./scripts/run_panda_functionbay.sh
+#   + 세션/에피소드 연산이 필요하면: ros2 launch rdfp rdfp_collect.launch.py backend:=<mock|isaac|functionbay>
+#     (수집까지 할 때는 ./scripts/run_collect_isaac.sh · run_collect_functionbay.sh 가 함께 띄운다)
 #
 # 세션/에피소드 연산(start_session 등)은 rdfp 의 session_control_node 에 중계되므로
-# 수집 계열 launch 가 필요하다. 없으면 그 연산만 PRECONDITION_FAILED 로 거부되고
-# 나머지는 정상 동작한다.
+# 수집 계층이 필요하다. 없으면 그 연산만 거절되고(503 PRECONDITION_FAILED,
+# 'session_control_node is not available') 나머지는 정상 동작한다.
+#
+# **트윈은 기동할 때 팔 컨트롤러의 진행 중 궤적을 모두 취소한다** (JTC — mock · Isaac).
+# 이전 트윈이 남긴 궤적을 끊기 위해서이며, RViz 등 다른 주체가 움직이던 것도 함께 멈춘다
+# (docs/twin/로봇_트윈_사용자_가이드.md §9.7).
 #
 #
 # ── 백엔드 선택 ──────────────────────────────────────────────────────────────
 #
 # **설정 파일 하나로 갈린다.** 트윈은 백엔드를 모르고, YAML 이 토픽·시계·scene 레시피를
-# 정한다. 두 shipped 설정의 실질적 차이는 셋뿐이다:
+# 정한다. 팔 명령 채널 · 속도 · 프레임은 `moveit.backend` 한 줄이 백엔드 프로파일에서 채운다.
+# 세 shipped 설정의 실질적 차이:
 #
 #   * `ros.use_sim_time` — Isaac 은 **true**. false 로 두면 변수 stamp 가 벽시계로 찍혀
-#     에피소드 경계(sim time)와 어긋나고 데이터셋에서 짝이 안 맞는다.
+#     에피소드 경계(sim time)와 어긋나고 데이터셋에서 짝이 안 맞는다. 펑션베이는 false
+#     (스택이 stamp 를 벽시계로 정렬한다).
 #   * `reset_scene` 레시피 — mock 은 물체를 **만들 수** 있지만 Isaac 은 스테이지에 이미
 #     있는 것을 옮길 수만 있다. 그래서 Isaac 쪽 이름·종류·크기는
 #     `robot_control/config/isaac_scene.json` 과 같아야 하고, 어긋나면 런타임에
 #     `isaac_scene_state_node` 가 거부한다 (`test_isaac_scene_recipe.py` 가 빌드에서 잡는다).
-#     안착 z 도 다르다 — Isaac 에는 테이블(상단 0.4)이 있고 mock 에는 없다.
-#   * `twin.id` / `ros.node_name` / `http.port` — 한 머신에서 둘을 함께 띄우기 위한 구분.
+#     안착 z 도 다르다 — Isaac 에는 테이블이 있고 mock 에는 없다.
+#     **펑션베이에는 `reset_scene` 이 없다** (`/scene/reset` 을 제공하지 않는다). 대신
+#     고정물 위치를 `fixtures` 변수로 낸다.
+#   * `twin.id` / `ros.node_name` / `http.port` — 한 머신에서 함께 띄우기 위한 구분.
 #
-# `moveit.move_group_mode` 는 **둘 다 jtc** 다. Isaac 도 `topic_based_ros2_control` 로
-# `controller_manager` 를 ROS 쪽에서 돌려 `panda_arm_controller` 가 JTC 이기 때문이다.
+# 모드는 mock · Isaac 이 JTC, 펑션베이가 JGPC(개루프 스트리밍)다. Isaac 도
+# `topic_based_ros2_control` 로 `controller_manager` 를 ROS 쪽에서 돌려 JTC 다.
 #
 # **`ROS_DOMAIN_ID` 를 export 할 필요는 없다** — `main.py` 가 YAML 의 `ros.domain_id`(31)
 # 와 `rmw` 를 rclpy 초기화 **전에** 프로세스 환경변수로 넣는다. 반대로 셸에 다른 값이
 # 있어도 YAML 이 이긴다.
 #
 #
-# ── 세 번째 트윈을 띄울 때 ───────────────────────────────────────────────────
+# ── 트윈을 하나 더 띄울 때 ───────────────────────────────────────────────────
 #
 # **`--port` 만 바꾸면 안 된다.** `twin.id` 와 `ros.node_name` 이 겹쳐 같은 이름의 노드가
 # 둘이 된다. shipped YAML 을 복사해 셋을 모두 다르게 준 뒤 `RDFP_TWIN_CONFIG` 로 지정한다.
 #
 #   cp src/robot_twin/config/robot_twin_panda01.yaml /tmp/panda02.yaml
-#   # twin.id: panda02 / ros.node_name: robot_twin_panda02 / http.port: 8803 로 수정
+#   # twin.id: panda02 / ros.node_name: robot_twin_panda02 / http.port: 8804 로 수정 (8801~8803 은 출하 설정이 쓴다)
 #   RDFP_TWIN_CONFIG=/tmp/panda02.yaml ./scripts/run_robot_twin.sh
 set -euo pipefail
 
