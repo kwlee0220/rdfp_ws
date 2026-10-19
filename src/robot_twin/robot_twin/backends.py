@@ -57,6 +57,15 @@ def requires_move_group(op: OperationConfig) -> bool:
     return bool(op.backend.get('method'))
 
 
+def requires_session_control(op: OperationConfig) -> bool:
+    """이 연산이 `session_control_node` 를 필요로 하는지 (설계서 6.8).
+
+    ``backend.session_control`` 은 그 노드의 서비스 이름이다. :func:`requires_move_group`
+    과 같은 이유로 연산 이름 목록이 아니라 설정의 선언으로 판별한다.
+    """
+    return bool(op.backend.get('session_control'))
+
+
 def validate_operation_config(op: OperationConfig) -> None:
     """연산 정의가 백엔드를 구동할 수 있는지 검사한다 — **기동 시점에** 호출한다.
 
@@ -177,7 +186,7 @@ def dispatch(runtime: 'RobotTwinRuntime', client: Optional[Any], op: OperationCo
     if handler is None:
         raise BackendUnavailable(
             f"operation '{op.name}' has no backend wired; "
-            'see docs/twin/robot_twin_design.md chapter 9'
+            'see docs/twin/로봇_트윈_설계서.md chapter 9'
         )
     return handler(runtime, client, op, session, timeout)
 
@@ -595,26 +604,40 @@ def _make_scene_object(spec: dict[str, Any]) -> Any:
 # 세션 / 에피소드 경계 — session_control_node 의 클라이언트로 동작한다
 # ----------------------------------------------------------------------
 
+def session_control_unavailable(runtime: 'RobotTwinRuntime') -> Optional[str]:
+    """세션 연산을 지금 할 수 없는 이유. 할 수 있으면 ``None``.
+
+    런타임의 전제 조건 검사(세션 생성 전, ``503``)와 :func:`_session_client`(호출 직전)가
+    같은 판정과 같은 문장을 쓰도록 한 곳에 둔다.
+    """
+    try:
+        client = runtime.session_control()
+    except Exception as exc:  # 판정 함수가 예외를 내면 API 가 500 으로 응답한다
+        return f'session_control client could not be created: {exc}'
+    if client is None:
+        return ('session/episode operations are not available; '
+                'they are provided by the `rdfp` collection layer, which is not installed')
+    if not client.is_ready():
+        return ('session_control_node is not available; start the collection layer '
+                '(`ros2 launch rdfp rdfp_collect.launch.py backend:=<name>`)')
+    return None
+
+
 def _session_client(runtime: 'RobotTwinRuntime') -> Any:
     """준비된 `SessionControlClient` 를 돌려준다.
 
+    런타임이 세션을 만들기 전에 같은 판정으로 이미 거절하므로(``503``), 여기 걸리는 것은
+    **검사와 호출 사이에 노드가 사라진** 경우뿐이다.
+
     Raises:
-        BackendUnavailable: 수집 계층(`rdfp`)이 설치되지 않았거나,
-            `session_control_node` 가 아직 없을 때. 런타임이
-            ``PRECONDITION_FAILED`` 로 바꾼다.
+        PreconditionFailed: 수집 계층(`rdfp`)이 설치되지 않았거나 `session_control_node`
+            가 없을 때. 아무것도 실행되지 않았으므로 ``EXECUTION_ABORTED`` 가 아니라
+            ``PRECONDITION_FAILED`` 다.
     """
-    client = runtime.session_control()
-    if client is None:
-        raise BackendUnavailable(
-            'session/episode operations are not available; '
-            'they are provided by the `rdfp` collection layer, which is not installed'
-        )
-    if not client.is_ready():
-        raise BackendUnavailable(
-            'session_control_node is not available; '
-            'start it with `ros2 run rdfp session_control_node`'
-        )
-    return client
+    reason = session_control_unavailable(runtime)
+    if reason is not None:
+        raise PreconditionFailed(reason)
+    return runtime.session_control()
 
 
 def _call_session(future: Any, *, timeout: float, what: str) -> None:
@@ -908,4 +931,5 @@ def _motion_outputs(runtime: 'RobotTwinRuntime', *, closed_loop: bool) -> dict[s
 
 
 __all__ = ['BackendUnavailable', 'PreconditionFailed', 'dispatch', 'requires_move_group',
-           'validate_inputs', 'validate_operation_config']
+           'requires_session_control', 'session_control_unavailable', 'validate_inputs',
+           'validate_operation_config']

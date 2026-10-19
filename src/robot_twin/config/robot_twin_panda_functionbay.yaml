@@ -1,6 +1,6 @@
 # 로봇 트윈 정의 — Panda (**펑션베이 시뮬레이터 백엔드**).
 #
-# 설계서: docs/twin/robot_twin_design.md
+# 설계서: docs/twin/로봇_트윈_설계서.md
 #         docs/backends/functionbay/펑션베이_백엔드_설계.md
 #         docs/backends/functionbay/peg_in_hole_via_mcp_plan.md (이 파일을 만든 이유)
 # 실행:   ros2 run robot_twin robot_twin --config <이 파일 경로>

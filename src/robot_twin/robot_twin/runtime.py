@@ -27,15 +27,20 @@ from robot_twin.config import OperationConfig, TwinConfig
 from robot_twin.errors import (
     ErrorCode, cancel_unsupported, invalid_input, precondition_failed
 )
-from robot_twin.session import Phase, Session, SessionStore, Status
+from robot_twin.session import Session, SessionStore, Status
 from robot_twin.variables import StaticSourceUnavailable, VariableCache
 
 # 소스 가용성(퍼블리셔 존재 여부) 갱신 주기. age 만으로는 "퍼블리셔 없음"과
 # "퍼블리셔 멈춤"을 구분할 수 없어 그래프를 직접 조회해야 한다 (설계서 5.1).
 _AVAILABILITY_PERIOD_SEC = 2.0
 
-# 워치독 점검 주기. `max_duration_sec` 초과 세션을 강제 중단한다 (설계서 6.5).
+# 워치독 점검 주기. `max_duration_sec` 초과 세션에 정지를 보내고 끝낸다 (설계서 6.5).
 _WATCHDOG_PERIOD_SEC = 1.0
+
+# 기동 시 고아 goal 취소에서 컨트롤러 취소 서비스를 기다리는 한도(초) (설계서 6.13).
+# 컨트롤러가 이미 떠 있으면 매칭은 수십 ms 안에 끝난다 — 이 값은 컨트롤러가 없을 때
+# MoveGroup 준비가 늦어지는 상한이다.
+_ORPHAN_CANCEL_WAIT_SEC = 3.0
 
 
 def _fetch_fixtures(runtime: 'RobotTwinRuntime') -> dict:
@@ -64,6 +69,28 @@ def _fetch_fixtures(runtime: 'RobotTwinRuntime') -> dict:
 # ⚠️ **여기 이름을 `MoveGroupClient` 의 메서드 이름과 같게 두면 안 된다.** 이쪽을
 # 먼저 보므로 같은 이름이면 클라이언트 메서드가 **조용히 가려진다.**
 _STATIC_PROVIDERS = {'get_fixtures': _fetch_fixtures}
+
+
+def _time_limit(session: Session, op: OperationConfig) -> float:
+    """비동기 연산 세션의 시간 상한(초). 입력 `max_duration_sec` 가 연산 기본값보다 우선한다."""
+    return float(session.inputs.get('max_duration_sec') or op.default_timeout_sec)
+
+
+def _failure_code(exc: BaseException) -> ErrorCode:
+    """실행 단계 예외의 오류 코드. 계획 실패만 ``PLANNING_FAILED`` 로 가른다.
+
+    MoveGroup 클라이언트는 계획 실패를 ``PlanningError``(``RuntimeError`` 하위)로 낸다.
+    로봇이 움직이지 않았고 같은 목표로 다시 불러도 결과가 같으므로, 클라이언트는 재시도가
+    아니라 목표를 바꿔야 한다 — 그 판단을 메시지 문자열 없이 할 수 있게 코드를 가른다.
+    나머지는 전부 ``EXECUTION_ABORTED`` 다.
+    """
+    try:
+        from robot_control.errors import PlanningError
+    except ImportError:  # 그 예외가 생기기 전의 제어 계층 설치본 — 예전처럼 보고한다
+        return ErrorCode.EXECUTION_ABORTED
+    if isinstance(exc, PlanningError):
+        return ErrorCode.PLANNING_FAILED
+    return ErrorCode.EXECUTION_ABORTED
 
 
 class RobotTwinRuntime:
@@ -157,6 +184,7 @@ class RobotTwinRuntime:
         """구독·발행을 등록하고 주기 타이머를 건다 (기동 2단계)."""
         self.variables.start()
         self._start_command_publishers()
+        self._start_session_control()
         self._node.create_timer(_AVAILABILITY_PERIOD_SEC, self.variables.refresh_availability)
         self._node.create_timer(_WATCHDOG_PERIOD_SEC, self._tick_watchdog)
 
@@ -180,6 +208,25 @@ class RobotTwinRuntime:
                 continue
             self._command_publishers[topic] = self._node.create_publisher(msg_type, topic, 10)
             self._logger.info(f"operation '{op.name}' -> {topic} ({type_name})")
+
+    def _start_session_control(self) -> None:
+        """세션 연산이 선언되어 있으면 `session_control_node` 클라이언트를 **기동 시점에** 만든다.
+
+        명령 퍼블리셔와 같은 이유다 — 갓 만든 서비스 클라이언트는 DDS 매칭 전이라
+        ``service_is_ready()`` 가 ``False`` 이므로, 첫 요청에서 만들면 떠 있는 노드를
+        없다고 판정해 그 요청을 ``503`` 으로 거절한다.
+        """
+        from robot_twin.backends import requires_session_control
+
+        if not any(requires_session_control(op) for op in self.config.operations):
+            return
+        try:
+            if self.session_control() is None:
+                self._logger.warning(
+                    'session/episode operations are configured but the `rdfp` collection '
+                    'layer is not installed; they will be rejected')
+        except Exception as exc:  # 세션 연산 부재가 트윈 기동을 막아서는 안 된다
+            self._logger.error(f'session_control client init failed: {exc}')
 
     def command_publisher(self, topic: str) -> Any:
         """기동 시 만들어 둔 명령 퍼블리셔. 없으면 ``None``."""
@@ -206,13 +253,13 @@ class RobotTwinRuntime:
     def session_control(self) -> Any:
         """`session_control_node` 클라이언트. 최초 호출 시 만든다.
 
-        **`wait_timeout_sec=0` 으로 만든다.** 생성자의 기본 동작은 6개 서비스가
+        **`wait_timeout_sec=0` 으로 만든다.** 생성자의 기본 동작은 5개 서비스가
         준비될 때까지 블로킹인데, 그러면 `session_control_node` 가 아직 없을 때
-        HTTP 요청 스레드가 그대로 묶인다. 준비 여부는 호출 시점에 `is_ready()` 로
-        보고 `PRECONDITION_FAILED` 로 거절한다.
+        기동이나 HTTP 요청 스레드가 그대로 묶인다. 준비 여부는 세션을 만들기 전에
+        `is_ready()` 로 보고 ``503 PRECONDITION_FAILED`` 로 거절한다.
 
-        MoveGroup 과 달리 기동 시 미리 만들지 않는 이유는, 서비스 클라이언트 생성이
-        가볍고 세션 연산을 쓰지 않는 트윈도 있기 때문이다.
+        세션 연산이 설정에 있으면 :meth:`start` 가 기동 시점에 부른다
+        (:meth:`_start_session_control`). 없는 트윈은 끝까지 만들지 않는다.
 
         제공자(`rdfp` 수집 계층)가 설치되어 있지 않으면 ``None`` 을 돌려준다 —
         트윈은 제어 계층 위에 있으므로 수집 계층을 직접 import 하지 않는다
@@ -255,6 +302,7 @@ class RobotTwinRuntime:
                     self._logger.info(f'gravity compensation enabled: {compensator}')
                 client = create_move_group_client(self._node, mode=mode,
                                                   check_action_server=False, **extra)
+                self._cancel_orphaned_goals(client)
                 with self._mg_lock:
                     self._move_group = client
                     self._move_group_error = None
@@ -268,6 +316,27 @@ class RobotTwinRuntime:
                 self._logger.error(f'MoveGroup client init failed (mode={mode}): {exc}')
 
         threading.Thread(target=_build, name='twin-movegroup-init', daemon=True).start()
+
+    def _cancel_orphaned_goals(self, client: Any) -> None:
+        """이전 트윈이 남긴 실행 중 궤적을 중단한다 (설계서 6.13).
+
+        트윈이 죽어도 컨트롤러는 받은 궤적을 끝까지 실행한다. 새 트윈은 그 goal 의 핸들이
+        없어 ``cancel`` 로 닿지 않으므로, 로봇이 움직이는데 취소권을 가진 주체가 없다.
+
+        **클라이언트를 내놓기 전에 부른다.** 내놓은 뒤에 부르면 그 사이에 접수된 새 연산의
+        궤적까지 끊는다. 대가는 컨트롤러가 아직 없을 때 MoveGroup 준비가
+        ``_ORPHAN_CANCEL_WAIT_SEC`` 만큼 늦어지는 것이다 — 그때는 끊을 궤적도 없다.
+
+        예전 구현은 클라이언트가 만들어지기 **전에** 불려 아무것도 하지 않았고, 했더라도
+        JGPC 의 스트리밍 정지뿐이라 JTC 컨트롤러의 궤적에는 닿지 않았다.
+        """
+        try:
+            cancelled = client.cancel_orphaned_goals(timeout_sec=_ORPHAN_CANCEL_WAIT_SEC)
+        except Exception as exc:  # 정리 실패가 MoveGroup 준비를 막아서는 안 된다
+            self._logger.warning(f'orphaned goal cancel failed: {exc}')
+            return
+        if cancelled:
+            self._logger.info('sent cancel-all to the arm controller on startup')
 
     # ------------------------------------------------------------------
     # 상태 변수 — API 표면
@@ -330,6 +399,11 @@ class RobotTwinRuntime:
                 수단이다.
         """
         return self.variables.read(name, refresh=refresh)
+
+    def read_variable_with_etag(self, name: str, *,
+                                refresh: bool = False) -> Optional[tuple[dict[str, Any], str]]:
+        """단일 변수 envelope 와 그것을 만든 스냅샷의 ETag (설계서 5.6)."""
+        return self.variables.read_with_etag(name, refresh=refresh)
 
     def read_variables(self, names: list[str]) -> dict[str, Any]:
         """배치 조회."""
@@ -487,22 +561,6 @@ class RobotTwinRuntime:
         self.sessions.release_estop()
         self._logger.warning('E-STOP released')
 
-    def cancel_all_on_startup(self) -> None:
-        """기동 시 고아 goal 을 정리한다 (설계서 6.13).
-
-        트윈이 죽어도 MoveIt 쪽 goal 은 계속 실행 중일 수 있다. 로봇이 움직이는데
-        취소권을 가진 주체가 없는 상태를 만들지 않기 위해 기동 시 일괄 중단한다.
-        """
-        with self._mg_lock:
-            client = self._move_group
-        stop = getattr(client, 'stop_streaming', None) if client is not None else None
-        if callable(stop):
-            try:
-                stop()
-                self._logger.info('cancelled in-flight goals on startup')
-            except Exception as exc:
-                self._logger.warning(f'startup goal cancel failed: {exc}')
-
     # ------------------------------------------------------------------
     # 내부 — 검사
     # ------------------------------------------------------------------
@@ -522,8 +580,18 @@ class RobotTwinRuntime:
         아직 매칭 전이라 ``server_is_ready()`` 가 ``False`` 를 돌려주어 멀쩡한 서버를
         미준비로 오판한다. 그 확인은 실행 단계의 ``wait_for_server`` 가 맡으며, 없으면
         ``EXECUTION_ABORTED`` 로 보고된다.
+
+        세션 연산은 `session_control_node` 를 본다. 서비스 클라이언트는 기동 시점에
+        만들어 두므로(:meth:`_start_session_control`) 위의 갓 만든 클라이언트 문제가 없다.
         """
-        from robot_twin.backends import requires_move_group
+        from robot_twin.backends import (
+            requires_move_group, requires_session_control, session_control_unavailable
+        )
+
+        if requires_session_control(op):
+            reason = session_control_unavailable(self)
+            if reason is not None:
+                raise precondition_failed(reason)
 
         if not requires_move_group(op):
             return
@@ -584,20 +652,24 @@ class RobotTwinRuntime:
                                  error_message=str(exc))
         except Exception as exc:
             self.sessions.finish(session.id, Status.FAILED,
-                                 error_code=ErrorCode.EXECUTION_ABORTED, error_message=str(exc))
+                                 error_code=_failure_code(exc), error_message=str(exc))
 
     def _run_async(self, op: OperationConfig, session: Session) -> None:
         """비동기 연산을 워커 스레드에서 실행한다."""
-        self.sessions.update(session.id, phase=Phase.EXECUTING)
         try:
-            outputs = self._dispatch(op, session, timeout=op.default_timeout_sec)
+            # 워치독과 같은 상한을 쓴다 — 예전에는 `default_timeout_sec` 로 고정이라
+            # `max_duration_sec` 를 늘려 줘도 여기서 먼저 끊겼다.
+            outputs = self._dispatch(op, session, timeout=_time_limit(session, op))
             if session.cancel_requested:
                 self.sessions.finish(session.id, Status.CANCELLED, outputs=outputs)
             else:
                 self.sessions.finish(session.id, Status.COMPLETED, outputs=outputs)
         except TimeoutError as exc:
+            # 워치독이 먼저 끝냈으면 정지도 이미 보냈다. 그 뒤로 자원이 풀려 **다른 연산
+            # 세션이 팔을 쓰고 있을 수 있으므로** 다시 보내면 그것을 끊는다.
+            note = '' if session.is_terminal else self._halt_overdue(session, op)
             self.sessions.finish(session.id, Status.FAILED, error_code=ErrorCode.TIMEOUT,
-                                 error_message=str(exc), outputs=self._stop_outputs())
+                                 error_message=f'{exc}{note}', outputs=self._stop_outputs())
         except Exception as exc:
             if session.cancel_requested:
                 # 취소를 요청했으면 백엔드 예외는 그 결과다. 클라이언트 요청에 의한
@@ -608,7 +680,7 @@ class RobotTwinRuntime:
                                      outputs=self._stop_outputs())
             else:
                 self.sessions.finish(session.id, Status.FAILED,
-                                     error_code=ErrorCode.EXECUTION_ABORTED,
+                                     error_code=_failure_code(exc),
                                      error_message=str(exc), outputs=self._stop_outputs())
 
     def _dispatch(self, op: OperationConfig, session: Session, *,
@@ -646,17 +718,18 @@ class RobotTwinRuntime:
     # ------------------------------------------------------------------
 
     def _tick_watchdog(self) -> None:
-        """``max_duration_sec`` 초과 세션을 강제 중단한다 (설계서 6.5).
+        """``max_duration_sec`` 초과 세션의 팔 동작에 정지를 보내고 끝낸다 (설계서 6.5).
 
         폴링 방식이라 트윈은 클라이언트 생존을 알 수 없다. 클라이언트가 죽어도
-        로봇이 계속 움직이는 것을 막는 유일한 장치다.
+        로봇이 계속 움직이는 것을 막는 유일한 장치다. 정지는 요청이라 멈췄다는 보장은
+        아니다 (:meth:`_stop_backend`).
         """
         now = self._clock()
         for session in self.sessions.running():
             op = self.config.operation(session.operation)
             if op is None:
                 continue
-            limit = float(session.inputs.get('max_duration_sec') or op.default_timeout_sec)
+            limit = _time_limit(session, op)
             if (now - session.started_at) <= limit:
                 continue
 
@@ -664,12 +737,39 @@ class RobotTwinRuntime:
                 f'watchdog: session {session.id} exceeded {limit}s; aborting'
             )
             self.sessions.request_cancel(session.id)
+            # **정지를 보낸 뒤에 끝낸다.** 끝내면 자원이 풀리므로, 순서가 반대면 그 사이에
+            # 접수된 새 연산의 동작까지 끊을 수 있다. 예전에는 정지 없이 끝내기만 해서 로봇은
+            # 계속 움직이는데 자원이 풀리고, 끝난 연산 세션이라 취소(`DELETE`)도 안 됐다.
+            note = self._halt_overdue(session, op)
             # 클라이언트 요청이 아니므로 CANCELLED 가 아니라 FAILED 다 (설계서 6.4).
             self.sessions.finish(
                 session.id, Status.FAILED, error_code=ErrorCode.TIMEOUT,
-                error_message=f'exceeded max_duration_sec={limit}',
+                error_message=f'exceeded max_duration_sec={limit}{note}',
                 outputs=self._stop_outputs()
             )
+
+    def _halt_overdue(self, session: Session, op: OperationConfig) -> str:
+        """시간을 넘긴 연산 세션의 팔 동작에 정지를 보낸다 (설계서 6.5).
+
+        **MoveGroup 을 쓰는 연산만** 멈춘다 — 정지 수단(`MoveGroupClient.cancel()`)이 팔
+        전체에 걸리므로, 그리퍼 · 수집 경계 연산의 시간 초과로 부르면 다른 연산 세션의 팔
+        동작을 끊는다.
+
+        Returns:
+            `error_message` 에 덧붙일 문구. 멈출 대상이 아니면 빈 문자열.
+        """
+        from robot_twin.backends import requires_move_group
+
+        if not requires_move_group(op):
+            return ''
+        if self._stop_backend():
+            self._logger.warning(f'timeout: stop sent to the arm for session {session.id}')
+            return '; stop sent to the arm controller'
+        self._logger.error(
+            f'timeout: session {session.id} could NOT be halted; the robot may keep moving. '
+            'Use an emergency stop'
+        )
+        return '; stop could NOT be delivered, the robot may keep moving'
 
 
 __all__ = ['RobotTwinRuntime']

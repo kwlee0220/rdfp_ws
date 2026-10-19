@@ -11,9 +11,10 @@ from typing import Any
 import pytest
 
 from robot_twin.backends import (
-    BackendUnavailable, PreconditionFailed, _start_episode, _start_session, _stop_episode,
-    _stop_session, validate_inputs
+    PreconditionFailed, _start_episode, _start_session, _stop_episode, _stop_session,
+    requires_session_control, session_control_unavailable, validate_inputs
 )
+from robot_twin.config import OperationConfig
 
 
 class _FakeFuture:
@@ -143,11 +144,47 @@ def test_rejection_surfaces_the_reason_from_the_node() -> None:
         _run(_start_episode, client)
 
 
-def test_missing_session_control_node_is_reported() -> None:
+def test_missing_session_control_node_is_a_precondition_failure() -> None:
+    """노드가 없으면 아무것도 실행되지 않았다 — `EXECUTION_ABORTED` 가 아니다.
+
+    런타임이 세션을 만들기 전에 같은 판정으로 `503` 을 내므로, 이 경로는 검사와 호출
+    사이에 노드가 사라진 경우뿐이다. 예전에는 `BackendUnavailable` 이라 docstring 과 달리
+    `EXECUTION_ABORTED` 로 나갔다.
+    """
     client = _FakeSessionClient(ready=False)
 
-    with pytest.raises(BackendUnavailable, match='session_control_node'):
+    with pytest.raises(PreconditionFailed, match='session_control_node'):
         _run(_start_episode, client)
+
+    assert client.calls == []
+
+
+def test_missing_collection_layer_is_a_precondition_failure() -> None:
+    with pytest.raises(PreconditionFailed, match='rdfp'):
+        _run(_start_session, None)
+
+
+class _BrokenRuntime:
+    def session_control(self) -> Any:
+        raise RuntimeError('factory exploded')
+
+
+def test_unavailability_reason_names_each_cause() -> None:
+    """같은 판정을 런타임의 `503` 과 핸들러가 함께 쓴다 — 예외를 내면 API 가 500 이 된다."""
+    assert session_control_unavailable(_FakeRuntime(_FakeSessionClient())) is None
+    assert 'session_control_node' in session_control_unavailable(
+        _FakeRuntime(_FakeSessionClient(ready=False)))
+    assert 'rdfp' in session_control_unavailable(_FakeRuntime(None))
+    assert 'factory exploded' in session_control_unavailable(_BrokenRuntime())
+
+
+def test_session_operations_are_recognised_from_the_config() -> None:
+    assert requires_session_control(
+        OperationConfig(name='start_episode', kind='sync',
+                        backend={'session_control': 'start_episode'}))
+    assert not requires_session_control(
+        OperationConfig(name='move_to_named_target', kind='async', resource='arm',
+                        backend={'method': 'move_to_named_target_async'}))
 
 
 # ----- 입력 검증 -----

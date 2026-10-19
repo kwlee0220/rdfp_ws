@@ -1,6 +1,6 @@
 # 로봇 트윈 정의 — Panda (**Isaac Sim 백엔드**).
 #
-# 설계서: docs/twin/robot_twin_design.md
+# 설계서: docs/twin/로봇_트윈_설계서.md
 #         docs/backends/isaac/isaac_backend.md (§8 Q10)
 # 실행:   ros2 run robot_twin robot_twin --config <이 파일 경로>
 #

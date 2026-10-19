@@ -20,11 +20,14 @@ class ErrorCode(str, Enum):
     """시스템 간 해석 가능한 안정적 오류 코드."""
 
     # --- 세션 생성 후 실패 (200 + FAILED) ---
+    # MoveIt 이 계획하지 못했다 — 로봇은 움직이지 않았다 (`robot_control.errors.PlanningError`).
     PLANNING_FAILED = 'PLANNING_FAILED'
     EXECUTION_ABORTED = 'EXECUTION_ABORTED'
     TIMEOUT = 'TIMEOUT'
-    PREEMPTED = 'PREEMPTED'
-    ROS_UNAVAILABLE = 'ROS_UNAVAILABLE'
+    # 선점(`PREEMPTED`)·실행 중 ROS 연결 상실(`ROS_UNAVAILABLE`)은 두지 않는다 — 자원 충돌은
+    # 세션을 만들기 전에 409 로 거부하므로 선점이 일어나지 않고, 연결 상실은 구분해 낼
+    # 수단이 없어 결국 TIMEOUT 이나 EXECUTION_ABORTED 로 나간다. 안 나오는 코드를 정의해
+    # 두면 클라이언트가 처리 분기를 쓰고 영영 검증되지 않는다.
 
     # --- 세션 미생성 거부 (4xx / 5xx) ---
     RESOURCE_BUSY = 'RESOURCE_BUSY'

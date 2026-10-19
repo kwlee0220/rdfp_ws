@@ -303,3 +303,66 @@ def test_etag_changes_after_refresh_returns_a_new_value() -> None:
     cache.read('named_targets', refresh=True)
 
     assert cache.entry('named_targets').etag != before
+
+
+# ----- 응답 하나 = 스냅샷 하나 (설계서 5.4 · 5.6) ---------------------------------
+
+def _replace_while_building(monkeypatch, cache: VariableCache, clock: FakeClock) -> int:
+    """envelope 를 만드는 **도중에** 콜백이 스냅샷을 교체한 상황을 흉내 낸다.
+
+    `stamp` 추출은 quality 판정과 값 변환 사이에 불린다. 거기서 새 세대로 바꿔 둔다.
+    """
+    from robot_twin import variables as variables_module
+    from robot_twin.snapshot import Snapshot
+
+    entry = cache.entry('named_targets')
+    old_gen = entry.snapshot.gen
+
+    def replace_midway(msg: Any) -> None:
+        entry.snapshot = Snapshot(msg={'panda_arm': ['NEW']}, received_at=clock(),
+                                  gen=old_gen + 1)
+        return None
+
+    monkeypatch.setattr(variables_module, 'extract_stamp', replace_midway)
+    return old_gen
+
+
+def test_one_response_is_built_from_one_snapshot(monkeypatch) -> None:
+    """quality · stamp · value · ETag 가 서로 다른 세대에서 오면 안 된다.
+
+    예전에는 항목마다 스냅샷을 다시 읽어, 그 사이 콜백이 오면 세대가 섞였다.
+    """
+    cache, clock = make_cache(lambda method, timeout: NAMED_TARGETS)
+    cache.read('named_targets')                       # 첫 조회로 채운다
+    old_gen = _replace_while_building(monkeypatch, cache, clock)
+
+    body, etag = cache.read_with_etag('named_targets')
+
+    assert body['value'] == NAMED_TARGETS             # 새 세대의 값이 섞이지 않았다
+    assert etag == f'"{old_gen}"'                     # ETag 도 본문과 같은 세대다
+
+
+def test_etag_never_runs_ahead_of_the_body(monkeypatch) -> None:
+    """본문보다 새 ETag 가 나가면 그 ETag 의 조건부 조회가 304 로 막혀 새 값을 놓친다.
+
+    이벤트성 변수(`session_state` 등)는 다음 전이까지 옛 값에 머문다.
+    """
+    cache, clock = make_cache(lambda method, timeout: NAMED_TARGETS)
+    cache.read('named_targets')
+    old_gen = _replace_while_building(monkeypatch, cache, clock)
+
+    _, etag = cache.read_with_etag('named_targets')
+
+    assert etag == f'"{old_gen}"'
+    assert cache.entry('named_targets').etag == f'"{old_gen + 1}"'   # 다음 조회는 200 이다
+
+
+def test_batch_read_builds_each_variable_from_one_snapshot(monkeypatch) -> None:
+    cache, clock = make_cache(lambda method, timeout: NAMED_TARGETS)
+    cache.read('named_targets')
+    _replace_while_building(monkeypatch, cache, clock)
+
+    out = cache.read_many(['named_targets', 'no_such_variable'])
+
+    assert out['named_targets']['value'] == NAMED_TARGETS
+    assert out['no_such_variable'] is None

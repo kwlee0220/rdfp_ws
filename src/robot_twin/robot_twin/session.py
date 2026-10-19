@@ -40,9 +40,12 @@ class Phase(str, Enum):
 
     extern_op 의 상태 5종을 늘리지 않고 국면을 표현하기 위한 확장 필드다.
     ``CANCELING`` 동안 ``status`` 는 ``RUNNING`` 을 유지한다.
+
+    ``PLANNING`` 은 두지 않는다 — 백엔드가 계획과 실행을 한 호출로 처리해 트윈에서는 그
+    경계가 보이지 않는다. 예전에는 정의되어 기본값이었지만 실행 직후 ``EXECUTING`` 으로
+    덮여 응답에 나온 적이 없다.
     """
 
-    PLANNING = 'PLANNING'
     EXECUTING = 'EXECUTING'
     CANCELING = 'CANCELING'
 
@@ -67,7 +70,7 @@ class Session:
     inputs: dict[str, Any]
     started_at: float
     status: Status = Status.RUNNING
-    phase: Optional[Phase] = Phase.PLANNING
+    phase: Optional[Phase] = Phase.EXECUTING
     progress: Optional[int] = None
     message: Optional[str] = None
     outputs: dict[str, Any] = field(default_factory=dict)
@@ -75,8 +78,9 @@ class Session:
     error_message: Optional[str] = None
     ended_at: Optional[float] = None
     created_by: Optional[str] = None
-    # 예상 총 소요 시간(ms). 계획 완료 시 궤적 duration 으로 채워지며 409 응답의
-    # `estimated_remaining_ms` 산출에 쓰인다.
+    # 예상 총 소요 시간(ms). 409 응답의 `estimated_remaining_ms` 산출에 쓰인다. **지금은
+    # 채우는 곳이 없어** 409 에 그 필드와 `Retry-After` 가 실리지 않는다 — 백엔드가 계획된
+    # 궤적의 duration 을 돌려주지 않기 때문이다.
     planned_duration_ms: Optional[int] = None
     # 취소 요청이 접수되었는지. 워치독·E-stop 에 의한 중단도 이 경로를 지난다.
     cancel_requested: bool = False
@@ -355,7 +359,7 @@ class SessionStore:
         terminal = [s for s in self._sessions.values() if s.is_terminal]
         overflow = len(terminal) - self._max_sessions
         if overflow > 0:
-            # 오래 전에 끝난 것부터 축출한다 (LRU).
+            # 가장 먼저 끝난 것부터 축출한다 — 접근 시각 기준 LRU 가 아니다.
             for s in sorted(terminal, key=lambda x: x.ended_at or 0.0)[:overflow]:
                 self._sessions.pop(s.id, None)
 

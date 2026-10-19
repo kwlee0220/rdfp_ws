@@ -1,6 +1,6 @@
 # 로봇 트윈 정의 — Panda (mock 스택 기준).
 #
-# 설계서: docs/twin/robot_twin_design.md
+# 설계서: docs/twin/로봇_트윈_설계서.md
 # 실행:   ros2 run rdfp robot_twin --config <이 파일 경로>
 #
 # 트윈 1개 = 프로세스 1개다. 같은 머신에 여러 대를 띄우려면 이 파일을 복사해

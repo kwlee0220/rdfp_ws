@@ -40,6 +40,11 @@ class TwinRuntime:
         """단일 변수 envelope. 정의되지 않은 이름이면 ``None``."""
         raise NotImplementedError
 
+    def read_variable_with_etag(self, name: str, *,
+                                refresh: bool = False) -> Optional[tuple[dict[str, Any], str]]:
+        """단일 변수 envelope 와 **그 envelope 를 만든 스냅샷의** ETag. 없는 이름이면 ``None``."""
+        raise NotImplementedError
+
     def read_variables(self, names: list[str]) -> dict[str, Any]:
         """배치 조회 결과."""
         raise NotImplementedError
@@ -190,11 +195,14 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         조회한다. 정적 소스는 자동 무효화를 하지 않으므로 트윈 재시작 외에는 이것이
         유일한 갱신 수단이다 (설계서 4.3). 다른 소스 타입에는 영향이 없다.
         """
-        body = runtime.read_variable(name, refresh=refresh)
-        if body is None:
+        # 본문과 ETag 는 **같은 스냅샷**에서 나와야 한다. ETag 를 따로 읽으면 그 사이 새
+        # 메시지가 와서 본문보다 새 ETag 가 나가고, 그 ETag 의 조건부 조회가 304 로 막혀
+        # 그 사이 값을 놓친다 (설계서 5.6).
+        result = runtime.read_variable_with_etag(name, refresh=refresh)
+        if result is None:
             return JSONResponse(_unknown_variable_body(name), status_code=404)
 
-        etag = runtime.variable_etag(name) or '"0"'
+        body, etag = result
         response.headers['Cache-Control'] = _NO_CACHE
         response.headers['ETag'] = etag
         if request.headers.get('if-none-match') == etag:

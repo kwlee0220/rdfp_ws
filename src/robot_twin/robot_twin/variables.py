@@ -113,11 +113,20 @@ def import_message_type(type_name: str) -> type:
         raise ValueError(f'cannot import message type {type_name!r}: {exc}') from exc
 
 
+# `VariableEntry` 의 조회 메서드에 스냅샷을 넘기지 않았다는 표시. `None` 은 "아직 수신 전"
+# 이라는 유효한 값이라 기본값으로 쓸 수 없다.
+_CURRENT: Any = object()
+
+
 class VariableEntry:
     """변수 하나의 캐시 슬롯.
 
     ``snapshot`` 속성은 ROS 콜백이 통째로 교체한다. 기존 객체를 제자리에서
     수정하지 않는 것이 락을 생략할 수 있는 근거다.
+
+    **응답 하나는 스냅샷 하나로 만든다.** 조회 메서드는 스냅샷을 인자로 받을 수 있다 —
+    각자 ``self.snapshot`` 을 다시 읽으면 그 사이 콜백이 교체해 quality · stamp · value 가
+    서로 다른 세대에서 온다. 인자를 생략하면 그 순간의 스냅샷을 쓴다.
     """
 
     def __init__(self, config: VariableConfig) -> None:
@@ -139,17 +148,22 @@ class VariableEntry:
     @property
     def etag(self) -> str:
         """조건부 요청용 ETag — 스냅샷 세대 번호를 그대로 쓴다."""
-        snap = self.snapshot
+        return self.etag_of(_CURRENT)
+
+    def etag_of(self, snapshot: Any = _CURRENT) -> str:
+        """주어진 스냅샷의 ETag. 본문과 같은 스냅샷에서 만들어야 한다."""
+        snap = self.snapshot if snapshot is _CURRENT else snapshot
         return f'"{snap.gen if snap else 0}"'
 
-    def status(self) -> VariableStatus:
-        """현재 품질을 판정한다."""
+    def status(self, snapshot: Any = _CURRENT) -> VariableStatus:
+        """품질을 판정한다."""
         return judge(
-            self.snapshot, staleness_ms=self.config.staleness_ms,
+            self.snapshot if snapshot is _CURRENT else snapshot,
+            staleness_ms=self.config.staleness_ms,
             source_available=self.source_available, reason=self.unavailable_reason
         )
 
-    def value(self) -> Any:
+    def value(self, snapshot: Any = _CURRENT) -> Any:
         """스냅샷을 JSON 표현으로 변환한다 (세대 단위 메모이즈).
 
         변환은 조회 시점에 지연 수행한다 — 50 Hz 로 아무도 보지 않는 값을 미리
@@ -161,7 +175,7 @@ class VariableEntry:
         Raises:
             SerializationError: 변환/추출에 실패했을 때.
         """
-        snap = self.snapshot
+        snap = self.snapshot if snapshot is _CURRENT else snapshot
         if snap is None:
             return None
 
@@ -180,9 +194,9 @@ class VariableEntry:
             self._memo = (snap.gen, value)
         return value
 
-    def stamp(self) -> Optional[dict[str, int]]:
+    def stamp(self, snapshot: Any = _CURRENT) -> Optional[dict[str, int]]:
         """원본 ``header.stamp``. 헤더가 없으면 ``None``."""
-        snap = self.snapshot
+        snap = self.snapshot if snapshot is _CURRENT else snapshot
         return extract_stamp(snap.msg) if snap is not None else None
 
 
@@ -212,7 +226,6 @@ class VariableCache:
         self._clock = clock
         self._gen = GenerationCounter()
         self._entries: dict[str, VariableEntry] = {c.name: VariableEntry(c) for c in configs}
-        self._batch_lock = threading.Lock()
         self._subscriptions: list[Any] = []
         self._logger = node.get_logger()
         self._static_resolver = static_resolver
@@ -405,36 +418,58 @@ class VariableCache:
         Returns:
             envelope dict. 정의되지 않은 변수면 ``None``.
         """
+        result = self.read_with_etag(name, refresh=refresh)
+        return None if result is None else result[0]
+
+    def read_with_etag(self, name: str, *,
+                       refresh: bool = False) -> Optional[tuple[dict[str, Any], str]]:
+        """조회 응답 본문과 **그 본문을 만든 스냅샷의** ETag 를 함께 돌려준다 (설계서 5.6).
+
+        ETag 를 따로 읽으면 그 사이 새 메시지가 와서 본문보다 새 ETag 가 나갈 수 있다. 그 ETag
+        로 조건부 조회하면 ``304`` 가 와 그 사이 값을 놓친다 — 이벤트성 변수는 다음 전이까지
+        옛 값에 머문다.
+
+        Returns:
+            ``(envelope, etag)``. 정의되지 않은 변수면 ``None``.
+        """
         entry = self._entries.get(name)
         if entry is None:
             return None
         self.ensure_static(entry, force=refresh)
-        return self._envelope(entry)
+        snap = entry.snapshot
+        return self._envelope(entry, snap), entry.etag_of(snap)
 
     def read_many(self, names: list[str]) -> dict[str, Any]:
         """여러 변수를 한 번에 읽는다 (설계서 5.4).
 
-        락은 읽는 순간 여러 변수가 뒤섞이지 않게 할 뿐, 각 값의 **생성 시각을
-        맞춰 주지 않는다.** 정합이 필요한 클라이언트는 각 ``stamp`` 를 비교한다.
+        **보장하는 것은 변수마다 스냅샷 하나에서 만든 응답이라는 것뿐이다.** 변수끼리
+        같은 순간을 맞추지 않는다 — 콜백이 락 없이 스냅샷을 교체하므로 읽는 쪽 락으로는
+        맞출 수 없고, 맞춰도 각 값의 ``stamp`` 가 달라 쓸모가 거의 없다. 정합이 필요한
+        클라이언트는 각 ``stamp`` 를 비교한다.
+
+        예전에는 읽는 쪽끼리만 잡는 배치 락이 있었는데, 쓰는 쪽이 잡지 않아 아무것도
+        보호하지 못했다.
         """
-        # 정적 소스의 lazy 조회는 반드시 배치 락 밖에서 끝낸다 — 블로킹 백엔드
-        # 호출을 락 안에 두면 무관한 변수의 배치 조회까지 함께 멈춘다.
+        out: dict[str, Any] = {}
         for name in names:
             entry = self._entries.get(name)
-            if entry is not None:
-                self.ensure_static(entry)
+            if entry is None:
+                out[name] = None
+                continue
+            self.ensure_static(entry)
+            out[name] = self._envelope(entry, entry.snapshot)
+        return out
 
-        with self._batch_lock:
-            return {n: (self._envelope(self._entries[n]) if n in self._entries else None)
-                    for n in names}
+    def _envelope(self, entry: VariableEntry, snap: Optional[Snapshot]) -> dict[str, Any]:
+        """스냅샷 **하나**로 조회 응답 envelope 를 구성한다.
 
-    def _envelope(self, entry: VariableEntry) -> dict[str, Any]:
-        """조회 응답 envelope 를 구성한다.
+        quality · age · stamp · value 를 모두 ``snap`` 에서 만든다 — 항목마다
+        ``entry.snapshot`` 을 다시 읽으면 서로 다른 세대가 섞인다.
 
         값만 벗겨 주는 옵션은 제공하지 않는다 — 클라이언트가 staleness 검사를
         건너뛰게 만드는 지름길이기 때문이다.
         """
-        status = entry.status()
+        status = entry.status(snap)
         body: dict[str, Any] = {
             'name': entry.config.name,
             'quality': status.quality.value,
@@ -449,9 +484,8 @@ class VariableCache:
             # ERROR 로 내보내면 클라이언트가 원인을 알 방법이 없다.
             body['error'] = {'code': 'SOURCE_ERROR', 'message': status.error}
 
-        snap = entry.snapshot
         if snap is not None:
-            body['stamp'] = entry.stamp()
+            body['stamp'] = entry.stamp(snap)
             body['received_at'] = _iso_utc(snap.received_at)
 
         if status.quality in (Quality.NO_DATA, Quality.SOURCE_UNAVAILABLE):
@@ -459,7 +493,7 @@ class VariableCache:
             return body
 
         try:
-            body['value'] = entry.value()
+            body['value'] = entry.value(snap)
         except SerializationError as exc:
             # 변환 실패는 500 이 아니라 quality=ERROR 다 — 배치 조회에서 나머지
             # 변수는 살아야 한다 (설계서 5.3).

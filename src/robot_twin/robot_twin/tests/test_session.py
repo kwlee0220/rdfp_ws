@@ -33,7 +33,7 @@ def test_create_issues_session_endpoint() -> None:
     s = store.create(operation='move_to_pose', resources=('arm',), inputs={})
 
     assert s.status is Status.RUNNING
-    assert s.phase is Phase.PLANNING
+    assert s.phase is Phase.EXECUTING
     assert store.endpoint_of(s.id).endswith(f'/operations/sessions/{s.id}')
     # 권한 개념을 도입하지 않았으므로 항상 None 이다 (설계서 8.4).
     assert s.created_by is None

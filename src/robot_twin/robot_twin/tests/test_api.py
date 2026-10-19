@@ -85,6 +85,10 @@ class FakeRuntime:
     def variable_etag(self, name: str) -> Optional[str]:
         return self.etag
 
+    def read_variable_with_etag(self, name: str, *, refresh: bool = False):
+        body = self.read_variable(name, refresh=refresh)
+        return None if body is None else (body, self.etag)
+
     def health(self) -> dict[str, Any]:
         return {'ros': 'CONNECTED', 'move_group': 'READY'}
 
@@ -179,6 +183,23 @@ def test_conditional_get_with_stale_etag_returns_body(client: TestClient) -> Non
 
     assert res.status_code == 200
     assert res.json()['quality'] == 'OK'
+
+
+def test_etag_comes_from_the_same_read_as_the_body(client: TestClient,
+                                                   runtime: FakeRuntime) -> None:
+    """ETag 를 본문과 따로 읽으면 그 사이 새 메시지로 본문보다 새 ETag 가 나간다.
+
+    그러면 그 ETag 의 조건부 조회가 `304` 로 막혀 새 값을 놓친다 (설계서 5.6).
+    """
+    runtime.read_variable_with_etag = lambda name, refresh=False: (
+        {'name': name, 'quality': 'OK', 'schema_version': 1, 'value': 1}, '"5"')
+    runtime.etag = '"9"'                       # 그 뒤에 세대가 올라갔다
+
+    res = client.get(f'{BASE}/variables/joint_states')
+    assert res.headers['etag'] == '"5"'
+
+    res = client.get(f'{BASE}/variables/joint_states', headers={'If-None-Match': '"9"'})
+    assert res.status_code == 200              # 본문보다 새 ETag 로 304 가 나면 안 된다
 
 
 def test_head_variable(client: TestClient) -> None:
@@ -283,7 +304,7 @@ def test_get_session(client: TestClient) -> None:
     body = client.get(endpoint).json()
 
     assert body['status'] == 'RUNNING'
-    assert body['phase'] == 'PLANNING'
+    assert body['phase'] == 'EXECUTING'
 
 
 def test_cancel_returns_202_and_keeps_session(client: TestClient) -> None:

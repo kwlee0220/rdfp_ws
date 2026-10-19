@@ -107,8 +107,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # --- 4단계: MoveGroup 클라이언트 (백그라운드) ---
         # 3단계(HTTP)보다 먼저 시작하지만 블로킹하지 않으므로 순서 보장은 유지된다.
+        # 이전 트윈이 남긴 컨트롤러 궤적의 정리(설계서 6.13)도 이 안에서, 클라이언트를
+        # 연산에 내놓기 직전에 한다.
         runtime.start_move_group_async()
-        runtime.cancel_all_on_startup()
 
         # --- 3단계: HTTP 서버 (블로킹) ---
         app = create_app(runtime)
