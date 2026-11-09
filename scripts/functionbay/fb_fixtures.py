@@ -15,7 +15,7 @@ import sys
 
 from robot_control.scene.fixtures import describe, load_fixtures
 
-BACKEND = 'functionbay'
+BACKEND = 'panda_functionbay'
 
 
 def main() -> None:

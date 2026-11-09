@@ -20,7 +20,7 @@
     "cylinder_a 반지름은 2026-09-20 에 0.025 -> 0.03 으로 키웠다 (지름 60 > 블럭 폭 50).",
     "원래는 지름과 블럭 폭이 **같아서** 받침 여유가 0 이었다 — 성공 회차의 가로 어긋남이",
     "3.0~5.2 mm 인데 여유가 5 mm 늘었다. **같은 값이 트윈 레시피에도 있다**",
-    "(robot_twin_panda_isaac.yaml 의 reset_scene.scenes) — 어긋나면 isaac_scene_state_node 가",
+    "(robot_twin 의 config/twins/panda01.yaml 의 reset_scene.scenes) — 어긋나면 isaac_scene_state_node 가",
     "배치를 거부하고, 그것은 수집 루프가 돌기 시작한 뒤에야 드러난다.",
     "높이는 안 건드렸으므로 안착 z(0.33 = 탁자 상면 0.3 + 높이/2)는 그대로다.",
     "⚠️ 키울 때 걱정한 손끝 충돌은 **실측으로 기각됐다** — 손끝은 블럭 바닥보다 16.7 mm 위라",

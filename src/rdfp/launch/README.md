@@ -6,7 +6,7 @@ teleop 노드를 얹는 launch 셋(`rdfp_collect` · `replay_panda_mock` · `tel
 
 ```bash
 ros2 launch robot_control panda_mock.launch.py               # 터미널 1 — 제어 스택
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock        # 터미널 2 — 수집 계층
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock        # 터미널 2 — 수집 계층
 ```
 
 > **제어 스택만 필요하면** `robot_control` 패키지의 `panda_mock` 계열을 쓴다 —
@@ -58,14 +58,14 @@ helper 목록과 각각의 역할은
 ```bash
 # JTC
 ros2 launch robot_control panda_mock.launch.py
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock
 
 # JGPC
 ros2 launch robot_control panda_mock_jgpc.launch.py
 ros2 launch rdfp rdfp_collect.launch.py arm_cmd_source:=float64_multi_array
 ```
 
-`backend:=mock` / `backend:=mock_jgpc` 를 쓰면 arm 채널·카메라 토픽·`use_sim_time` 이
+`backend:=panda_mock` / `backend:=panda_mock_jgpc` 를 쓰면 arm 채널·카메라 토픽·`use_sim_time` 이
 프로파일에서 오므로 인자를 외울 필요가 없다.
 
 ⚠️ **딸려 간 것 둘** — 도커 이미지 `rdfp-panda-mock` · `rdfp-panda-mock-jgpc`
@@ -149,7 +149,7 @@ retargeting), `ee_twist_node` (목표 pose → `/servo_node/delta_twist_cmds`).
 
 ```bash
 ros2 launch robot_control panda_mock.launch.py          # 터미널 1 — 로봇
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock   # 터미널 2 — 수집
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock   # 터미널 2 — 수집
 ```
 
 **이 조합이 옛 `rdfp_panda_mock` 을 대체한다.** 동일한 노드 그래프를 만드는 것을 실측으로 확인했다
@@ -376,7 +376,7 @@ argument 이름은 YAML 키와 1:1 이 아니다 — `clutch_pedal.*` 는 `pedal
 
 ```bash
 ros2 launch rdfp rdfp_collect.launch.py config_file:=$HOME/my_camera.yaml
-ros2 launch rdfp rdfp_collect.launch.py backend:=functionbay
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_functionbay
 ```
 
 | 인자 | 출처 | 비고 |
@@ -452,11 +452,11 @@ replay_panda_mock.launch.py
 
 | 하려는 것 | launch |
 |---|---|
-| 학습 데이터 수집 전체 스택 | `panda_mock` + `rdfp_collect backend:=mock` |
-| 위의 JGPC 판 | `panda_mock_jgpc` + `rdfp_collect backend:=mock_jgpc` |
+| 학습 데이터 수집 전체 스택 | `panda_mock` + `rdfp_collect backend:=panda_mock` |
+| 위의 JGPC 판 | `panda_mock_jgpc` + `rdfp_collect backend:=panda_mock_jgpc` |
 | Gazebo 백엔드로 수집 | `panda_gazebo` + `rdfp_collect` (인자 4개, §6.1) |
-| Isaac Sim 백엔드로 수집 | `panda_isaac` + `rdfp_collect backend:=isaac` |
-| 펑션베이 백엔드로 수집 | `panda_functionbay` + `rdfp_collect backend:=functionbay` (시뮬레이터 먼저) |
+| Isaac Sim 백엔드로 수집 | `panda_isaac` + `rdfp_collect backend:=panda_isaac` |
+| 펑션베이 백엔드로 수집 | `panda_functionbay` + `rdfp_collect backend:=panda_functionbay` (시뮬레이터 먼저) |
 | **제어 스택은 그대로 두고 수집만 재시작** | `rdfp_collect.launch.py` (§6.1) |
 | 적재된 에피소드 재생 | `replay_panda_mock.launch.py` |
 | leader-follower teleop | `teleop_mirror.launch.py` (follower 스택이 이미 떠 있어야 함) |
@@ -478,11 +478,11 @@ replay_panda_mock.launch.py
 
 | 묶음 | 동등한 분리 조합 | 검증 |
 |---|---|---|
-| ~~`rdfp_panda_mock`~~ (삭제됨) | `panda_mock` + `rdfp_collect backend:=mock` | 노드 그래프 일치 ✅ (레코더는 세션 구동으로 바뀐다) |
-| ~~`rdfp_panda_mock_jgpc`~~ (삭제됨) | `panda_mock_jgpc` + `rdfp_collect backend:=mock_jgpc` | 〃 |
+| ~~`rdfp_panda_mock`~~ (삭제됨) | `panda_mock` + `rdfp_collect backend:=panda_mock` | 노드 그래프 일치 ✅ (레코더는 세션 구동으로 바뀐다) |
+| ~~`rdfp_panda_mock_jgpc`~~ (삭제됨) | `panda_mock_jgpc` + `rdfp_collect backend:=panda_mock_jgpc` | 〃 |
 | ~~`rdfp_panda_gazebo`~~ (삭제됨) | `panda_gazebo` + `rdfp_collect` (인자 필요, 아래) | **인자를 맞춰야 한다** |
-| ~~`rdfp_panda_isaac`~~ (삭제됨) | `panda_isaac` + `rdfp_collect backend:=isaac` | **인자 없이 동등** — 해상도·fps 는 `isaac_scene.json` 에서 따라온다 |
-| ~~`rdfp_panda_functionbay`~~ (삭제됨) | `panda_functionbay` + `rdfp_collect backend:=functionbay`. **시뮬레이터가 먼저 떠 있어야 한다** | 압축 배선·해상도·fps 전부 프로파일이 준다. `fps: 10` 은 시뮬레이터 카메라 XML 의 `Publish_Frequency` 와 같은 값이다(실측 9.54~9.60 Hz — mp4 시간축이 약 4 % 짧고, 프레임별 시각은 sidecar stamp 가 맞다). 2026-09-17 까지는 5 여서 영상이 1.9배 느리게 재생됐다 |
+| ~~`rdfp_panda_isaac`~~ (삭제됨) | `panda_isaac` + `rdfp_collect backend:=panda_isaac` | **인자 없이 동등** — 해상도·fps 는 `isaac_scene.json` 에서 따라온다 |
+| ~~`rdfp_panda_functionbay`~~ (삭제됨) | `panda_functionbay` + `rdfp_collect backend:=panda_functionbay`. **시뮬레이터가 먼저 떠 있어야 한다** | 압축 배선·해상도·fps 전부 프로파일이 준다. `fps: 10` 은 시뮬레이터 카메라 XML 의 `Publish_Frequency` 와 같은 값이다(실측 9.54~9.60 Hz — mp4 시간축이 약 4 % 짧고, 프레임별 시각은 sidecar stamp 가 맞다). 2026-09-17 까지는 5 여서 영상이 1.9배 느리게 재생됐다 |
 
 > **`enable_image_viewer` 는 뷰어와 `camera_republish` 를 함께 켠다** (2026-09-08).
 > 시뮬레이터가 `sensor_msgs/CompressedImage` 로 발행하고 뷰어는 `sensor_msgs/Image` 만
@@ -503,27 +503,27 @@ replay_panda_mock.launch.py
 ```bash
 # JTC
 ros2 launch robot_control panda_mock.launch.py
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock
 
 # JGPC
 ros2 launch robot_control panda_mock_jgpc.launch.py
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock_jgpc
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock_jgpc
 ```
 
 > 등가는 **묶음 launch 를 재현할 때**의 이야기다. 새로 수집한다면 `rdfp_collect` 의
 > 기본값(세션 구동 레코더)이 낫다 — `/session` 이 `IN_EPISODE` 인 구간만 자동으로
 > 담고 `.jsonl` 사이드카와 `metadata.json` 을 함께 쓴다.
 
-#### Isaac 은 `backend:=isaac` 하나로 된다
+#### Isaac 은 `backend:=panda_isaac` 하나로 된다
 
 Isaac 은 **`image_pipeline.yaml` 을 읽지 않는다** — 이미지를 카메라 노드가 아니라
-**시뮬레이터가 직접** 발행하므로 해상도·주파수를 정하는 쪽이 Isaac 이고, `backend:=isaac`
+**시뮬레이터가 직접** 발행하므로 해상도·주파수를 정하는 쪽이 Isaac 이고, `backend:=panda_isaac`
 이 그 정본인 `isaac_scene.json` 의 `camera` 블록을 읽는다. 펼치면 아래와 같다 (참고용 —
 손으로 줄 필요는 없다).
 
 ```bash
 ros2 launch robot_control panda_isaac.launch.py
-ros2 launch rdfp rdfp_collect.launch.py backend:=isaac
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac
 # ≒ use_sim_time:=true arm_cmd_source:=joint_state \
 #   target_joint_cmds_input_topic:=/isaac/arm_command \
 #   camera_image_topic:=/isaac/camera/image_raw \

@@ -8,18 +8,19 @@ ROS executor 스레드의 구독 콜백이 스냅샷을 만들어 참조 하나�
 배치 조회만 락으로 감싼다. 다만 이 락은 **읽는 순간에 여러 변수가 서로 뒤섞이지
 않게** 할 뿐이며, 각 값의 생성 시각을 맞춰 주지 않는다 (설계서 5.4).
 
-본 모듈은 rclpy 를 import 하므로 ROS 를 source 해야 한다.
+ROS 구독을 생성할 때 rclpy가 필요하다. 캐시·상태 처리 코드는 ROS 없이도 import할 수 있다.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import threading
 import time
 
-from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile
 
 from robot_twin.config import QosConfig, VariableConfig
 from robot_twin.serialize import (
@@ -62,6 +63,8 @@ def build_qos(cfg: QosConfig) -> QoSProfile:
     TRANSIENT_LOCAL 토픽을 VOLATILE 로 구독하면 아무것도 받지 못하므로, QoS 는
     변수 정의에 명시적으로 두고 여기서 그대로 반영한다.
     """
+    from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+
     return QoSProfile(
         depth=cfg.depth,
         history=HistoryPolicy.KEEP_LAST,

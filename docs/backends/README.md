@@ -8,7 +8,7 @@
 |---|---|---|
 | **Isaac Sim** (1차 학습의 줄) | [isaac/isaac_bringup_runbook.md](isaac/isaac_bringup_runbook.md) 절차 · [isaac/isaac_backend.md](isaac/isaac_backend.md) 설계·함정 · [isaac/isaac_windows_setup.md](isaac/isaac_windows_setup.md) · [isaac/isaac_scene_reset.md](isaac/isaac_scene_reset.md) | 현행 — 수집 · 적재 · export 전 과정 실측 |
 | **펑션베이** (Panda + Robotiq 2F-85, peg-in-hole) | [functionbay/펑션베이_시뮬레이터_사용법.md](functionbay/펑션베이_시뮬레이터_사용법.md) (띄우는 순서) · [functionbay/펑션베이_백엔드_설계.md](functionbay/펑션베이_백엔드_설계.md) · [펑션베이_인수_체크리스트.md](functionbay/펑션베이_인수_체크리스트.md) (인수 절차 — 결과는 루트 `checklist_results/`) · [펑션베이_요청_목록.md](functionbay/펑션베이_요청_목록.md) · [펑션베이_남은_작업.md](functionbay/펑션베이_남은_작업.md) · [펑션베이_중력_보상.md](functionbay/펑션베이_중력_보상.md) · [grasp_center_frame.md](functionbay/grasp_center_frame.md) · [peg_in_hole_via_mcp_plan.md](functionbay/peg_in_hole_via_mcp_plan.md) | 현행 — 벤더 빌드에 따라 회차마다 다르다 |
-| mock (`mock` · `mock_jgpc`) | [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 별도 문서 없음 | 현행 — 배관 검증용, 물체를 파지할 수 없다 |
+| mock (`panda_mock` · `panda_mock_jgpc`) | [../../src/robot_control/launch/README.md](../../src/robot_control/launch/README.md) — 별도 문서 없음 | 현행 — 배관 검증용, 물체를 파지할 수 없다 |
 | Gazebo Fortress | [gazebo_bringup_guide.md](gazebo_bringup_guide.md) | **미검증 · 보류** — `ros_gz_sim` 미설치, 프로파일 없음 |
 | 실기 Franka Panda | [franka_panda_bringup_prep.md](franka_panda_bringup_prep.md) | 설계안 — 착수 조건 정리 |
 
@@ -49,7 +49,7 @@
 
 ## 공통 함정
 
-- **`auto` 라는 백엔드는 없다.** 프로파일 넷(`mock` · `mock_jgpc` · `isaac` · `functionbay`)이 모두 확정 모드다.
+- **`auto` 라는 백엔드는 없다.** 프로파일 넷(`panda_mock` · `panda_mock_jgpc` · `panda_isaac` · `panda_functionbay`)이 모두 확정 모드다.
   런타임 판별은 `/panda_arm_controller/commands` 토픽 유무만 보므로 펑션베이를 JTC 로 오판한다.
 - **시뮬레이터를 프로세스째 재시작하면 ROS 스택도 다시 띄운다.** sim 시계가 0 으로 되감겨 TF 버퍼가 옛 stamp 를 들고
   있고(`TF_OLD_DATA`), `/ee_pose` 가 굳으며, 컨트롤러는 `active` 라고 거짓 보고한다. Isaac 의 타임라인 Stop/Play 는

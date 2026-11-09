@@ -269,8 +269,8 @@ ros2 service call /servo_node/start_servo std_srvs/srv/Trigger   # 다시 쓸 �
 # T2 — 로봇 스택 (servo · gripper · scene 이 기본으로 켜진다)
 ros2 launch robot_control panda_isaac.launch.py
 
-# T3 — 트윈 (:8802, id panda_isaac)
-ros2 run robot_twin robot_twin --config src/robot_twin/config/robot_twin_panda_isaac.yaml
+# T3 — 트윈 (panda01 · :8801)
+./scripts/run_robot_twin.sh --twin panda01
 ```
 
 기동이 이상하면 [../simulation/isaac_bringup_runbook.md](../backends/isaac/isaac_bringup_runbook.md)
@@ -300,7 +300,7 @@ TCP 오프셋 10.3 cm 와 `panda_link8` 의 45° yaw 를 보정하는 일을 이
 
 ```bash
 cd ~/development/mdtpy/robot-twin-client
-uv run python -c "from robot_twin_client import RobotTwinClient; print(RobotTwinClient(port=8802, twin_id='panda_isaac').health())"
+uv run python -c "from robot_twin_client import RobotTwinClient; print(RobotTwinClient().health())"
 ```
 
 ### A-1. 파지 만들기 (A 의 시작 상태)
@@ -313,7 +313,7 @@ uv run python - <<'PY'
 from robot_twin_client import RobotTwinClient
 from robot_twin_client.pick_n_place import pick, grasp_pose_of, above_of
 
-twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient()
 objs = twin.run('reset_scene', {'scene': 'one_block'})['outputs']['objects']
 g = grasp_pose_of(objs[0])
 print('grasp at', g['position'])
@@ -353,7 +353,7 @@ import json
 from robot_twin_client import RobotTwinClient
 from robot_twin_client.ops import set_gripper
 
-twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient()
 assert set_gripper(twin, 'open')['at_goal']
 r = twin.run('move_to_joints', {'joints': json.load(open('/tmp/start_A.json')),
                                 'velocity_scaling': 0.2})
@@ -374,7 +374,7 @@ uv run python - <<'PY'
 from robot_twin_client import RobotTwinClient
 from robot_twin_client.pick_n_place import pick, grasp_pose_of, above_of
 
-twin = RobotTwinClient(port=8802, twin_id='panda_isaac')
+twin = RobotTwinClient()
 objs = twin.run('reset_scene', {'scene': 'one_block'})['outputs']['objects']
 g = grasp_pose_of(objs[0])
 assert pick(twin, above_of(g), g)
@@ -426,7 +426,7 @@ A/B 출력의 `servo status` 줄은 발행 중 상시 구독한 코드의 집합
 
 ```bash
 ros2 service call /servo_node/stop_servo std_srvs/srv/Trigger     # 혹시 켜져 있으면
-curl -s -X POST http://127.0.0.1:8802/api/v1/robot_twins/panda_isaac/operations/move_to_named_target \
+curl -s -X POST http://127.0.0.1:8801/api/v1/robot_twins/panda01/operations/move_to_named_target \
      -H 'Content-Type: application/json' -d '{"inputs":{"target":"ready"}}'
 ./scripts/isaac/is_servo_idle.py                 # start_servo 만 하고 아무것도 안 보낸다
 ./scripts/isaac/is_servo_idle.py --prime         # 0 twist 를 한 번 준 뒤 쉰다

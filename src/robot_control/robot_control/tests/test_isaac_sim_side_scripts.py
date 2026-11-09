@@ -252,12 +252,20 @@ def test_scene_json_is_read_from_the_install_tree(path: pathlib.Path):
 
 
 def test_twin_launcher_reads_the_install_tree():
-    """트윈 기동 스크립트도 설치본을 읽어야 한다 — scene 노드와 같은 시점의 레시피."""
+    """트윈도 설치본을 읽어야 한다 — scene 노드와 같은 시점의 레시피.
+
+    `--twin <id>` 의 파일 위치는 2026-10-25 부터 셸(`config_dir=`)이 아니라 트윈의
+    `shipped_configs.shipped_config_dir()` 가 정한다. 이 패키지는 `robot_twin` 을 import 하면 안
+    되므로(계층 경계) 소스를 텍스트로 읽는다.
+    """
     launcher = _REPO_ROOT / 'scripts' / 'run_robot_twin.sh'
-    if not launcher.is_file():
-        pytest.skip('scripts/run_robot_twin.sh 없음 (installed tree)')
-    lines = [ln.strip() for ln in launcher.read_text(encoding='utf-8').splitlines()
-             if ln.strip().startswith('config_dir=')]
-    assert lines, 'config_dir= 할당을 찾지 못했다'
-    assert all('/install/robot_twin/share/robot_twin/config' in ln for ln in lines), lines
-    assert not any('/src/robot_twin/config' in ln for ln in lines), lines
+    finder = _REPO_ROOT / 'src' / 'robot_twin' / 'robot_twin' / 'shipped_configs.py'
+    if not launcher.is_file() or not finder.is_file():
+        pytest.skip('scripts/run_robot_twin.sh 또는 shipped_configs.py 없음 (installed tree)')
+    source = finder.read_text(encoding='utf-8')
+    assert "get_package_share_directory('robot_twin')" in source
+    assert 'src/robot_twin/config' not in source.split('"""', 2)[2]   # docstring 밖 코드
+    # 런처가 `src/` 의 설정을 직접 넘기면 위 보장이 무력해진다.
+    code = [ln for ln in launcher.read_text(encoding='utf-8').splitlines()
+            if not ln.lstrip().startswith('#')]
+    assert not any('src/robot_twin/config' in ln for ln in code), code

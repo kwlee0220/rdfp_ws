@@ -1,4 +1,4 @@
-from .move_group_client import MoveGroupClient
+from .move_group_client import CartesianPathResult, MoveGroupClient
 from robot_control.backend_profiles import BACKEND_PROFILES, backends
 from .move_group_factory import (
     CLIENT_MODES,
@@ -14,6 +14,7 @@ from .utils import downward_pose, downward_quaternion, pose, pose_stamped
 __all__ = [
     'BACKEND_PROFILES',
     'CLIENT_MODES',
+    'CartesianPathResult',
     'MoveGroupClient',
     'MoveGroupJgpcClient',
     'MoveGroupJtcClient',

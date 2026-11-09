@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "이 워크스페이스에서 쓰는 MCP 서버.",
+    "",
+    "`robot-twin` 은 **로봇 트윈(REST)을 도구·프롬프트로 감싼 것**이다. 구현은 별도",
+    "저장소에 있다: /home/kwlee/development/mdtpy/robot-twin-client (github.com/kwlee0220/robot-twin-client)",
+    "",
+    "== `--twin-id rdfp01` — 펑션베이 트윈에 붙는다 ==",
+    "",
+    "트윈은 환경마다 id 가 다르다(2026-10-25) — 펑션베이 `rdfp01` · Isaac `panda01` · mock",
+    "`mock01`(쓰지 않을 계획). 포트는 셋 다 :8801 이다. 이 파일은 `rdfp01` 에 붙는다. Isaac 은",
+    "`claude --mcp-config .mcp_isaac.json` 을 쓴다. id 가 틀리면 도구 목록을 가져올 때 HTTP 404 다.",
+    "peg 도구는 붙은 트윈이 `fixtures` 변수를 낼 때(펑션베이)만 목록에 나온다.",
+    "",
+    "== 무엇이 떠 있어야 하나 ==",
+    "",
+    "  1. 시뮬레이터 (Windows: MetaMotionRobot + SolverTCPServer) · endpoint · /scene/start",
+    "     — docs/backends/functionbay/펑션베이_시뮬레이터_사용법.md §2",
+    "  2. ROS 스택        ./scripts/run_panda_functionbay.sh",
+    "  3. 트윈            ./scripts/run_robot_twin.sh --twin rdfp01",
+    "",
+    "하나라도 없으면 도구는 목록에 나오지만 호출이 실패한다 — 오류 문장이",
+    "무엇이 없는지 알려 준다.",
+    "",
+    "== uv 가 아니라 venv 스크립트를 쓰는 이유 ==",
+    "",
+    "`uv run` 은 매 호출마다 의존성을 확인하느라 기동이 느리고, MCP 클라이언트가",
+    "그 지연을 타임아웃으로 읽을 수 있다. venv 안의 콘솔 스크립트는 바로 뜬다.",
+    "의존성을 바꾸면 `uv sync --extra mcp` 를 한 번 돌려 venv 를 갱신한다.",
+    "**`--extra mcp` 를 빼고 sync 하면 MCP 의존성이 지워져 서버가 아예 안 뜬다.**",
+    "",
+    "== peg-in-hole ==",
+    "",
+    "`peg_in_hole` 프롬프트를 먼저 읽는다. 도구는 peg_status / pick_peg / place_peg /",
+    "move_peg 넷이며, **수치는 전부 코드가 갖는다** — 좌표를 직접 만들지 않는다.",
+    "설계·실측: docs/backends/functionbay/peg_in_hole_via_mcp_plan.md"
+  ],
+
+  "mcpServers": {
+    "robot-twin": {
+      "command": "/home/kwlee/development/mdtpy/robot-twin-client/.venv/bin/robot-twin-mcp",
+      "args": ["--twin-id", "rdfp01"]
+    }
+  }
+}

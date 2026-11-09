@@ -2,18 +2,47 @@
 #
 # 컨트롤러가 없으므로 `FollowJointTrajectory` 액션 서버도 없다. MoveIt 으로 계획만
 # 하고 결과 궤적을 시뮬레이터의 입력 토픽으로 직접 흘린다(JGPC 클라이언트).
-name: functionbay
+name: panda_functionbay
 description: 펑션베이 시뮬레이터 (ros2_control 없음, JointState 직접 수신)
 
-# **지금 띄운 씬의 솔버.** 아래 두 데이터 파일이 각자 `solver` 를 들고 있고 로더가
-# 이 값과 대조한다 — 씬을 바꾸고 한쪽만 고치는 실수를 로드 시점에 잡는다.
+# **지금 띄운 시뮬레이터 씬.** 시뮬레이터를 `-Model <씬>_ms` 로 띄운 그 씬과 같아야 한다.
+# **씬을 바꿀 때 고치는 곳은 이 한 줄뿐이다** — 고친 뒤 `robot_control` 을 재빌드하고
+# 로봇 스택 · 트윈을 다시 띄운다(둘 다 기동 시점에만 읽는다). 어긋나면 로봇 스택의
+# `readiness_gate` 가 시뮬레이터의 그리퍼 보고 축 수와 대조해 **기동을 멈춘다.**
+sim_scene: r2
+
+# 씬마다 갈리는 값. **모든 씬이 같은 키를 정해야 한다**(로더가 확인한다) — '이 씬에는
+# 없다' 는 `null` 로 적는다. 여기 적은 키는 아래 공통 블록에 다시 적지 않는다.
 #
-# 빌드 `MMR-Build_260929` 의 씬:
-#   r2 씬 → `r2__RecurDyn_1_vm.xml`  (RecurDyn — **지금 이것**. 2026-09-29 빌드에서 **벤더
-#                                     중력 보상이 들어간 쪽이다** — B-4 실측으로 확인하고
-#                                     아래 gravity_compensation 블록을 지웠다)
-#   t1 씬 → `t1__SNU_1_vm.xml`       (Crisp, 서울대 — 게인이 20000 이고 그리퍼가 6축이다)
-solver: RecurDyn
+#   solver                         그 씬의 솔버. 그리퍼 규약 파일의 `solver` 와 대조된다
+#   gripper.profile_file           그리퍼 **명령 규약** — 축 수 · 단위 · packing 이 씬마다 다르다
+#   motion.gravity_compensation    **우리가** 중력 보상을 할지. 벤더가 솔버에서 보상하는 씬은
+#                                  `null` 이다 — 둘 다 걸면 이중 보정으로 부호가 뒤집힌다
+#                                  (체크리스트 §B-4 상세). `kp` 는 그 씬 XML 의 팔 게인이다 —
+#                                  `./scripts/functionbay/fb_gains.py` 로 대조한다
+#
+# 배경 · 실측: docs/backends/functionbay/펑션베이_중력_보상.md, 체크리스트 §A-19 · §B-4
+sim_scenes:
+  # RecurDyn · `r2__RecurDyn_1_vm.xml`. `MMR-Build_260929` 부터 **벤더가 솔버에서 중력을
+  # 보상한다**(`<Gravity_Compensation Use="true" URDF="panda_urdf_tool" />`) — 우리 보상을
+  # 안 얹은 정착 오차가 일곱 관절 전부 0.0000 이었고, 얹으면 +0.0097 로 뒤집혔다(2026-09-30).
+  r2:
+    solver: RecurDyn
+    gripper:
+      profile_file: config/functionbay_gripper_recurdyn.json    # 2축 · 도 · 관절당 p/v/f
+    motion:
+      gravity_compensation: null
+  # Crisp(서울대) · `t1__SNU_1_vm.xml`. 벤더 보상이 없어 **우리가 보상한다.** 팔 게인이
+  # `MMR-Build_260929` 에서 2000 → **20000** 으로 10배 올랐다 — 틀리면 보상이 그 배수로 걸린다.
+  t1:
+    solver: Crisp
+    gripper:
+      profile_file: config/functionbay_gripper_crisp.json       # 6축 · 라디안 · 위치 나열
+    motion:
+      gravity_compensation:
+        urdf_package: panda_ftsensor_robotiq
+        urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
+        kp: 20000.0
 
 # MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
 arm_command:
@@ -64,24 +93,7 @@ motion:
   # 스케일하는 것은 관절 속도이고 EE 경로 길이와 선형 관계가 아니다. 1.0 → 0.2 로
   # 5배 줄여도 EE 속도는 243 → 154 mm/s (1.6배)였다. 데카르트 구간은 비례한다.
   velocity_scaling: 0.4
-  # ✅ **우리 중력 보상은 껐다 (2026-09-30) — 벤더가 A-1 을 반영했다.**
-  # `MMR-Build_260929` 의 `r2` 는 솔버가 직접 보상한다
-  # (`r2__RecurDyn_1_vm.xml` 의 `<Gravity_Compensation Use="true" URDF="panda_urdf_tool" />`;
-  # 그 씬 신호차트의 관절별 상수 토크도 0 으로 바뀌었다).
-  #
-  # 실측으로 판정했다 — 보상을 **안 얹은** `fb_hold` 정착 오차가 **일곱 관절 전부 0.0000**
-  # (기준선은 joint4 −0.0097). 그 상태에서 우리 보상을 얹으면 **부호가 뒤집혀 +0.0097** 로
-  # 나왔다 — 체크리스트가 예고한 **이중 보정** 지문이다(체크리스트 §B-4 상세).
-  #
-  # ⚠️ **`t1`(Crisp)에는 벤더 보상이 없다** — 그 씬으로 바꾸면 이 블록을 되살리고
-  # `kp` 를 그 씬 값(260929 기준 **20000**)으로 맞춘다. 지웠던 내용:
-  #
-  #   gravity_compensation:
-  #     urdf_package: panda_ftsensor_robotiq
-  #     urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
-  #     kp: <씬 XML 의 Gain Kp — fb_gains.py 로 대조>
-  #
-  # 배경·되돌리는 절차: docs/backends/functionbay/펑션베이_중력_보상.md
+  # `gravity_compensation` 은 씬마다 다르므로 위 `sim_scenes.<씬>.motion` 에 있다.
 
 # 팔 끝을 가리키는 **두 프레임**. `ee` 는 `/ee_pose` 의 기준이고 `tip` 은 MoveIt
 # 계획 그룹의 끝 링크다 — **149 mm 떨어져 있다.**
@@ -93,11 +105,7 @@ frames:
   ee: grasp_center
   tip: panda_link8
 
-# 그리퍼 **명령 규약** — `/input/gripper_joint` 배열을 어떻게 채우는가.
-# 씬마다 축 수·단위·packing 이 달라 파일로 뺐다 (r2 는 2축·도·관절당 p/v/f,
-# t1 은 6축·라디안·위치 나열). 씬을 바꾸면 이 줄도 함께 바꾼다 — 지금은 **r2(RecurDyn)** 이다.
-gripper:
-  profile_file: config/functionbay_gripper_recurdyn.json
+# 그리퍼 **명령 규약**(`gripper.profile_file`)은 씬마다 다르므로 위 `sim_scenes.<씬>.gripper` 에 있다.
 
 servo:
   # ros2_control 이 없어 servo 기본 출력(JointTrajectory)을 받을 컨트롤러가

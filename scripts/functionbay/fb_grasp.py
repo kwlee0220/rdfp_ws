@@ -75,7 +75,7 @@ DEFAULT_FINAL_VS = 0.25
 # 개폐축 실측은 둘 다 −90.0° 로 같다 (2026-09-09 실측).
 DEFAULT_GRASP_YAW = math.pi / 2.0
 
-_BACKEND = 'functionbay'
+_BACKEND = 'panda_functionbay'
 _SCENE_TOPIC = '/scene/objects'
 _GRIPPER_REPORT = '/output/gripper_joint'
 _BASE, _TIP, _TCP = 'panda_link0', 'panda_link8', 'grasp_center'

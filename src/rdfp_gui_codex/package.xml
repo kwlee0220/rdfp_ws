@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rdfp_gui_codex</name>
+  <version>0.0.1</version>
+  <description>Dataset Manager: MCAP topics, PostgreSQL mappings, import and training dataset export.</description>
+  <maintainer email="kwlee@todo.todo">kwlee</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rdfp</exec_depend>
+  <!-- PySide6 and optional LeRobot dependencies are installed from requirements files. -->
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

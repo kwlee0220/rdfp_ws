@@ -54,10 +54,10 @@ MoveIt2 기반 motion planning(카테시안 경로 + joint-space named target)�
 **일반적으로는 `backend` 이름 하나만 준다.** 어느 스택이 JTC 인가는 프로파일 표 (`robot_control.moveit.BACKEND_PROFILES`)가 갖는다.
 
 ```python
-client = create_move_group_client(node, backend='mock')        # -> MoveGroupJtcClient
-client = create_move_group_client(node, backend='mock_jgpc')   # -> MoveGroupJgpcClient
-client = create_move_group_client(node, backend='isaac')        # -> MoveGroupJtcClient
-client = create_move_group_client(node, backend='functionbay')  # -> MoveGroupJgpcClient
+client = create_move_group_client(node, backend='panda_mock')        # -> MoveGroupJtcClient
+client = create_move_group_client(node, backend='panda_mock_jgpc')   # -> MoveGroupJgpcClient
+client = create_move_group_client(node, backend='panda_isaac')        # -> MoveGroupJtcClient
+client = create_move_group_client(node, backend='panda_functionbay')  # -> MoveGroupJgpcClient
 ```
 
 프로파일이 없는 스택에는 `mode` 로 구현을 직접 지정한다. **`backend` 와 함께 주면 `mode` 가 프로파일보다 우선한다.**
@@ -187,7 +187,7 @@ def main():
     node = Node('my_cartesian_node')
 
     try:
-        with create_move_group_client(node, backend='mock') as client:
+        with create_move_group_client(node, backend='panda_mock') as client:
             client.wait_until_ready()
 
             waypoints = [
@@ -217,7 +217,7 @@ def main():
 create_move_group_client(
     node,                               # 필수: rclpy.node.Node 인스턴스
     *,
-    backend=None,                       # 'mock' | 'mock_jgpc' | 'isaac' | 'functionbay'
+    backend=None,                       # 'panda_mock' | 'panda_mock_jgpc' | 'panda_isaac' | 'panda_functionbay'
     mode=None,                          # 'jtc' | 'jgpc'. None = backend 프로파일이 정한다
     arm_command_topic='/panda_arm_controller/commands',   # JGPC 명령 토픽
     arm_command_format=None,            # JGPC 명령 형식 (None = 프로파일)
@@ -446,7 +446,7 @@ Panda 로봇의 경우 `moveit_resources_panda_moveit_config/config/panda.srdf` 
 ### 5.2 등록된 target 조회
 
 ```python
-with create_move_group_client(node, backend='mock') as client:
+with create_move_group_client(node, backend='panda_mock') as client:
     client.wait_until_ready()
 
     # 생성자에 지정된 기본 그룹 (panda_arm) 의 모든 named target
@@ -511,7 +511,7 @@ executor = MultiThreadedExecutor()
 executor.add_node(node)
 Thread(target=executor.spin, daemon=True).start()
 
-with create_move_group_client(node, backend='mock') as client:
+with create_move_group_client(node, backend='panda_mock') as client:
     client.wait_until_ready()
 
     future = client.move_to_named_target_async('ready', velocity_scaling=0.3)
@@ -813,7 +813,7 @@ executor.add_node(node)
 spin_thread = Thread(target=executor.spin)
 spin_thread.start()
 
-with create_move_group_client(node, backend='mock') as client:
+with create_move_group_client(node, backend='panda_mock') as client:
     client.wait_until_ready()
 
     future = client.follow_trajectory_async(waypoints, velocity_scaling=0.3)
@@ -995,7 +995,7 @@ JGPC 스택의 증상(정상 반환했는데 도달 안 함 · 10 Hz 계단 · `
 # 메인 스레드에서만 호출 — 가장 안전
 rclpy.init()
 node = Node('my_node')
-with create_move_group_client(node, backend='mock') as client:
+with create_move_group_client(node, backend='panda_mock') as client:
     client.wait_until_ready()
     client.follow_trajectory(waypoints)
 node.destroy_node()
@@ -1065,7 +1065,7 @@ with create_move_group_client(node, velocity_scaling=0.2) as client:
 > `execute_trajectory()` 는 **JTC 전용**이다. JGPC 에서는 `stream_trajectory()` 로 바꾼다.
 
 ```python
-with create_move_group_client(node, backend='mock') as client:
+with create_move_group_client(node, backend='panda_mock') as client:
     client.wait_until_ready()
 
     waypoints = [

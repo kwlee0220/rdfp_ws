@@ -27,7 +27,7 @@ launch 로 분리할 수 있다.
 **개별 인자를 명시하면 그쪽이 이긴다** (인자 > 프로파일 > 코드 기본값).
 
     ros2 launch robot_control panda_isaac.launch.py      # 터미널 1
-    ros2 launch rdfp rdfp_collect.launch.py backend:=isaac   # 터미널 2
+    ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac   # 터미널 2
 
 프로파일에서 오는 값은 다섯이다 — arm 명령 채널(`arm_cmd_source` +
 `target_joint_cmds_input_topic`), `use_sim_time`, `camera_image_topic`,
@@ -100,7 +100,7 @@ from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch_ros.actions import Node, SetParameter
 
-from robot_control.backend_profiles import backends
+from robot_control.backend_profiles import LEGACY_BACKEND_NAMES, backends
 from robot_control.backends import get_backend
 from robot_control.launch_helpers.image_pipeline import (
     declare_config_file_argument,
@@ -126,7 +126,7 @@ def _backend_defaults(name: str) -> dict:
 
     **arm 명령 채널이 프로파일의 어느 키에 있는지가 백엔드마다 다르다.**
     `arm_command.topic` 은 *MoveGroup 클라이언트*의 채널이라 JTC 백엔드에는 아예
-    없고(`mock`·`mock_jgpc`·`isaac` 모두 `None`), Isaac 의 실제 명령은
+    없고(`panda_mock`·`panda_mock_jgpc`·`panda_isaac` 모두 `None`), Isaac 의 실제 명령은
     `ros2_control.joint_commands_topic` 으로 나간다. 그래서 둘을 함께 본다 — 한쪽만
     보면 Isaac 이 조용히 기본 토픽을 구독해 **0 건**을 받는다.
 
@@ -206,7 +206,8 @@ def _declare_arguments() -> list[DeclareLaunchArgument]:
         ),
         DeclareLaunchArgument(
             "backend", default_value="",
-            choices=[""] + list(backends()),
+            # 옛 이름(`isaac` 등)도 한동안 받는다 — `get_backend` 가 지금 이름으로 바꾼다(경고).
+            choices=[""] + list(backends()) + sorted(LEGACY_BACKEND_NAMES),
             description=(
                 "제어 스택의 백엔드 이름. 주면 arm 명령 채널 · 카메라 토픽 · "
                 "use_sim_time · 레코더 입력 형식의 기본값을 "
@@ -261,7 +262,7 @@ def _build_actions(context: LaunchContext) -> list[Any]:
     """`config_file` resolve 이후 인자와 노드를 구성한다.
 
     **인자가 프로파일을 이긴다.** 파생 대상 인자의 기본값이 빈 문자열이고, 비어 있을
-    때만 프로파일 값을 쓴다 — 그래서 `backend:=isaac servo 실험용 토픽:=...` 같은
+    때만 프로파일 값을 쓴다 — 그래서 `backend:=panda_isaac servo 실험용 토픽:=...` 같은
     부분 덮어쓰기가 그대로 된다.
     """
     def arg(name: str) -> str:

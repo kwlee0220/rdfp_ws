@@ -68,7 +68,7 @@ def _span(raw) -> tuple:
 
 def _twin_config_dir() -> pathlib.Path:
     # robot_twin/robot_twin/tests/<this> -> src/robot_twin/config
-    return pathlib.Path(__file__).resolve().parents[2] / 'config'
+    return pathlib.Path(__file__).resolve().parents[2] / 'config' / 'twins'
 
 
 def _isaac_scene_json() -> pathlib.Path:
@@ -80,7 +80,7 @@ def _isaac_scene_json() -> pathlib.Path:
 def _load() -> tuple:
     from robot_twin.config import load_config
 
-    twin_path = _twin_config_dir() / 'robot_twin_panda_isaac.yaml'
+    twin_path = _twin_config_dir() / 'panda01.yaml'
     scene_path = _isaac_scene_json()
     if not twin_path.is_file() or not scene_path.is_file():
         pytest.skip('배포 설정이 없는 트리 (installed)')
@@ -215,3 +215,68 @@ def test_sampled_blocks_stay_on_the_table_footprint():
                     f'{scene_name}/{spec["name"]}: {axis} range '
                     f'[{lo - half:.3f}, {hi + half:.3f}] leaves the table '
                     f'[{low:.3f}, {high:.3f}]')
+
+
+# ----- 지정 위치 레시피 (`initial`) ------------------------------------------
+
+def _stage_yaw_deg(obj) -> float:
+    """씬 JSON 물체의 z축 회전(도). 자세가 z축 회전뿐이라는 전제다(탁자 위 물체)."""
+    import math
+
+    qx, qy, qz, qw = (float(v) for v in obj.get('orientation', [0.0, 0.0, 0.0, 1.0]))
+    return math.degrees(2.0 * math.atan2(qz, qw))
+
+
+def test_initial_recipe_puts_objects_where_the_stage_starts():
+    """`initial` 은 **처음 배치**다 — 씬 JSON 의 자리와 같아야 한다.
+
+    같은 값이 두 파일(씬 JSON · 트윈 레시피)에 있으므로, 씬 JSON 의 배치를 옮기고 레시피를
+    안 고치면 '처음 배치로 되돌렸다'는 호출이 **다른 자리에 놓는다.** 오류가 아니라 그 배치를
+    전제로 고정 좌표를 쓰는 프로그램이 빈 곳을 집는 것으로 드러난다.
+
+    정육면체는 yaw 도 맞춘다(90° 대칭이라 그 나머지로 본다). 실린더는 회전 대칭이라 yaw 를
+    보지 않는다 — 레시피 규칙상 주지 않는다.
+    """
+    config, stage = _load()
+    recipes = _recipes(config)
+    assert 'initial' in recipes, f'no fixed-layout recipe; declared: {sorted(recipes)}'
+    for spec in recipes['initial']['objects']:
+        want = stage[spec['name']]
+        for axis, k in (('x', 0), ('y', 1), ('z', 2)):
+            value = spec[axis]
+            assert isinstance(value, (int, float)), (
+                f'initial/{spec["name"]}: {axis} must be fixed, got {value!r}')
+            assert float(value) == pytest.approx(float(want['position'][k])), (
+                f'initial/{spec["name"]}: {axis}={value} but the stage starts at '
+                f'{want["position"][k]}')
+        if spec.get('type') == 'box':
+            yaw = spec.get('yaw', 0.0)
+            assert isinstance(yaw, (int, float)), f'initial/{spec["name"]}: yaw must be fixed'
+            diff = (float(yaw) - _stage_yaw_deg(want)) % 90.0
+            assert min(diff, 90.0 - diff) == pytest.approx(0.0, abs=0.5), (
+                f'initial/{spec["name"]}: yaw={yaw} but the stage starts at '
+                f'{_stage_yaw_deg(want):.1f} deg')
+
+
+def test_initial_recipe_ignores_the_seed():
+    """지정 위치는 seed 와 무관해야 한다 — 축 하나라도 범위면 '처음 배치'가 흔들린다."""
+    from robot_twin.backends import _sample_scene
+
+    config, _ = _load()
+    recipe = _recipes(config)['initial']
+    assert _sample_scene(recipe, 0) == _sample_scene(recipe, 12345)
+
+
+def test_random_and_fixed_recipes_are_both_declared():
+    """무작위 배치와 지정 위치 배치를 **둘 다** 고를 수 있어야 한다.
+
+    무작위 레시피는 seed 에 따라 배치가 달라져야 한다 — 그렇지 않으면 이름만 무작위다.
+    """
+    from robot_twin.backends import _sample_scene
+
+    config, _ = _load()
+    recipes = _recipes(config)
+    random_names = [name for name, recipe in recipes.items()
+                    if _sample_scene(recipe, 0) != _sample_scene(recipe, 12345)]
+    assert random_names, f'no randomized recipe; declared: {sorted(recipes)}'
+    assert 'initial' not in random_names

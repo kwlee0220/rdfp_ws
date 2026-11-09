@@ -64,7 +64,7 @@ def test_isaac_backend_builds_a_jtc_client(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJtcClient', lambda node, **kw: built.setdefault('jtc', kw))
     node = _Node(publishers={JTC_STATUS: ['server']})
 
-    f.create_move_group_client(node, backend='isaac')
+    f.create_move_group_client(node, backend='panda_isaac')
 
     assert 'jtc' in built
 
@@ -74,7 +74,7 @@ def test_functionbay_backend_builds_a_jgpc_client_with_its_channel(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJgpcClient',
                         lambda node, **kw: built.setdefault('jgpc', kw))
 
-    f.create_move_group_client(_Node(), backend='functionbay')
+    f.create_move_group_client(_Node(), backend='panda_functionbay')
 
     assert built['jgpc']['arm_command_topic'] == '/input/panda_joint'
     assert built['jgpc']['arm_command_joint_names'] == \
@@ -91,7 +91,7 @@ def test_format_never_reaches_the_jtc_constructor(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJtcClient', lambda node, **kw: built.setdefault('jtc', kw))
     node = _Node(publishers={JTC_STATUS: ['server']})
 
-    f.create_move_group_client(node, backend='isaac', arm_command_format='joint_state')
+    f.create_move_group_client(node, backend='panda_isaac', arm_command_format='joint_state')
 
     assert 'arm_command_format' not in built['jtc']
 
@@ -103,7 +103,7 @@ def test_missing_jtc_action_server_is_reported(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJtcClient', lambda node, **kw: object())
     node = _Node()                                   # status 토픽 발행자가 없다
 
-    f.create_move_group_client(node, backend='isaac')
+    f.create_move_group_client(node, backend='panda_isaac')
 
     assert any('FollowJointTrajectory' in e for e in node.get_logger().errors)
 
@@ -112,7 +112,7 @@ def test_present_jtc_action_server_is_quiet(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJtcClient', lambda node, **kw: object())
     node = _Node(publishers={JTC_STATUS: ['server']})
 
-    f.create_move_group_client(node, backend='isaac')
+    f.create_move_group_client(node, backend='panda_isaac')
 
     assert node.get_logger().errors == []
 
@@ -135,7 +135,7 @@ def test_action_server_warning_can_be_suppressed(monkeypatch):
     monkeypatch.setattr(f, 'MoveGroupJtcClient', lambda node, **kw: object())
     node = _Node()
 
-    f.create_move_group_client(node, backend='isaac', check_action_server=False)
+    f.create_move_group_client(node, backend='panda_isaac', check_action_server=False)
 
     assert node.get_logger().errors == []
 
@@ -151,7 +151,7 @@ def test_profile_velocity_scaling_reaches_the_client(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr(f, 'MoveGroupJgpcClient', _Spy)
-    f.create_move_group_client(_Node(), backend='functionbay')
+    f.create_move_group_client(_Node(), backend='panda_functionbay')
 
     assert captured['velocity_scaling'] == 0.4
 
@@ -165,7 +165,7 @@ def test_explicit_velocity_scaling_beats_the_profile(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr(f, 'MoveGroupJgpcClient', _Spy)
-    f.create_move_group_client(_Node(), backend='functionbay', velocity_scaling=0.1)
+    f.create_move_group_client(_Node(), backend='panda_functionbay', velocity_scaling=0.1)
 
     assert captured['velocity_scaling'] == 0.1
 
@@ -179,7 +179,7 @@ def test_no_profile_value_leaves_the_constructor_default(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr(f, 'MoveGroupJtcClient', _Spy)
-    f.create_move_group_client(_Node(), backend='mock', check_action_server=False)
+    f.create_move_group_client(_Node(), backend='panda_mock', check_action_server=False)
 
     assert 'velocity_scaling' not in captured
 
@@ -218,6 +218,6 @@ def test_explicit_mode_beats_the_profile(monkeypatch):
     built = {}
     monkeypatch.setattr(f, 'MoveGroupJgpcClient', lambda node, **kw: built.setdefault('jgpc', kw))
     # isaac 프로파일은 jtc 다 — 인자로 뒤집는다.
-    f.create_move_group_client(_Node(), backend='isaac', mode='jgpc')
+    f.create_move_group_client(_Node(), backend='panda_isaac', mode='jgpc')
 
     assert 'jgpc' in built

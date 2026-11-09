@@ -292,7 +292,7 @@ ros2 bag info "$RDFP_ROSBAG_DIR/2026-10-17/session_2026-10-17_09-00-03"    # 담
 ### 3.8 수집 절차 안에서의 순서
 
 1. 로봇 스택을 띄운다 — 예: `ros2 launch robot_control panda_isaac.launch.py`
-2. 수집 계층을 띄우고 `session_control` 서비스가 설 때까지 기다린다 — `ros2 launch rdfp rdfp_collect.launch.py backend:=isaac`
+2. 수집 계층을 띄우고 `session_control` 서비스가 설 때까지 기다린다 — `ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac`
 3. **`./scripts/rosbag.sh record` 를 띄운다.**
 4. 세션 · 에피소드를 진행한다 (텔레오퍼레이션, 트윈 연산, `robot-twin-collect` 등).
 5. 마지막 에피소드와 세션을 닫는다.

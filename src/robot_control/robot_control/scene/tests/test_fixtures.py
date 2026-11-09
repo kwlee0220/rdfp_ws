@@ -21,14 +21,14 @@ PEG_DIAMETER = 0.016        # functionbay_scene.json 의 peg (반지름 0.008)
 
 @pytest.fixture(scope='module')
 def fixtures():
-    return load_fixtures('functionbay')
+    return load_fixtures('panda_functionbay')
 
 
 def test_the_file_is_reachable():
     """프로파일의 `scene.fixtures_file` 이 실재하는 파일을 가리키는가."""
     import os
 
-    path = fixtures_path('functionbay')
+    path = fixtures_path('panda_functionbay')
     assert path and os.path.isfile(path), path
 
 
@@ -121,7 +121,7 @@ def test_duplicate_names_are_rejected(tmp_path):
 
 def test_describe_mentions_every_fixture(fixtures):
     """`fb_fixtures.py` 가 이 출력을 쓴다 — 빠지면 사람이 못 본다."""
-    text = describe('functionbay')
+    text = describe('panda_functionbay')
 
     for name in fixtures:
         assert name in text

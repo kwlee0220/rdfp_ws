@@ -118,7 +118,7 @@ timeout 3 ros2 topic echo /leader/joint_states sensor_msgs/msg/JointState
 ```bash
 ros2 launch robot_control panda_mock_jgpc.launch.py
 # 수집까지 하려면 다른 터미널에서:
-#   ros2 launch rdfp rdfp_collect.launch.py backend:=mock_jgpc
+#   ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock_jgpc
 ```
 
 컨트롤러 타입을 확인한다.

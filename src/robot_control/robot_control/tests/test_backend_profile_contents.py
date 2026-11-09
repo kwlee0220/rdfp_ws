@@ -84,7 +84,7 @@ def test_functionbay_launch_constants_come_from_the_profile():
     (`arm_command` 블록은 최상위로 평탄화되어 `value('arm_command', ...)` 로는 안 잡힌다).
     """
     module = _load_launch_module('panda_functionbay')
-    p = bp.BACKEND_PROFILES['functionbay']
+    p = bp.BACKEND_PROFILES['panda_functionbay']
 
     assert module.FB_JOINT_REPORT_TOPIC == p['simulator']['joint_report_topic']
     assert module.FB_JOINT_COMMAND_TOPIC == p['simulator']['joint_command_topic']
@@ -106,7 +106,7 @@ def test_functionbay_camera_consumers_get_the_restamped_stream():
     (회차마다 벽시계/경과시간, 정지로 초 단위 흔들림)를 그대로 받는다 — 세션 레코더는
     이미지 stamp 를 `/session` stamp 와 비교해 구간을 가르므로 **조용히 0 프레임**이 된다.
     """
-    p = bp.BACKEND_PROFILES['functionbay']
+    p = bp.BACKEND_PROFILES['panda_functionbay']
     assert p['camera']['compressed_topic'] != p['simulator']['camera_compressed_topic']
 
 
@@ -141,7 +141,7 @@ def test_functionbay_launch_defaults_come_from_the_profile():
         defaults[action.name] = (
             ''.join(getattr(part, 'text', str(part)) for part in raw) if raw else None)
 
-    p = bp.BACKEND_PROFILES['functionbay']
+    p = bp.BACKEND_PROFILES['panda_functionbay']
     assert defaults['camera_image_topic'] == p['camera']['image_topic']
     assert defaults['camera_compressed_topic'] == p['camera']['compressed_topic']
     assert defaults['servo_linear_scale'] == str(p['servo']['linear_scale'])
@@ -155,7 +155,7 @@ def test_isaac_arm_command_is_not_the_hardware_topic():
     옛 bridge 시절 `arm_command.topic: /isaac/arm_command` 로 두었던 잔재다. 지금 그
     토픽은 `TopicBasedSystem` 이 쓰는 쪽이고, MoveGroup 은 JTC 액션으로 간다.
     """
-    p = bp.BACKEND_PROFILES['isaac']
+    p = bp.BACKEND_PROFILES['panda_isaac']
 
     assert 'arm_command_topic' not in p, 'JTC 백엔드는 명령 채널을 갖지 않는다'
     assert p['ros2_control']['joint_commands_topic'] == '/isaac/arm_command'
@@ -165,9 +165,9 @@ def test_isaac_arm_command_is_not_the_hardware_topic():
 
 def test_null_means_the_backend_lacks_it():
     """`null` 은 "빠뜨렸다" 가 아니라 "이 백엔드에는 없다" 는 뜻이다."""
-    assert bp.BACKEND_PROFILES['functionbay']['ros2_control'] is None, \
+    assert bp.BACKEND_PROFILES['panda_functionbay']['ros2_control'] is None, \
         '펑션베이에는 ros2_control 이 없다'
-    assert bp.BACKEND_PROFILES['mock']['scene']['file'] is None, \
+    assert bp.BACKEND_PROFILES['panda_mock']['scene']['file'] is None, \
         'mock 은 scene 정의 파일이 없다 — /scene/reset 이 놓은 것만 있다'
 
 
@@ -181,7 +181,7 @@ def test_functionbay_declares_its_compressed_camera():
     소비자가 받는 압축 토픽은 **시뮬레이터 원본이 아니라 stamp 중계(`fb_camera_restamp`)의
     출력**이다 (2026-09-17). 원본은 `simulator.camera_compressed_topic` 이 갖는다.
     """
-    profile = bp.BACKEND_PROFILES['functionbay']
+    profile = bp.BACKEND_PROFILES['panda_functionbay']
     camera = profile['camera']
 
     assert camera['compressed_topic'] == '/camera_image_aligned/compressed'
@@ -220,7 +220,7 @@ def test_isaac_launch_defaults_come_from_the_profile():
         defaults[action.name] = (
             ''.join(getattr(part, 'text', str(part)) for part in raw) if raw else None)
 
-    p = bp.BACKEND_PROFILES['isaac']
+    p = bp.BACKEND_PROFILES['panda_isaac']
     assert defaults['use_sim_time'] == str(p['use_sim_time']).lower()
     assert defaults['servo_linear_scale'] == str(p['servo']['linear_scale'])
     assert defaults['servo_joint_source'] == p['servo']['joint_source']

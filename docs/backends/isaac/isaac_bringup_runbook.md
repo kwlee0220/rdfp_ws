@@ -49,6 +49,15 @@ Isaac 은 관절 상태를 **`/isaac_joint_states`** 로 내고 `/joint_states` 
 | `ros-humble-simulation-interfaces` | `/scene/reset` 이 열리지 않는다 (아래 터미널 2 상자) |
 | `colcon build` 한 워크스페이스 | `isaac_scene_state_node` 가 `install/share` 의 `isaac_scene.json` 을 읽는다 — `src` 만 고치면 **Isaac 과 ROS 가 다른 물체 목록을 본다** |
 | 워크스페이스 루트의 **`.rdfprc`** | 아래 터미널마다 쓰는 `source ./.rdfprc` 가 실패한다. 이 한 줄이 **ROS 배포판 환경 + `install/` 오버레이 + `ROS_DOMAIN_ID` + `RDFP_DATA_ROOT`·`RDFP_DB_DSN`** 을 한꺼번에 세운다. **git 에 없다** — 평문 DSN 을 담아 `.gitignore` 로 제외되어 있으므로 새 머신에서는 손으로 만든다 ([python_env_guide.md](../../python_env_guide.md)) |
+| `robot-twin-client` 체크아웃 + `uv sync` (트윈을 클라이언트로 조작할 때) | `robot-twin-pick` · `robot-twin-stack` · `robot-twin-collect` 가 없다 |
+
+**위 표를 한 번에 확인하는 스크립트가 있다** — 아무것도 띄우지 않고 고치지도 않으며, 실패마다 고치는 명령을 적는다.
+
+```bash
+./scripts/isaac/is_check_prereq.sh     # 실패가 없으면 종료 코드 0
+```
+
+표에 없는 것도 함께 본다: 도메인 · RMW 가 트윈 설정 · Isaac 쪽 기본값과 같은지, `install/` 이 **`src` 와 파일 단위로 같은지**(빌드하지 않고 고친 코드가 있으면 옛 코드가 돈다), `src` 에서 지운 파일이 설치본에 남았는지(재빌드로는 안 치워진다), 그리고 Isaac 이 이미 떠 있는지.
 
 ## 2. 절차
 
@@ -118,15 +127,19 @@ source ./.rdfprc                 # install 오버레이 + ROS_DOMAIN_ID=31 + RDF
 ```bash
 cd ~/development/ros/rdfp_ws
 source ./.rdfprc
-./scripts/run_robot_twin.sh --isaac      # = ros2 run robot_twin robot_twin --config <isaac yaml>
+./scripts/run_robot_twin.sh --twin panda01   # = ros2 run robot_twin robot_twin --config <isaac yaml>
 ```
 
-`http://localhost:8802/api/v1/robot_twins/panda_isaac` 로 REST 조작이 열린다.
+`http://localhost:8801/api/v1/robot_twins/panda01` 로 REST 조작이 열린다.
 
-`moveit` 블록은 `move_group_mode: jtc` 하나로 끝난다 — 팔이 JTC 라 MoveGroup 액션으로 실행되므로 명령 채널을 따로 지정할 필요가 없다. **`arm_command_*` 가 보이면 옛 bridge 설정을 되살린 것이고, 그 조합은 설정 로드에서 `ValidationError` 로 거부되어 트윈이 아예 안 뜬다** — 조용히 어긋나지 않으므로 로그의 그 예외를 보면 된다.
+백엔드는 `twin.backend: panda_isaac` 한 줄이 정하고 `moveit` 블록에는 `planning_group` 만 남는다 — 팔이 JTC 라 MoveGroup 액션으로 실행되므로 명령 채널을 따로 지정할 필요가 없다. **`arm_command_*` 가 보이면 옛 bridge 설정을 되살린 것이고, 그 조합은 설정 로드에서 `ValidationError` 로 거부되어 트윈이 아예 안 뜬다** — 조용히 어긋나지 않으므로 로그의 그 예외를 보면 된다.
 
-> **twin id 는 `panda_isaac` 으로 파일 이름과 다르다.**
-> REST 경로가 스택 구성에 묶이면 안 되기 때문이다. 같은 로봇·같은 시뮬이라 변형이 갈려도 REST 경로는 하나로 둔다. 변형은 설정 파일명과 노드 이름만 구분한다.
+> **Isaac 트윈의 id 는 `panda01` 이다** (2026-10-25, 설정 `src/robot_twin/config/twins/panda01.yaml`).
+> 트윈은 환경마다 id 가 다르고(펑션베이 `rdfp01` · mock `mock01`) 포트는 셋 다 8801 이다. 그래서 **Isaac 에 붙는
+> 클라이언트는 id 를 넘겨야 한다** — 틀리면 HTTP 404 다. `run_collect_isaac.sh` · `robot-twin-stack` ·
+> `robot-twin-collect` · `robot-twin-pick` · `robot-twin-reset` 은 기본값이 `panda01` 이고, MCP 는
+> `claude --mcp-config .mcp_isaac.json` 으로 붙는다. 어느 환경인지는 여전히 트윈 메타
+> (`curl -s .../robot_twins/panda01`)의 `backend` 로 확인한다(`run_collect_isaac.sh` 가 그렇게 거른다).
 
 ### 터미널 4 — 수집 계층 + rosbag
 
@@ -182,7 +195,7 @@ cd ~/development/mdtpy/robot-twin-client
 ./scripts/run_isaac_sim.sh --headless
 
 # 터미널 2 — 로봇 스택 + 트윈 + 수집 계층 + rosbag 을 한 번에
-#   (따로 띄우려면 run_panda_isaac.sh → run_robot_twin.sh --isaac → 아래를 --with-stack 없이)
+#   (따로 띄우려면 run_panda_isaac.sh → run_robot_twin.sh --twin panda01 → 아래를 --with-stack 없이)
 source ./.rdfprc && ./scripts/run_collect_isaac.sh --with-stack --shutdown rdfp
 
 # 터미널 3 — 작업 수행 (끝나면 터미널 2 가 스스로 정리한다)
@@ -344,6 +357,21 @@ ros2 run tf2_ros tf2_echo panda_link0 block_a
 ---
 
 ## 6. 자주 물리는 함정
+
+### 창이 안 뜬다 — **NVIDIA 드라이버가 갱신되고 재부팅하지 않았다**
+
+`[bringup] PLAY` 까지 찍히고 1분쯤 뒤 프로세스가 **오류 메시지 없이** 사라진다. 원인은 Kit 로그에만 있다.
+
+```bash
+grep -h 'NVML\|No device could be created' ~/isaacsim/kit/logs/Kit/*/6.0/kit_*.log | tail -3
+nvidia-smi        # "Failed to initialize NVML: Driver/library version mismatch"
+```
+
+드라이버 패키지가 갱신되면 사용자 영역 라이브러리는 바로 바뀌지만 커널 모듈은 재부팅 전까지 옛 버전이라, RTX 가
+GPU 장치를 하나도 만들지 못한다(`NVML_ERROR_LIB_RM_VERSION_MISMATCH`). **재부팅하면 풀린다.** 2026-10-19 에는
+unattended-upgrade 가 10-11 새벽에 595.91 → 595.99 로 올린 것이 원인이었다. 재발을 막으려면
+`/etc/apt/apt.conf.d/50unattended-upgrades` 의 `Unattended-Upgrade::Package-Blacklist` 에 `"nvidia-";` ·
+`"libnvidia-";` 를 넣는다. `./scripts/isaac/is_check_prereq.sh` 가 이 상태를 실패로 잡는다.
 
 ### 시뮬레이터를 재시작하면 **ROS 스택도 다시 띄운다**
 

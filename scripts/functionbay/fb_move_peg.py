@@ -50,7 +50,7 @@ from rdfp_msgs.msg import SceneObjects
 from robot_control.moveit.move_group_factory import create_move_group_client
 from robot_control.scene.fixtures import load_fixtures
 
-BACKEND = 'functionbay'
+BACKEND = 'panda_functionbay'
 OBJECT = 'peg'
 DEFAULT_TRAVEL_Z = 0.150
 DEFAULT_VS = 0.08

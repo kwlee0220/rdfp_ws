@@ -43,7 +43,7 @@ from robot_control.scene.fixtures import load_fixtures
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformListener
 
-BACKEND = 'functionbay'
+BACKEND = 'panda_functionbay'
 # **측정 높이는 고정하지 않는다.** 처짐이 솔버마다 자릿수가 다르기 때문이다 — Crisp 은
 # 약 5 mm 인데 RecurDyn 은 **약 88 mm** 다. 고정 높이를 쓰면 한쪽에서 손끝이 탁자를
 # 파고든다 (2026-09-09 에 실제로 그랬다: 지령 0.080 → 실제 −0.0065).

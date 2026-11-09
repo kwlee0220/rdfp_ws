@@ -6,7 +6,7 @@
 `config/backends/<이름>.yaml` 에 있고, 객체 생성은 이 클래스(와 그 하위 클래스)에 있다.
 소비자는 이름 하나로 시작한다::
 
-    backend = get_backend('isaac')
+    backend = get_backend('panda_isaac')
     client = backend.create_move_group_client(node)
     params = backend.servo_parameters()
 
@@ -23,7 +23,9 @@ from typing import Any, Optional
 
 import os
 
-from robot_control.backend_profiles import BACKEND_PROFILES, backends, profiles_dir
+from robot_control.backend_profiles import (
+    BACKEND_PROFILES, backends, canonical_backend, profiles_dir
+)
 
 
 class Backend:
@@ -227,6 +229,8 @@ def get_backend(name: str) -> 'Backend':
         ValueError: 모르는 이름일 때. **조용히 기본값으로 떨어뜨리지 않는다** —
             오타가 "이 스택에서만 안 되네" 로 나타난다.
     """
+    # 옛 이름(`isaac` 등)은 지금 이름으로 바꿔 받는다(경고) — 객체의 `name` 은 늘 지금 이름이다.
+    name = canonical_backend(name)
     if name not in BACKEND_PROFILES:
         raise ValueError(f'backend must be one of {list(backends())}, got {name!r}')
     profile = BACKEND_PROFILES[name]

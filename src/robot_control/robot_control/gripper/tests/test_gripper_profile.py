@@ -22,10 +22,10 @@ from robot_control.gripper.profile import (
 
 
 # **활성 씬을 읽으면 안 된다.** 규약 시험이 확인하는 것은 *파일의 규약*이고, 어느 씬을
-# 띄웠는지는 `config/backends/functionbay.yaml` 의 운영 선택이다. 예전에는 이 fixture 가
-# `load_gripper_profile('functionbay')` 였고, 그래서 2026-09-29 에 씬을 t1 로 바꾸자
+# 띄웠는지는 `config/backends/panda_functionbay.yaml` 의 운영 선택이다. 예전에는 이 fixture 가
+# `load_gripper_profile('panda_functionbay')` 였고, 그래서 2026-09-29 에 씬을 t1 로 바꾸자
 # **규약이 멀쩡한데 시험 7건이 깨졌다**(도 ↔ 라디안, pvf ↔ position, 2축 ↔ 6축).
-_CONFIG_DIR = os.path.dirname(gripper_profile_path('functionbay') or '')
+_CONFIG_DIR = os.path.dirname(gripper_profile_path('panda_functionbay') or '')
 
 
 def _convention(name: str):
@@ -47,7 +47,7 @@ def crisp_profile():
 def test_the_file_is_reachable():
     import os
 
-    path = gripper_profile_path('functionbay')
+    path = gripper_profile_path('panda_functionbay')
     assert path and os.path.isfile(path), path
 
 
@@ -58,11 +58,11 @@ def test_axis_count_matches_the_signs(profile):
 def test_the_active_scene_loads_whatever_the_yaml_declares():
     """**씬 무관 불변식** — 활성 프로파일이 읽히고 `solver` 대조를 통과한다.
 
-    로더가 `config/backends/functionbay.yaml` 의 `solver` 와 규약 파일의 `solver` 를
+    로더가 `config/backends/panda_functionbay.yaml` 의 `solver` 와 규약 파일의 `solver` 를
     맞춰 보므로(`_verify_solver`), 씬을 바꾸고 한쪽만 고치면 여기서 걸린다 —
     체크리스트 함정 15.
     """
-    active = load_gripper_profile('functionbay')
+    active = load_gripper_profile('panda_functionbay')
 
     assert active.axis_count == len(active.axis_signs)
     assert active.command_units in ('deg', 'rad')
@@ -157,7 +157,7 @@ def test_declared_count_must_match_the_signs(tmp_path):
 def test_missing_file_is_not_an_empty_profile():
     """"규약이 필요 없는 백엔드"와 "아직 안 적은 백엔드"가 구별되어야 한다."""
     with pytest.raises(FileNotFoundError, match='gripper.profile_file'):
-        load_gripper_profile('mock')
+        load_gripper_profile('panda_mock')
 
 
 def test_non_finite_command_is_refused(profile):
@@ -175,8 +175,8 @@ def test_provenance_is_recorded(profile):
 
 def test_describe_shows_the_convention():
     """`describe()` 는 **활성 씬**을 설명한다 — 규약 파일 fixture 가 아니라 그쪽과 대조한다."""
-    active = load_gripper_profile('functionbay')
-    text = describe('functionbay')
+    active = load_gripper_profile('panda_functionbay')
+    text = describe('panda_functionbay')
 
     assert active.command_units in text
     assert active.command_packing in text

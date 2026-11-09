@@ -2,10 +2,10 @@
 #
 # 설계서: docs/twin/로봇_트윈_설계서.md
 #         docs/backends/isaac/isaac_backend.md (§8 Q10)
-# 실행:   ros2 run robot_twin robot_twin --config <이 파일 경로>
+# 실행:   ./scripts/run_robot_twin.sh --twin panda01   (= ros2 run robot_twin robot_twin --twin panda01)
 #
-# `robot_twin_panda01.yaml` (mock 스택) 과 **다른 곳은 `use_sim_time` 과 scene 계열뿐**
-# 이다. Isaac 도 `controller_manager` 를 쓰므로(`topic_based_ros2_control`)
+# `mock01.yaml` (mock 스택) 과 **다른 곳은 scene 계열뿐**이다 — 시계(`use_sim_time`)는
+# `twin.backend` 가 프로파일에서 채운다. Isaac 도 `controller_manager` 를 쓰므로(`topic_based_ros2_control`)
 # `panda_arm_controller` 가 JTC 이고, 팔 명령 채널을 따로 지정할 필요가 없다.
 #
 # 함께 띄울 스택:
@@ -14,30 +14,35 @@
 #
 
 twin:
-  # **id 는 launch 변형을 담지 않는다.** REST 경로(`/api/v1/robot_twins/<id>`)가
-  # 스택 구성에 묶이면 구성을 갈아탈 때 클라이언트가 깨진다 —
-  # 같은 로봇·같은 시뮬이므로 id 는 하나여야 한다. mock 도 jtc/jgpc 두 스택이
-  # 같은 `panda01` 을 쓴다. 변형은 파일명과 `node_name` 만 구분한다.
-  id: panda_isaac
+  # **id 가 곧 파일 이름이다** (2026-10-25) — 출하 설정은 `config/twins/<id>.yaml` 이고
+  # `run_robot_twin.sh --twin <id>` 가 이 파일을 바로 연다. 파일 이름과 다르면 기동을 거부한다.
+  # 출하 트윈 셋(`mock01` · `panda01` · `rdfp01`)은 id 가 모두 다르고 포트(8801)는 같다 —
+  # 동시에 띄우지 않으며, 실수로 둘을 띄우면 두 번째가 포트 충돌로 못 뜬다. 노드 이름은 id 를
+  # 따른다(`robot_twin_panda01`). 환경은 아래 `backend` 가 말하며, 클라이언트는 트윈 메타
+  # (`GET /robot_twins/panda01`)의 `backend` 로 확인한다.
+  id: panda01
+  # 백엔드 프로파일 이름(`config/backends/<이름>.yaml`). 팔 명령 채널 · 속도 · 프레임(`moveit`),
+  # 시계(`ros.use_sim_time`), 고정물, 중력 보상이 이 한 줄에서 나온다.
+  backend: panda_isaac
   description: Franka Emika Panda (Isaac Sim backend)
 
 http:
   # 인증·TLS 를 두지 않으므로 노출 범위 통제는 망 수준의 책임이다 (설계서 8.4).
   # 이 API 에 라우팅이 닿는 주체는 누구든 로봇을 움직일 수 있다.
   host: 0.0.0.0
-  port: 8802          # panda01(8801) 과 같은 머신에서 함께 뜰 수 있게 다르게 둔다
+  port: 8801          # 세 환경 공용 — 동시에 띄우지 않는다
   tls: false
 
 ros:
   domain_id: 31
   rmw: rmw_fastrtps_cpp
-  node_name: robot_twin_panda_isaac
-  # **Isaac 은 /clock 을 발행한다.** false 로 두면 변수의 stamp 가 벽시계로 찍혀
-  # 에피소드 경계(sim time)와 어긋나고, 데이터셋에서 짝이 안 맞는다.
-  use_sim_time: true
+  node_name: robot_twin_panda01
+  # `use_sim_time` 은 적지 않는다 — `twin.backend` 의 프로파일(`config/backends/panda_isaac.yaml`)이
+  # **true** 로 채운다. Isaac 은 /clock 을 발행하므로, false 면 변수의 stamp 가 벽시계로 찍혀
+  # 에피소드 경계(sim time)와 어긋나고 데이터셋에서 짝이 안 맞는다. 적으면 그 값이 이긴다.
 
 moveit:
-  # **백엔드 이름 하나로 정한다.** `robot_control.moveit.BACKEND_PROFILES` 가
+  # **`twin.backend` 한 줄로 정한다.** `robot_control.moveit.BACKEND_PROFILES` 가
   # mode·명령채널을 채운다 — 그 표가 "어느 스택이 JTC 인가"의 정본이고, 여기 손으로
   # 적으면 백엔드가 바뀔 때 한쪽만 뒤처진다 (2026-09-05 의 bridge → ros2_control
   # 전환에서 실제로 그랬다).
@@ -49,7 +54,6 @@ moveit:
   # ⚠️ **`arm_command_*` 를 여기 넣지 않는다.** jtc 와의 조합은 설정 로드에서
   # ValidationError 로 거부되어 트윈이 아예 안 뜬다
   # (2026-09-05 에 삭제한 옛 bridge 설정의 잔재다).
-  backend: isaac
   planning_group: panda_arm
 
 sessions:
@@ -157,7 +161,8 @@ variables:
     description: >-
       데이터 수집 상태 기계의 현재 상태 — 'IDLE' | 'IN_SESSION' | 'IN_EPISODE'.
       **경계 연산을 부르기 전에 확인한다**: start_episode 는 IN_SESSION 에서만,
-      start_session 은 IDLE 에서만 허용되고 어긋나면 409 로 거부된다.
+      start_session 은 IDLE 에서만 허용된다. 현재 상태에서 허용되지 않는 요청은
+      HTTP 200 응답에 FAILED 상태와 PRECONDITION_FAILED 오류를 반환한다.
       작업을 시작하기 전 IDLE 이 아니면 이전 실행이 남긴 세션이 열려 있다는 뜻이다.
     source:
       type: topic
@@ -238,6 +243,9 @@ operations:
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_step: { type: number, exclusiveMinimum: 0 }
         jump_threshold: { type: number, minimum: 0 }
+        # 실행을 허락하는 최소 계획 비율. 미만이면 움직이지 않고 PLANNING_FAILED 다.
+        # 생략하면 0.95 (backends.DEFAULT_MIN_FRACTION). 부분 경로를 감수할 때만 낮춘다.
+        min_fraction: { type: number, exclusiveMinimum: 0, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
@@ -245,12 +253,11 @@ operations:
   # --- gripper (arm 과 독립 자원이라 병렬 실행된다) ---
   # 목표를 이름으로 지정하는 단일 연산이다. `open` / `close` 를 각각 연산으로
   # 두면 목표를 늘릴 때마다 연산이 늘고 클라이언트도 그때마다 새 이름을 알아야
-  # 한다. 목표 표를 backend.targets 에 **데이터로** 두었으므로 목표 추가는
-  # backend.targets 편집만으로 끝나며 코드 변경이 필요 없다.
+  # 한다. backend.labels 는 트윈이 허용하는 명령 이름 목록이다. 현재 그리퍼 노드는
+  # open/close/grasp 만 등록하므로 새 이름에는 노드 코드와 완료 판정의 수정이 필요하다.
   #
-  # inputs_schema 의 target.enum 은 **적지 않는다** — 기동 시 backend.targets 에서
-  # 파생된다 (config.OperationConfig._derive_target_enum). 두 곳에 적으면 조용히
-  # 어긋나고, enum 만 빠지면 jsonschema 설치 여부에 따라 동작이 갈린다.
+  # inputs_schema 의 target.enum 은 기동 시 backend.labels 에서 파생된다.
+  # enum 을 직접 선언하면 labels 와 일치하는지 검사하므로 중복 선언은 생략한다.
   #
   # 목표는 **심볼**로만 정의한다. 트윈은 이 값을 rdfp_msgs/GripperCommand 로 만들어
   # backend.topic 에 발행하고 **at_goal 이 설 때까지** 기다린다 (2026-09-01 결정).
@@ -365,8 +372,10 @@ operations:
   # 둘 다 `scripts/run_isaac_sim.sh` 가 처리한다.
   - name: reset_scene
     description: >-
-      scene 의 블록을 레시피(scene)대로 다시 배치한다. 위치는 레시피가 정한 범위 안에서
-      무작위 추출하며, seed 를 주면 같은 배치가 재현된다.
+      scene 의 블록을 레시피(scene)대로 다시 배치한다. 레시피가 범위를 주면 그 안에서
+      무작위로, 고정값을 주면 그 자리에 놓는다 — **무작위는 two_objects · one_block,
+      지정 위치(처음 배치)는 initial** 이다. 무작위 레시피는 seed 를 주면 같은 배치가
+      재현된다.
       **에피소드를 시작하기 전에 부른다** — 물체를 매번 다른 곳에 두는 것이 이 수집의
       목적이므로 리셋은 에피소드 밖이다.
       **반환된 outputs.objects 가 실제 배치이며 이후 파지 좌표의 출처다** —
@@ -415,6 +424,17 @@ operations:
                 x: [0.35, 0.52], y: [-0.14, -0.06], z: 0.325, yaw: [0, 90] }
             - { name: cylinder_a, type: cylinder, size: [0.06, 0.03],
                 x: 0.42, y: 0.10, z: 0.33 }
+        # **지정 위치 — 처음 배치.** `isaac_scene.json` 의 자리에 그대로 놓는다. 모든 축이
+        # 고정값이라 seed 와 무관하게 늘 같은 배치다 (위 둘은 무작위다). 실험을 같은 출발점에서
+        # 되풀이하거나, 씬을 읽지 않고 고정 좌표로 움직이는 프로그램 앞에 부른다.
+        # 실린더에는 yaw 를 주지 않는다(위 규칙) — 씬 JSON 은 45° 지만 회전 대칭이라 같은
+        # 배치다. 값이 씬 JSON 과 어긋나면 `test_isaac_scene_recipe.py` 가 잡는다.
+        initial:
+          objects:
+            - { name: block_a, type: box, size: [0.05, 0.05, 0.05],
+                x: 0.42, y: -0.10, z: 0.325, yaw: 0 }
+            - { name: cylinder_a, type: cylinder, size: [0.06, 0.03],
+                x: 0.42, y: 0.10, z: 0.33 }
     inputs_schema:
       type: object
       required: [scene]
@@ -455,7 +475,8 @@ operations:
   - name: start_episode
     description: >-
       에피소드(학습 데이터 한 건)의 시작 경계를 찍는다. **IN_SESSION 에서만
-      허용된다** — IDLE 이면 409 로 거부되므로 start_session 을 먼저 부른다.
+      허용된다**. IDLE 에서는 start_session 을 먼저 호출한다. 상태가 맞지 않으면
+      HTTP 200 응답에 FAILED 상태와 PRECONDITION_FAILED 오류를 반환한다.
       이 시점부터 stop_episode 까지의 구간이 하나의 학습 샘플이 되므로, scene 리셋과
       초기 자세 이동은 이 호출 **앞**에서 끝낸다.
     kind: sync
@@ -502,12 +523,14 @@ operations:
 
   # 임의 폭 지정. 명령 경로 자체는 move_gripper_to_target 로 배선되었지만, 폭을
   # 요청 인자로 받는 형태는 열지 않았다 — 쓸 수 있는 폭을 설정이 정하게 두려는
-  # 의도적 제약이다. 필요한 폭은 backend.targets 에 이름을 붙여 추가한다.
+  # 의도적 제약이다. 기존 목표 수치는 그리퍼 노드의 targets 에서 조정한다.
+  # 새 목표 이름은 노드 코드와 backend.labels 를 함께 수정해야 한다.
   - name: move_gripper
     description: >-
       **미구현이다. 호출하지 말 것** — EXECUTION_ABORTED 로 실패한다.
-      그리퍼 구동은 move_gripper_to_target 을 쓴다. 임의 폭이 필요하면 설정의
-      backend.targets 에 이름을 붙여 추가한다.
+      그리퍼 구동은 move_gripper_to_target 을 사용한다. 기존 목표 수치는 그리퍼
+      노드의 targets 설정에서 조정한다. 새 이름을 추가하려면 그리퍼 노드의 목표
+      등록과 완료 판정을 구현하고 트윈의 backend.labels 에도 등록해야 한다.
     kind: async
     resource: gripper
     idempotent: true

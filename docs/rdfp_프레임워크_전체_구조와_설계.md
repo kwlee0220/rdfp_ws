@@ -279,9 +279,9 @@ servo 입력을 두는 이유는 규약이 정리해 두었다 — moveit_servo 
 
 | 백엔드 | 연동 | 팔 실행 | 시계 | 학습 데이터 |
 |---|---|---|---|---|
-| `mock` / `mock_jgpc` | ros2_control mock hardware | JTC / JGPC | 벽시계 | ✗ — 배관 검증 전용 (파지 불가) |
-| `isaac` | ros2_control `TopicBasedSystem` (Isaac Sim) | JTC | `use_sim_time` | ○ — 1차 학습 데이터 |
-| `functionbay` | ros2_control 없음 — 토픽 직결 | JGPC 식 스트리밍 (`/input/panda_joint`, 50 Hz) | 벽시계 (스택이 stamp 를 정렬) | ○ — peg-in-hole |
+| `panda_mock` / `panda_mock_jgpc` | ros2_control mock hardware | JTC / JGPC | 벽시계 | ✗ — 배관 검증 전용 (파지 불가) |
+| `panda_isaac` | ros2_control `TopicBasedSystem` (Isaac Sim) | JTC | `use_sim_time` | ○ — 1차 학습 데이터 |
+| `panda_functionbay` | ros2_control 없음 — 토픽 직결 | JGPC 식 스트리밍 (`/input/panda_joint`, 50 Hz) | 벽시계 (스택이 stamp 를 정렬) | ○ — peg-in-hole |
 | Gazebo | `ign_ros2_control` | JTC | `/clock` | ✗ — 미검증 · 보류 (프로파일 없음) |
 
 실기는 [backends/franka_panda_bringup_prep.md](backends/franka_panda_bringup_prep.md) 에서 준비 중이다.
@@ -289,7 +289,7 @@ servo 입력을 두는 이유는 규약이 정리해 두었다 — moveit_servo 
 **펑션베이의 처짐 보상은 씬에 따라 주체가 다르다.** 이 시뮬레이터의 관절 제어는 중력을 잡지
 않아 팔이 처지는데, 현재 씬 `r2`(`MMR-Build_260929`)는 **벤더 솔버가 보상**하므로 우리 보상을
 껐다(2026-09-30 실측 — 얹으면 이중 보정으로 부호가 뒤집힌다). `t1` 씬에는 벤더 보상이 없어,
-그 씬을 쓸 때만 프로파일의 `gravity_compensation` 블록을 되살려 스트리밍하는 명령점에 우리
+프로파일이 그 씬을 고르면(`sim_scene: t1`) 그 씬의 `gravity_compensation` 으로 스트리밍하는 명령점에 우리
 보상(`−τ_g/Kp`)을 얹는다. 상세는
 [backends/functionbay/펑션베이_중력_보상.md](backends/functionbay/펑션베이_중력_보상.md).
 
@@ -306,7 +306,7 @@ flowchart LR
 
 **팔 실행이 두 갈래**라는 점이 이 계층의 특징이다.
 
-| | JTC (`mock` · `isaac`) | JGPC (`mock_jgpc`) · 스트리밍 (`functionbay`) |
+| | JTC (`panda_mock` · `panda_isaac`) | JGPC (`panda_mock_jgpc`) · 스트리밍 (`panda_functionbay`) |
 |---|---|---|
 | 컨트롤러 | `JointTrajectoryController` | `JointGroupPositionController` · 없음 (시뮬레이터가 받는다) |
 | 명령 채널 | 액션 `/panda_arm_controller/follow_joint_trajectory` (MoveIt 실행). servo 는 토픽 `/panda_arm_controller/joint_trajectory` 로 낸다 | 토픽 `/panda_arm_controller/commands` · `/input/panda_joint` |

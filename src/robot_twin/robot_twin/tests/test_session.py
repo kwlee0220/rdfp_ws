@@ -117,14 +117,15 @@ def test_first_terminal_reason_wins() -> None:
     assert s.error_code is ErrorCode.TIMEOUT
 
 
-def test_estop_blocks_new_sessions_and_marks_running_ones() -> None:
+def test_estop_locks_without_marking_user_cancellation() -> None:
     store, clock = _store()
     running = store.create(operation='move_to_pose', resources=('arm',), inputs={})
 
     affected = store.engage_estop()
 
     assert [s.id for s in affected] == [running.id]
-    assert running.phase is Phase.CANCELING
+    assert running.phase is Phase.EXECUTING
+    assert not running.cancel_requested
     with pytest.raises(TwinError) as exc:
         store.create(operation='move_gripper', resources=('gripper',), inputs={})
     assert exc.value.code is ErrorCode.ESTOP_ENGAGED

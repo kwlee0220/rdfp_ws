@@ -13,10 +13,13 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import FastAPI, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from robot_twin.config import TwinConfig
-from robot_twin.errors import TwinError
+from robot_twin.errors import ErrorCode, TwinError, invalid_input
+from robot_twin.serialize import to_jsonable
 from robot_twin.session import Session, SessionStore, Status
 
 API_PREFIX = '/api/v1'
@@ -66,7 +69,7 @@ class TwinRuntime:
         raise NotImplementedError
 
     def engage_estop(self) -> dict[str, Any]:
-        """비상정지를 건다. ``halted`` 로 실제 정지 여부를 알린다."""
+        """비상정지를 건다. ``halted`` 는 정지 요청 전달 여부이며 물리적 정지 확인이 아니다."""
         raise NotImplementedError
 
     def release_estop(self) -> None:
@@ -88,7 +91,8 @@ def session_body(session: Session, *, endpoint: Optional[str] = None) -> dict[st
     if session.message is not None:
         body['message'] = session.message
     if session.outputs:
-        body['outputs'] = session.outputs
+        # Robotiq의 미측정 width 등 비유한 값도 변수 응답과 동일하게 null로 보낸다.
+        body['outputs'] = to_jsonable(session.outputs)
     if session.error_code is not None:
         body['error'] = {'code': session.error_code.value,
                          'message': session.error_message or ''}
@@ -116,6 +120,25 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
             headers['Retry-After'] = str(int(exc.retry_after_sec))
         return JSONResponse(exc.to_body(), status_code=exc.http_status, headers=headers)
 
+    @app.exception_handler(RequestValidationError)
+    async def _request_validation_handler(request: Request,
+                                          exc: RequestValidationError) -> JSONResponse:
+        """요청 형식 오류(본문 JSON · 쿼리 타입)도 `400 INVALID_INPUT` + `error` 로 낸다.
+
+        FastAPI 기본값은 `422 {"detail": [...]}` 라 다른 거부와 모양이 다르다. `error` 만
+        읽는 클라이언트(robot-twin-client 의 `TwinError`, MCP 서버)에서는 사유가 통째로
+        사라져 `HTTP 422 None: None` 이 된다. 연산 입력 검증(설계서 6.9)과 같은 코드로 두고,
+        어느 쪽인지는 `message` 의 위치(`body` · `query.<이름>`)로 가른다. FastAPI 가 준
+        원본 목록은 `error.details` 에 남긴다.
+        """
+        errors = exc.errors()
+        where = '; '.join(
+            f"{'.'.join(str(part) for part in e.get('loc', ()))}: {e.get('msg', '')}"
+            for e in errors)
+        error = TwinError(ErrorCode.INVALID_INPUT, f'malformed request — {where}',
+                          http_status=400, details={'details': jsonable_encoder(errors)})
+        return JSONResponse(error.to_body(), status_code=error.http_status)
+
     # ------------------------------------------------------------------
     # 디스커버리
     # ------------------------------------------------------------------
@@ -128,7 +151,7 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         트윈 레지스트리가 아니다 (설계서 2.4).
         """
         return {'twins': [{'id': twin_id, 'description': cfg.twin.description,
-                           'endpoint': base}]}
+                           'backend': cfg.twin.backend, 'endpoint': base}]}
 
     @app.get(base)
     def twin_meta() -> dict[str, Any]:
@@ -136,6 +159,9 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         return {
             'id': twin_id,
             'description': cfg.twin.description,
+            # id 는 환경을 담지 않는다(같은 로봇을 여러 환경에서 같은 id 로 띄운다). 어느
+            # 환경에 붙었는지는 이 값으로 안다 — 환경 전용 클라이언트가 확인한다.
+            'backend': cfg.twin.backend,
             'move_group_mode': cfg.moveit.move_group_mode,
             # jgpc 스트리밍은 open loop 다 — 정상 종료가 도달을 보장하지 않는다.
             # 클라이언트가 연산 호출 전에 알 수 있게 노출한다 (설계서 6.7).
@@ -281,7 +307,11 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
     @app.get(f'{base}/operations/sessions')
     def list_sessions(status: Optional[str] = None) -> dict[str, Any]:
         """트윈 전체 세션 목록 (운영·디버깅용)."""
-        wanted = Status(status) if status else None
+        try:
+            wanted = Status(status) if status is not None else None
+        except ValueError:
+            allowed = ', '.join(s.value for s in Status)
+            raise invalid_input(f'unknown session status {status!r}; expected one of {allowed}')
         return {'sessions': [
             {'id': s.id, 'operation': s.operation, 'resource': list(s.resources),
              'endpoint': runtime.sessions.endpoint_of(s.id), **session_body(s)}

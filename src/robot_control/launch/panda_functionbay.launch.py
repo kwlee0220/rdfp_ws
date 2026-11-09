@@ -51,7 +51,7 @@ Cartesian 궤적은 TOTG 로 ~10 Hz 로 리샘플되므로 그대로 흘리면 �
 `MoveGroupJgpcClient` 를 ``arm_command_format='joint_state'`` 로 만들고
 ``publish_rate=50.0`` 으로 스트리밍한다. 명령 채널은 백엔드 프로파일이 채운다.
 
-    client = create_move_group_client(node, backend='functionbay')
+    client = create_move_group_client(node, backend='panda_functionbay')
     client.follow_trajectory(waypoints, publish_rate=50.0)
 
 설계 배경: ``docs/backends/README.md`` §6.3 (B).
@@ -91,18 +91,22 @@ from robot_control.launch_helpers.ee_pose import (
     create_ee_pose_node, create_grasp_center_tf_node, declare_ee_pose_arguments)
 from robot_control.launch_helpers.gripper import create_robotiq_2f_gripper_node
 from robot_control.backends import get_backend
-from robot_control.gripper.profile import gripper_profile_path
+from robot_control.gripper.profile import gripper_profile_path, load_gripper_profile
 from robot_control.launch_helpers.scene import (
     create_functionbay_scene_node,
     declare_scene_arguments)
 
-# **백엔드별 값은 `config/backends/functionbay.yaml` 에 있다.** 여기서 다시 적으면 두
+# **백엔드별 값은 `config/backends/panda_functionbay.yaml` 에 있다.** 여기서 다시 적으면 두
 # 곳이 갈리고, 그 어긋남은 에러가 아니라 "명령이 안 먹는다" 로 나타난다.
 #
 # 아래는 **launch 인자의 기본값·remap 대상**으로만 쓴다 — 덮어쓰기는 그대로다.
-_BACKEND = get_backend('functionbay')
+_BACKEND = get_backend('panda_functionbay')
 # 그리퍼 명령 규약 파일 (절대 경로). 프로파일의 `gripper.profile_file` 이 가리킨다.
-_GRIPPER_PROFILE_FILE = gripper_profile_path('functionbay')
+_GRIPPER_PROFILE_FILE = gripper_profile_path('panda_functionbay')
+# 프로파일이 고른 시뮬레이터 씬과 그 씬의 그리퍼 축 수. `readiness_gate` 가 시뮬레이터의
+# 그리퍼 보고와 대조해 **씬이 어긋나면 기동을 멈춘다** (`sim_scene` 을 안 바꾼 경우).
+_SIM_SCENE = _BACKEND.block('sim_scene') or ''
+_GRIPPER_AXES = load_gripper_profile('panda_functionbay').axis_count
 
 # 펑션베이가 제공하는 토픽. 시뮬레이터 쪽 고정값이다.
 FB_JOINT_REPORT_TOPIC = _BACKEND.value('simulator', 'joint_report_topic')
@@ -127,7 +131,7 @@ FB_GRIPPER_REPORT_TOPIC = _BACKEND.value('simulator', 'gripper_report_topic')
 # 카메라 토픽 둘. **`image_pipeline.yaml` 에서 오면 안 된다** — 그쪽은 OpenCV 카메라의
 # 값이라 시뮬레이터 스택에서는 프로파일이 선언한 이름과 갈린다 (실제로 갈려 있었다:
 # 프로파일 `/camera_image` 대 실효 `/camera/image_raw`). 수집 계열
-# `rdfp_collect backend:=functionbay` 도 같은 프로파일을 읽으므로 두 계층이 같은 이름을 쓴다.
+# `rdfp_collect backend:=panda_functionbay` 도 같은 프로파일을 읽으므로 두 계층이 같은 이름을 쓴다.
 CAMERA_IMAGE_TOPIC = _BACKEND.value('camera', 'image_topic')
 CAMERA_COMPRESSED_TOPIC = _BACKEND.value('camera', 'compressed_topic')
 # 시뮬레이터 **원본** 카메라. `CAMERA_COMPRESSED_TOPIC` 은 이것을 관절과 같은 stamp 축으로
@@ -195,7 +199,7 @@ def override_servo_params_for_functionbay(servo_params: dict) -> dict:
     것처럼** 보이게 만들기 때문이다.
     """
     # 형식·토픽과 그에 딸린 `publish_joint_*` 규칙은 백엔드가 갖는다
-    # (`config/backends/functionbay.yaml` + `robot_control.backends`).
+    # (`config/backends/panda_functionbay.yaml` + `robot_control.backends`).
     servo_params = _BACKEND.apply_servo_parameters(servo_params)
     params = servo_params["moveit_servo"]
     # 실효 속도 보정용. **런타임 파라미터로는 바꿀 수 없다** — moveit_servo 는 기동
@@ -339,6 +343,10 @@ def create_readiness_gate_node() -> Node:
         parameters=[{
             "topic": LaunchConfiguration("fb_joint_report_topic"),
             "timeout_sec": LaunchConfiguration("fb_ready_timeout"),
+            # 씬 대조 — 시뮬레이터 그리퍼 축 수(r2 2 · t1 6)가 프로파일 씬과 다르면 종료 코드 2.
+            "gripper_topic": LaunchConfiguration("fb_gripper_report_topic"),
+            "expected_gripper_axes": _GRIPPER_AXES,
+            "sim_scene": _SIM_SCENE,
         }],
     )
 

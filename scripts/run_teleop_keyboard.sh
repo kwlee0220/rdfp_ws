@@ -3,11 +3,11 @@
 #
 # **백엔드를 `backend` 하나로 고른다.** '/' (ready 자세로 이동) 가 쓰는 arm 명령
 # 채널이 백엔드마다 다르기 때문이다. 노드에는 기본값이 없어 안 주면 뜨지 않고,
-# 이 래퍼가 `TELEOP_BACKEND`(기본 `isaac`)를 넘긴다 (맨 아래).
+# 이 래퍼가 `TELEOP_BACKEND`(기본 `panda_isaac`)를 넘긴다 (맨 아래).
 #
 #   ./scripts/run_teleop_keyboard.sh                                  # isaac
-#   TELEOP_BACKEND=functionbay ./scripts/run_teleop_keyboard.sh
-#   ./scripts/run_teleop_keyboard.sh --ros-args -p backend:=mock      # 인자가 환경변수를 이긴다
+#   TELEOP_BACKEND=panda_functionbay ./scripts/run_teleop_keyboard.sh
+#   ./scripts/run_teleop_keyboard.sh --ros-args -p backend:=panda_mock      # 인자가 환경변수를 이긴다
 #
 # ⚠️ 붙은 스택과 다른 백엔드를 주면 계획은 되고 실행만 안 된다 — 펑션베이 스택에 JTC
 # 백엔드(mock · isaac)를 주면 FollowJointTrajectory 액션 **서버가 없어** MoveGroup 이
@@ -20,7 +20,7 @@
 # 개별 값을 덮어쓰려면 함께 준다 (프로파일보다 우선한다):
 #
 #   ./scripts/run_teleop_keyboard.sh --ros-args \
-#     -p backend:=functionbay -p arm_command_topic:=/other/cmd
+#     -p backend:=panda_functionbay -p arm_command_topic:=/other/cmd
 #
 # 세션·에피소드 키(< > [ ] 1-9 0)는 session_control 이 있어야 동작한다. 없으면
 # 그 키만 비활성이 되고 나머지는 그대로 쓸 수 있다 (기동 로그에 표시된다).
@@ -70,9 +70,9 @@ fi
 # 두면 틀린 짐작이 조용히 통과하고 증상은 "'/' 키가 안 먹는다" 로만 보인다.
 # 여기서 기본을 들되 환경변수로 바꾼다. 인자로 직접 준 것이 있으면 그것이 이긴다.
 #
-#   TELEOP_BACKEND=functionbay ./scripts/run_teleop_keyboard.sh
-#   ./scripts/run_teleop_keyboard.sh --ros-args -p backend:=mock_jgpc
-TELEOP_BACKEND="${TELEOP_BACKEND:-isaac}"
+#   TELEOP_BACKEND=panda_functionbay ./scripts/run_teleop_keyboard.sh
+#   ./scripts/run_teleop_keyboard.sh --ros-args -p backend:=panda_mock_jgpc
+TELEOP_BACKEND="${TELEOP_BACKEND:-panda_isaac}"
 if [[ "$*" == *"backend:="* ]]; then
     ros2 run rdfp teleop_keyboard "$@"
 else

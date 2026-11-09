@@ -38,7 +38,7 @@ import fb_gripper as G
 import fb_ready as R
 from robot_control.moveit.move_group_factory import create_move_group_client
 
-BACKEND = 'functionbay'
+BACKEND = 'panda_functionbay'
 DEFAULT_LIFT = 0.045
 DEFAULT_VS = 0.12
 DEFAULT_AT = (0.50, 0.00, 0.120)
@@ -136,7 +136,7 @@ def verdict(curl: float, reach: float) -> None:
           f'도달 오차 {reach:.2f} mm (한계 {REACH_LIMIT_MM})')
     print('     중력 보상을 먼저 본다:')
     print("       python3 -c \"from robot_control.gravity import describe; "
-          "print(describe('functionbay'))\"")
+          "print(describe('panda_functionbay'))\"")
     print('     ① 출력이 "중력 보상 없음" → 프로파일에서 키가 빠졌다')
     print('     ② Kp 가 2000 이 아니다 → 씬 XML 의 <Gain Kp=...> 가 바뀌었다')
     print('     ③ 오차가 **반대 부호로** 크다 → 이중 보정 '

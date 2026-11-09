@@ -77,12 +77,12 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 
 ### `panda_isaac.launch.py`
 
-**Isaac 백엔드는 이것 하나다** (2026-09-05 에 토픽 브리지 판을 삭제했다). `mock` 과 같은
+**Isaac 백엔드는 이것 하나다** (2026-09-05 에 토픽 브리지 판을 삭제했다). `panda_mock` 과 같은
 그림이다 — `controller_manager` 가 이쪽에서 돌고 JTC · GripperActionController ·
 `joint_state_broadcaster` 가 붙는다. 하드웨어만
 `topic_based_ros2_control/TopicBasedSystem` 이 토픽으로 Isaac 과 말한다.
 
-`mock` 과 갈리는 곳은 셋이다.
+`panda_mock` 과 갈리는 곳은 셋이다.
 
 1. **`readiness_gate` 가 `ros2_control_node` 앞에 있다.** spawner 는 CM 만 뜨면 성공하므로
    "Isaac 이 Play 중"을 보증하지 못한다. `/clock` 없이 CM 을 띄우면 update 루프가 시각 0 에
@@ -101,7 +101,7 @@ arm 컨트롤러 타입만 바꾼 variant 다 — 컨트롤러 *이름* 은 `pan
 실제 Franka 보다 헐거운데 **Isaac 은 실제 스펙을 강제**하므로, 계획 단계에서 막지 않으면
 시뮬레이터가 한계에서 멈추고 그것이 추종 오차처럼 보인다.
 
-수집 계층까지 쓰려면 다른 터미널에서 `ros2 launch rdfp rdfp_collect.launch.py backend:=isaac` 를 얹는다.
+수집 계층까지 쓰려면 다른 터미널에서 `ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac` 를 얹는다.
 
 
 ### `panda_gazebo.launch.py`
@@ -190,7 +190,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 위 표의 값 중 여럿은 launch 상수가 아니라 **백엔드 프로파일**
 (`config/backends/<이름>.yaml`)에서 파생된다. 그쪽이 정본이고 launch 는 옮겨 실을 뿐이다.
 
-| 프로파일 키 | `mock` | `mock_jgpc` | `isaac` | `functionbay` |
+| 프로파일 키 | `panda_mock` | `panda_mock_jgpc` | `panda_isaac` | `panda_functionbay` |
 |---|---|---|---|---|
 | `camera.source` | `device` | `device` | `native` | `compressed` |
 | `camera.image_topic` | `/camera/image_raw` | `/camera/image_raw` | `/isaac/camera/image_raw` | `/camera_image` |
@@ -349,7 +349,7 @@ ros2 launch robot_control panda_mock.launch.py --show-args
 ros2_control 로 바뀔 때 실제로 그랬다.
 
 ```python
-_BACKEND = get_backend('isaac')          # config/backends/isaac.yaml + IsaacBackend
+_BACKEND = get_backend('panda_isaac')          # config/backends/panda_isaac.yaml + IsaacBackend
 
 HARDWARE_TYPE     = _BACKEND.hardware_type
 JOINT_STATE_TOPIC = _BACKEND.value('ros2_control', 'joint_states_topic')
@@ -545,12 +545,12 @@ launch 는 2026-09-13 에 전부 삭제됐고, 이 조합이 그것과 같은 �
 
 ```bash
 ros2 launch robot_control panda_mock.launch.py                  # 터미널 1
-ros2 launch rdfp rdfp_collect.launch.py backend:=mock           # 터미널 2
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_mock           # 터미널 2
 ```
 
 **`backend:=<이름>` 하나면 된다** — arm 명령 채널·카메라 토픽·해상도·fps·
 `use_sim_time`·압축 형식이 `config/backends/<이름>.yaml` 에서 온다. 네 백엔드
-(`mock` / `mock_jgpc` / `isaac` / `functionbay`) 모두 같은 형태다.
+(`panda_mock` / `panda_mock_jgpc` / `panda_isaac` / `panda_functionbay`) 모두 같은 형태다.
 
 레코더는 **세션 구동 하나다** — `/session` 이 IN_EPISODE 인 구간만 자동으로 담는다.
 옛 묶음 launch 는 서비스 구동 레코더를 썼지만 그 선택지는 2026-09-13 에 없앴다.
@@ -559,8 +559,8 @@ ros2 launch rdfp rdfp_collect.launch.py backend:=mock           # 터미널 2
 Gazebo 만 프로파일이 없어 인자 넷을 손으로 맞춘다 (같은 §6.1).
 
 robot twin(REST) 을 함께 쓰려면 이 launch 위에 `ros2 run robot_twin robot_twin --config <파일>` 을 띄운다.
-백엔드마다 설정 파일이 다르다 — mock 은 `robot_twin_panda01.yaml`, Isaac 은
-`robot_twin_panda_isaac.yaml`(`use_sim_time` 만 다르다). 세션/에피소드 연산은
+트윈마다 설정 파일이 다르다 — `robot_twin/config/twins/<id>.yaml` 이고 `./scripts/run_robot_twin.sh --twin <id>` 로
+띄운다(mock `mock01`, Isaac `panda01`, 펑션베이 `rdfp01`). 클라이언트는 그 id 를 넘긴다. 세션/에피소드 연산은
 `rdfp` 패키지가 설치돼 있어야 동작한다 — [robot_twin/README.md](../../robot_twin/README.md).
 
 ---

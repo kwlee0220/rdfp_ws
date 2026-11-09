@@ -145,7 +145,7 @@ Windows Isaac + WSL2 스택(구성 A)의 DDS 프로파일 · 환경변수는 [is
 ```
 ── ROS 쪽 스택 ────────────────────────────────────────────────────────────
 src/robot_control/launch/panda_isaac.launch.py            백엔드 launch
-src/rdfp/launch/rdfp_collect.launch.py backend:=isaac     + 수집 계층
+src/rdfp/launch/rdfp_collect.launch.py backend:=panda_isaac     + 수집 계층
 src/robot_control/robot_control/isaac/
     scene_state_node.py                                   Isaac TF → /scene/objects, /scene/reset
     servo_command_bridge_node.py                          Float64MultiArray → JointState
@@ -155,7 +155,7 @@ src/robot_control/config/
     isaac_scene.json                                      **물체·카메라 단일 진실원본**
     fastdds_wsl_bridge.xml                                DDS 전송 프로파일 (Windows+WSL2 전용)
     panda_real_joint_limits.yaml                          실제 Franka 관절 한계 (Q6)
-src/robot_twin/config/robot_twin_panda_isaac.yaml         트윈 설정
+src/robot_twin/config/twins/panda01.yaml         트윈 설정 (트윈 id panda01)
 
 ── 검증 스크립트 (ROS 쪽) ──────────────────────────────────────────────────
 scripts/isaac/is_backend.py                               검사들이 공유하는 백엔드 계약

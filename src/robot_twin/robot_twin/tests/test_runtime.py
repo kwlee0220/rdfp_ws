@@ -1,7 +1,7 @@
 """`robot_twin.runtime` 의 전제 조건 검사 · 실패 분류 · 기동 순서 테스트.
 
-`runtime` 은 최상위에서 `rclpy` 를 import 하므로 ROS 없이는 자체 skip 한다. 검사
-대상은 인스턴스 상태 몇 개만 읽으므로, 노드나 executor 없이 껍데기 인스턴스로 확인한다.
+노드나 executor 없이 런타임의 상태 처리와 백엔드 호출을 검증한다.
+ROS가 필요한 클라이언트 초기화 테스트만 의존성이 없으면 건너뛴다.
 """
 
 from __future__ import annotations
@@ -13,8 +13,6 @@ import time
 from types import SimpleNamespace
 
 import pytest
-
-pytest.importorskip('rclpy', reason='robot_twin.runtime imports rclpy')
 
 from robot_twin import backend_registry  # noqa: E402
 from robot_twin.config import OperationConfig  # noqa: E402
@@ -90,6 +88,54 @@ def test_gripper_operation_does_not_require_move_group() -> None:
 
 def test_arm_operation_passes_once_move_group_is_ready() -> None:
     _runtime(move_group=object())._check_preconditions(ARM_OP)
+
+
+# ----- named target — 없는 이름은 접수 단계에서 `400` --------------------------
+
+class _NamedTargets:
+    """`get_named_targets` 만 가진 MoveGroup 클라이언트 대역. 받은 인자를 남긴다."""
+
+    def __init__(self, names: Optional[list[str]] = None, *,
+                 error: Optional[Exception] = None) -> None:
+        self._names = names
+        self._error = error
+        self.calls: list[dict] = []
+
+    def get_named_targets(self, **kwargs: Any) -> list[str]:
+        self.calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return self._names
+
+
+def test_unknown_named_target_is_refused_with_400() -> None:
+    """예전에는 접수된 뒤 실행 단계에서 `EXECUTION_ABORTED` 로 끝나 컨트롤러 이상처럼 보였다."""
+    runtime = _runtime(move_group=_NamedTargets(['extended', 'ready']))
+
+    with pytest.raises(TwinError) as exc:
+        runtime._validate_inputs(ARM_OP, {'target': 'home'})
+
+    assert exc.value.code is ErrorCode.INVALID_INPUT
+    assert "'home'" in str(exc.value)
+    assert "['extended', 'ready']" in str(exc.value)
+
+
+def test_known_named_target_is_accepted() -> None:
+    client = _NamedTargets(['extended', 'ready'])
+
+    _runtime(move_group=client)._validate_inputs(ARM_OP, {'target': 'ready'})
+
+    # 접수는 HTTP 스레드에서 일어난다 — 자체 spin 을 하면 이중 spin 이 된다.
+    assert client.calls[0]['externally_spun'] is True
+
+
+def test_named_target_check_is_skipped_when_the_list_is_unavailable() -> None:
+    """목록을 모르는데 거부하면 올바른 이름까지 `400` 이 된다 — 실행 단계에 맡긴다."""
+    runtime = _runtime(move_group=_NamedTargets(error=TimeoutError('SRDF lookup timed out')))
+
+    runtime._validate_inputs(ARM_OP, {'target': 'ready'})
+
+    assert any('SRDF lookup timed out' in m for m in runtime._logger.warnings)
 
 
 # ----- 세션 연산 — 세션을 만들기 전에 거절한다 --------------------------------
@@ -336,6 +382,77 @@ def test_watchdog_stops_the_arm_before_ending_an_overdue_session() -> None:
     assert session.status is Status.FAILED
     assert session.error_code is ErrorCode.TIMEOUT
     assert 'stop sent' in session.error_message
+
+
+@pytest.mark.parametrize('op', [
+    GRIPPER_OP,
+    SESSION_OP,
+    OperationConfig(name='reset_scene', kind='sync', resource=['scene', 'arm']),
+    OperationConfig(name='move_gripper', kind='async', resource='gripper'),
+])
+def test_unsupported_cancel_never_stops_the_arm(op) -> None:
+    runtime, client, session = _overdue(op)
+
+    with pytest.raises(TwinError) as exc:
+        runtime.cancel_session(session)
+
+    assert exc.value.http_status == 501
+    assert exc.value.code is ErrorCode.CANCEL_UNSUPPORTED
+    assert client.cancels == 0
+    assert session.status is Status.RUNNING
+    assert not session.cancel_requested
+    assert session.phase.value == 'EXECUTING'
+
+
+@pytest.mark.parametrize('halts', [True, False])
+def test_arm_cancel_marks_requested_only_after_delivery(halts) -> None:
+    runtime, client, session = _overdue(ARM_OP, halts=halts)
+
+    if halts:
+        runtime.cancel_session(session)
+    else:
+        with pytest.raises(TwinError) as exc:
+            runtime.cancel_session(session)
+        assert exc.value.code is ErrorCode.CANCEL_UNSUPPORTED
+
+    assert client.cancels == 1
+    assert session.cancel_requested is halts
+    assert session.phase.value == ('CANCELING' if halts else 'EXECUTING')
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_undelivered_estop_does_not_turn_later_completion_into_cancellation(fails) -> None:
+    runtime, client, session = _overdue(ARM_OP, halts=False)
+
+    result = runtime.engage_estop()
+
+    assert result == {'locked': True, 'halted': False, 'in_flight_sessions': 1}
+    assert runtime.sessions.estop_engaged
+    assert session.status is Status.RUNNING
+    assert not session.cancel_requested
+    assert session.phase.value == 'EXECUTING'
+
+    def dispatch(*args, **kwargs):
+        if fails:
+            raise RuntimeError('controller failed')
+        return {'closed_loop': False}
+
+    runtime._dispatch = dispatch
+    runtime._run_async(ARM_OP, session)
+    assert session.status is (Status.FAILED if fails else Status.COMPLETED)
+    assert client.cancels == 1
+
+
+def test_delivered_estop_keeps_failure_reason_after_worker_returns() -> None:
+    runtime, client, session = _overdue(ARM_OP)
+
+    assert runtime.engage_estop()['halted'] is True
+    runtime._dispatch = lambda *args, **kwargs: {}
+    runtime._run_async(ARM_OP, session)
+
+    assert client.cancels == 1
+    assert session.status is Status.FAILED
+    assert session.error_code is ErrorCode.ESTOP_ENGAGED
 
 
 def test_watchdog_does_not_stop_the_arm_for_a_non_arm_session() -> None:

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Command name="rdfp_ready_command" robot="Panda_Robotiq">
+  <!-- rdfp 가 벤더 차트(panda_peginhole_file)를 대신해 t1 씬에 거는 시작 차트다.        -->
+  <!-- 벤더 차트는 peg 를 집어 구멍에 넣고 문 채로 끝나는 시연(11 s)이라 시작할 때마다   -->
+  <!-- 씬이 바뀌고 그리퍼가 peg 를 물고 있다. 이 차트는 아무것도 집지 않는다 — 그리퍼를  -->
+  <!-- 연 채 팔만 ready 로 옮긴다. peg 는 처음 자리(peg_tray)에 남는다.                  -->
+  <!-- 설치 · 되돌리기: docs/backends/functionbay/펑션베이_시뮬레이터_사용법.md §2 ⑥      -->
+
+  <!-- ===================== Arm (7 joints) ===================== -->
+  <!-- Time  : 0=q0_robot(벤더 차트의 t=0 값 그대로), 1=그대로 유지, 4=ready             -->
+  <!-- Values: degrees. ready = SRDF group_state (0, -45, 0, -135, 0, 90, 45)            -->
+  <!-- q0 → ready 관절공간 직선 경로에서 링크4~손끝의 최저 높이는 0.38 m 다(FK 계산).    -->
+  <!-- t1 은 솔버에 중력 보상이 없어 차트로 움직인 팔은 ready 에서 약 0.001 rad 처진다.   -->
+  <Arm>
+    <Joint Index="0">
+      <Position Time="0 1 4" Value="50.838144 50.838144 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="1">
+      <Position Time="0 1 4" Value="-17.481286 -17.481286 -45" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="2">
+      <Position Time="0 1 4" Value="-53.942028 -53.942028 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="3">
+      <Position Time="0 1 4" Value="-107.898839 -107.898839 -135" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="4">
+      <Position Time="0 1 4" Value="-14.167756 -14.167756 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="5">
+      <Position Time="0 1 4" Value="97.174214 97.174214 90" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="6">
+      <Position Time="0 1 4" Value="0 0 45" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+  </Arm>
+  <!-- ===================== Gripper (6 joints) ================= -->
+  <!-- t1: 6축. 차트 파일은 degree 다(ROS 명령은 라디안이지만 0 은 같다). 0 = 완전 개방. -->
+  <!-- 벤더 차트와 같이 Position/Velocity/Torque 를 둔다. -->
+  <Gripper>
+    <Joint Index="0">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="1">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="2">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="3">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="4">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="5">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+  </Gripper>
+</Command>

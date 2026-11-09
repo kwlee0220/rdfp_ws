@@ -82,7 +82,7 @@ class Session:
     # 채우는 곳이 없어** 409 에 그 필드와 `Retry-After` 가 실리지 않는다 — 백엔드가 계획된
     # 궤적의 duration 을 돌려주지 않기 때문이다.
     planned_duration_ms: Optional[int] = None
-    # 취소 요청이 접수되었는지. 워치독·E-stop 에 의한 중단도 이 경로를 지난다.
+    # 사용자 취소 요청이 백엔드에 전달되었는지. 워치독·E-stop 실패와 구분한다.
     cancel_requested: bool = False
 
     @property
@@ -159,9 +159,8 @@ class SessionStore:
         with self._lock:
             self._estop = True
             running = [s for s in self._sessions.values() if not s.is_terminal]
-            for s in running:
-                s.cancel_requested = True
-                s.phase = Phase.CANCELING
+            # 잠금만으로 사용자 취소가 성립하지 않는다. 정지 전달 결과를 확인한
+            # 런타임이 finish()로 종료하며, 전달 실패 시 기존 실행 상태를 유지한다.
             return running
 
     def release_estop(self) -> None:

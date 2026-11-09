@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 # 목표 표(`backend.targets`) 와 명령 토픽 없이는 아무것도 할 수 없는 연산.
 _TARGET_BACKED_OPERATIONS = frozenset({'move_gripper_to_target'})
 
+# `move_linear` 가 실행을 허락하는 최소 계획 비율의 기본값. 클라이언트 라이브러리 기본
+# (0.60)보다 엄격하다 — 트윈의 호출자는 `COMPLETED` 를 믿고 다음 단계로 넘어가는데,
+# 0.60 이면 그 성공이 요청 거리의 40 % 를 못 간 것일 수 있다. 부분 경로를 감수할
+# 동작(대략적인 이동)만 호출자가 `min_fraction` 으로 낮춘다.
+DEFAULT_MIN_FRACTION = 0.95
+
 
 class BackendUnavailable(RuntimeError):
     """백엔드가 아직 구현되지 않았거나 사용할 수 없을 때."""
@@ -146,6 +152,7 @@ def validate_inputs(op_name: str, inputs: dict[str, Any],
 
     elif op_name == 'move_linear':
         _require_pose(inputs.get('pose'))
+        _min_fraction(inputs)
 
     elif op_name == 'move_gripper_to_target':
         _require_gripper_target(inputs.get('target'), op)
@@ -270,8 +277,9 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
                  timeout: float) -> dict[str, Any]:
     """Cartesian 직선 경로로 이동한다 — `follow_trajectory_async` 를 쓴다.
 
-    ``fraction`` 을 ``outputs`` 에 담는다. ``fraction < 1.0`` 을 성공으로 볼지는
-    **클라이언트가 판단**한다 (설계서 6.14).
+    ``fraction`` 을 ``outputs`` 에 담는다. 계획 비율이 ``min_fraction``(기본
+    :data:`DEFAULT_MIN_FRACTION`)에 못 미치면 실행하지 않고 ``PLANNING_FAILED`` 로 끝난다.
+    그 이상에서 ``fraction < 1.0`` 을 성공으로 볼지는 **클라이언트가 판단**한다 (설계서 6.14).
     """
     if client is None:
         raise BackendUnavailable('MoveGroup client is not ready')
@@ -281,7 +289,8 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
     waypoints = [_to_ros_pose(pose)]
 
     kwargs: dict[str, Any] = {'externally_spun': True,
-                              'velocity_scaling': _scaling(session, 'velocity_scaling')}
+                              'velocity_scaling': _scaling(session, 'velocity_scaling'),
+                              'fraction_threshold': _min_fraction(session.inputs)}
     for key in ('max_step', 'jump_threshold'):
         if session.inputs.get(key) is not None:
             kwargs[key] = float(session.inputs[key])
@@ -885,6 +894,20 @@ def _require_pose(raw: Any) -> dict[str, Any]:
     if not math.isclose(norm, 1.0, abs_tol=1e-3):
         raise ValueError(f'pose.orientation must be a unit quaternion (norm={norm:.6f})')
     return raw
+
+
+def _min_fraction(inputs: dict[str, Any]) -> float:
+    """`move_linear` 의 최소 계획 비율. 없으면 :data:`DEFAULT_MIN_FRACTION` 이다.
+
+    ``0`` 은 받지 않는다 — 한 점도 계획되지 않은 경로까지 실행으로 넘겨 ``COMPLETED`` 가
+    된다. ``jsonschema`` 가 없으면 스키마의 범위 검사가 통째로 생략되므로 여기서도 본다.
+    """
+    raw = inputs.get('min_fraction')
+    if raw is None:
+        return DEFAULT_MIN_FRACTION
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0.0 < raw <= 1.0:
+        raise ValueError(f"input 'min_fraction' must be a number in (0, 1], got {raw!r}")
+    return float(raw)
 
 
 def _to_ros_pose(raw: dict[str, Any]) -> Any:

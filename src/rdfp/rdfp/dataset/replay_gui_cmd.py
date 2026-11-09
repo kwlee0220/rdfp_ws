@@ -48,6 +48,7 @@ from rdfp.dataset.db.registry import (
     IMAGE_MESSAGE_TYPES, MESSAGE_TYPE_REGISTRY, resolve_message_type,
 )
 from rdfp.dataset.db.topic_message_replayer import TopicMessageReplayer
+from robot_control.backend_profiles import canonical_backend
 from robot_control.moveit import backends, create_move_group_client
 from robot_control.moveit.servo_client import ServoClient
 
@@ -143,10 +144,12 @@ class ReplayControlNode(Node):
         if not value:
             raise ValueError(
                 f"the 'backend' parameter is required; pick one of {list(backends())} "
-                "(e.g. --ros-args -p backend:=mock)")
+                "(e.g. --ros-args -p backend:=panda_mock)")
+        # 옛 이름(`mock` 등)은 지금 이름으로 바꿔 받는다(경고).
+        value = canonical_backend(str(value))
         if value not in backends():
             raise ValueError(f'backend must be one of {list(backends())}, got {value!r}')
-        return str(value)
+        return value
 
     # ----- 이미지 콜백 / 최신 프레임 조회 ---------------------------------
 
@@ -545,7 +548,8 @@ class ReplayControlNode(Node):
                 if is_image_topic_in_db(conn, topic):
                     if not mp4_roots:
                         self.get_logger().warning(
-                            f'skip image topic {topic}: neither recordings_dir nor output_mp4_dir is set')
+                            f'skip image topic {topic}: '
+                            'neither recordings_dir nor output_mp4_dir is set')
                         continue
                     try:
                         r = Mp4ImageReplayer(

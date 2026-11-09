@@ -37,6 +37,7 @@ from robot_control.moveit.move_group_client import (
     PLAN_TIMEOUT_SEC,
     READY_TIMEOUT_SEC,
     TRAJECTORY_EXEC_TIMEOUT_SEC,
+    CartesianPathResult,
     MoveGroupClient,
     _EXECUTE_TRAJECTORY_ACTION,
     _JOINT_GOAL_LABEL,
@@ -711,8 +712,9 @@ class MoveGroupJtcClient(MoveGroupClient):
             jump_threshold: Override. ``None`` 이면 생성자 기본값 사용.
 
         Returns:
-            최종 실행 결과를 담는 ``Future``. 성공 시 ``None`` 으로 resolve
-            되고, 실패 시 ``RuntimeError`` 가 설정된다.
+            최종 실행 결과를 담는 ``Future``. 성공 시 :class:`CartesianPathResult`
+            (``published`` 는 ``None``)로 resolve 되고, 실패 시 ``RuntimeError`` 가
+            설정된다.
 
         Raises:
             ValueError: 입력 매개변수가 유효하지 않을 때(즉시 발생).
@@ -729,6 +731,8 @@ class MoveGroupJtcClient(MoveGroupClient):
         goal_pose = waypoints[-1] if waypoints else None
         # R1 에서 만들어 결과 콜백까지 들고 가는 문맥. 계획이 끝나야 생긴다.
         ctx: Optional[MotionContext] = None
+        # 계획 응답의 경로 비율. 실행 결과에 실어 호출자가 부분 경로를 알게 한다.
+        planned_fraction = 0.0
         plan_future = self.plan_trajectory_async(waypoints, max_step=max_step,
                                                  jump_threshold=jump_threshold)
 
@@ -739,7 +743,7 @@ class MoveGroupJtcClient(MoveGroupClient):
 
         def _on_plan_done(future: Future) -> None:
             """계획 서비스 응답 콜백: 결과 검증 후 실행 goal 전송."""
-            nonlocal ctx
+            nonlocal ctx, planned_fraction
             try:
                 exc = future.exception()
                 if exc is not None:
@@ -770,6 +774,7 @@ class MoveGroupJtcClient(MoveGroupClient):
 
                 self._node.get_logger().info(
                     f'Path planning successful (fraction: {response.fraction})')
+                planned_fraction = float(response.fraction)
                 trajectory = response.solution
                 if vs != 1.0:
                     trajectory = self.scale_trajectory_velocity(trajectory, vs)
@@ -852,7 +857,7 @@ class MoveGroupJtcClient(MoveGroupClient):
 
                 self._node.get_logger().info('Trajectory execution completed!')
                 self._finish_motion(ctx, result=RESULT_SUCCEEDED)
-                result_future.set_result(None)
+                result_future.set_result(CartesianPathResult(fraction=planned_fraction))
             except Exception as exc:
                 result_future.set_exception(exc)
 

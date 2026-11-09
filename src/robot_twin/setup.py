@@ -13,8 +13,12 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        # 디렉터리는 data_files 에 넣을 수 없어 파일만 고른다 (`config/twins/` 는 아래에 따로).
         (os.path.join('share', package_name, 'config'),
-            glob(os.path.join('config', '*'))),
+            [p for p in glob(os.path.join('config', '*')) if os.path.isfile(p)]),
+        # 출하 트윈 설정 — `<id>.yaml`, `--twin <id>` 가 바로 연다 (shipped_configs.py).
+        (os.path.join('share', package_name, 'config', 'twins'),
+            glob(os.path.join('config', 'twins', '*.yaml'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

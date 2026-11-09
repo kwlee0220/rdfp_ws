@@ -5,8 +5,15 @@
 새 백엔드를 붙일 때는 가장 가까운 기존 파일을 복사해 값만 바꾼다. 파일 이름(확장자
 제외)이 곧 `backend` 이름이며, `backend: <이름>` 으로 참조된다.
 
-    ros2 run rdfp teleop_keyboard --ros-args -p backend:=isaac
-    # robot_twin YAML:  moveit: { backend: isaac }
+    ros2 run rdfp teleop_keyboard --ros-args -p backend:=panda_isaac
+    # robot_twin YAML:  moveit: { backend: panda_isaac }
+
+**이름은 `<로봇>_<환경>` 이다** — `panda_mock` · `panda_mock_jgpc` · `panda_isaac` · `panda_functionbay`
+(2026-10-21). 프로파일의 값(관절 이름 · 컨트롤러 · 프레임 · 그리퍼 · 중력 모델)은 환경만이 아니라 로봇에도
+묶여 있어서, 환경 이름(`isaac`)만 쓰면 두 번째 로봇이 올 때 한 이름이 두 조합을 가리킨다. Isaac 위의 UR3 는
+`ur3_isaac.yaml` 을 더한다. 옛 이름(`mock` · `mock_jgpc` · `isaac` · `functionbay`)은 한동안 받는다 — 입구에서
+`FutureWarning` 을 내고 지금 이름으로 바꾼다(`backend_profiles.LEGACY_BACKEND_NAMES`). 새 코드 · 문서는 지금
+이름만 쓴다.
 
 **이 표가 "어느 스택이 무엇인가"의 정본이다.** 같은 사실을 launch·노드·트윈 설정에
 각각 적으면 백엔드가 바뀔 때 한쪽만 뒤처지고, 그 어긋남은 에러가 아니라 "명령이 안
@@ -27,8 +34,8 @@
 | `scene` | 움직이는 물체 정의 `file` · **안 움직이는** 물체 정의 `fixtures_file` | 정의 파일이 없다 (mock 은 `/scene/reset` 이 놓은 것만) |
 | `use_sim_time` | 시계 출처 | — |
 
-블록 밖의 최상위 키는 `name` · `description` · `factory` · **`solver`** 넷이다
-(`solver` 는 아래 참조).
+블록 밖의 최상위 키는 `name` · `description` · `factory` · **`solver`** · **`sim_scene`** · **`sim_scenes`** 다
+(아래 참조).
 
 **`null` 은 "빠뜨렸다" 가 아니라 "이 백엔드에는 없다" 는 뜻이다.** 모르는 키는 거부한다
 — 조용히 무시하면 "설정했는데 안 먹는다" 가 되고, 그 증상은 원인을 안 가리킨다.
@@ -54,26 +61,35 @@
 > 0 에 z 축 45° 회전뿐인데, 그 45° 는 MCP 클라이언트의 `to_arm_command()` 가 이미
 > 곱한다 — 적으면 **90° 이중 회전**이 된다. 없는 것이 결락이 아니라 값이다.
 
-### `solver` 와 `gripper.profile_file` 은 **함께** 바꾼다
+### 시뮬레이터 씬 — `sim_scene` 한 줄로 고른다 (펑션베이)
 
-`solver` 는 **지금 띄운 씬의 솔버**다. 펑션베이 한 빌드가 씬을 둘 담고 있고, 그리퍼
-명령 규약이 씬마다 다르다 — `r2`(RecurDyn)는 **2축·도(degree)·관절당 `(p, v, f)`**,
-`t1`(Crisp)은 **6축·라디안·위치 나열**이다.
+펑션베이 한 빌드가 씬을 둘 담고 있고, 씬마다 **솔버 · 그리퍼 명령 규약 · 중력 보상 주체**가
+다르다 — `r2`(RecurDyn)는 **2축·도(degree)·관절당 `(p, v, f)`** 에 벤더가 중력을 보상하고,
+`t1`(Crisp)은 **6축·라디안·위치 나열**에 우리가 보상한다(`kp` 20000). 그래서 씬에 딸린 값만
+`sim_scenes.<씬>` 에 모으고 **`sim_scene` 한 줄로 고른다** (2026-10-20 — 그 전에는 세 곳을 손으로 고쳤다).
 
-| 씬 | `solver` | `gripper.profile_file` |
+| 키 (`sim_scenes.<씬>`) | `r2` | `t1` |
 |---|---|---|
-| `r2` | `RecurDyn` | `config/functionbay_gripper_recurdyn.json` |
-| `t1` | `Crisp` | `config/functionbay_gripper_crisp.json` |
+| `solver` | `RecurDyn` | `Crisp` |
+| `gripper.profile_file` | `config/functionbay_gripper_recurdyn.json` | `config/functionbay_gripper_crisp.json` |
+| `motion.gravity_compensation` | `null` | 블록 (`kp: 20000.0`) |
 
-**두 줄을 함께 고쳐야 한다.** 규약 파일도 자기 `solver` 를 들고 있어 로더가 대조하고,
+로더(`backend_profiles._apply_sim_scene`)가 고른 씬의 값을 공통 블록 위에 키 단위로 얹는다. 지키는 규칙:
+**모든 씬이 같은 키를 정한다**('없다' 는 `null`), **같은 키를 공통 블록과 씬 양쪽에 적지 않는다**,
+`sim_scene` 은 `sim_scenes` 에 있는 이름이어야 한다 — 어기면 로드 시점에 `ValueError` 다.
+
+**씬 이름과 솔버를 그리퍼 규약 파일과 대조한다.** 규약 파일도 자기 `solver` · `scene` 을 들고 있어 로더가 대조하고,
 어긋나면 **로드 시점에** `ValueError` 로 세운다 (`gripper/profile.py` 의
 `_verify_solver`). 런타임까지 가면 증상이 **"그리퍼가 거의 안 움직인다"** 뿐이라
 원인에 도달하기 어렵기 때문이다 — 도로 읽는 씬에 라디안을 보내면 `π/180` = **1.7 %** 만
-움직이고 `effort` 도 안 올라 접촉으로도 안 잡힌다.
+움직이고 `effort` 도 안 올라 접촉으로도 안 잡힌다. ⚠️ **2026-10-20 까지 이 대조는 작동하지 않았다** —
+로더가 `solver` 를 프로파일에 싣지 않아 늘 `None` 을 보고 건너뛰었다.
 
-씬을 바꿀 때는 `motion.gravity_compensation.kp` 와 `scene.*` 도 함께 본다. `t1`·`r2` 는
-`Kp` 가 둘 다 2000 이지만 **`r1` 은 200 으로 1/10** 이라 그 씬에서는 보상이 1/10 만
-걸린다. 지금 떠 있는 씬과 우리 선언이 맞는지는
+**시뮬레이터 씬과의 대조는 기동 시점에 한다** — 로봇 스택의 `readiness_gate` 가 시뮬레이터의 그리퍼
+보고 축 수를 `sim_scene` 의 규약(`axis_count`)과 맞춰 보고, 다르면 종료 코드 2 로 끝나 launch 가 내려간다.
+
+씬을 바꿀 때는 그 씬의 `kp` 와 `scene.*` 도 함께 본다. `Kp` 는 씬 · 빌드마다 다르다 —
+`MMR-Build_260929` 에서 `t1` 20000 · `r2` 2000 이고, **`r1` 은 200** 이다. 지금 떠 있는 씬과 우리 선언이 맞는지는
 `./scripts/functionbay/fb_gains.py` 가 `SolverConfig.json` 을 읽어 대조한다 (불일치면
 종료 코드 1). 규약의 실측 근거:
 [펑션베이_백엔드_설계.md](../../../../docs/backends/functionbay/펑션베이_백엔드_설계.md) §6.1a.
@@ -94,7 +110,7 @@ peg 과 똑같이 보인다. 값이 상수라 에피소드마다 기록할 이�
 
 ```python
 from robot_control.scene.fixtures import load_fixtures
-hole = load_fixtures('functionbay')['peg_hole']
+hole = load_fixtures('panda_functionbay')['peg_hole']
 x, y, z = hole.entry_point()          # 구멍 입구 (panda_link0 기준)
 ```
 
@@ -107,7 +123,7 @@ x, y, z = hole.entry_point()          # 구멍 입구 (panda_link0 기준)
 
     이동 메서드의 인자  >  create_move_group_client(velocity_scaling=…)  >  프로파일  >  1.0
 
-`create_move_group_client(node, backend='functionbay')` 만 해도 프로파일 값이 실린다.
+`create_move_group_client(node, backend='panda_functionbay')` 만 해도 프로파일 값이 실린다.
 **블록을 생략하면 키를 아예 안 넘기므로** 코드 기본값(1.0)이 산다 — `0.0` 이나 `1.0` 을
 돌려주면 "프로파일이 정했다"와 "안 정했다"를 구별할 수 없다.
 
@@ -164,8 +180,8 @@ remap 을 그쪽에서, servo 파라미터를 `servo.command_out_topic` 에서 �
 
 | 백엔드 | 클래스 | 클래스가 하는 일 |
 |---|---|---|
-| `isaac` | `IsaacBackend` | `servo.joint_source: commanded` 를 servo 의 `joint_topic` 으로 옮긴다 |
-| `functionbay` · `mock` · `mock_jgpc` | (기본) | 값만 다르다 |
+| `panda_isaac` | `IsaacBackend` | `servo.joint_source: commanded` 를 servo 의 `joint_topic` 으로 옮긴다 |
+| `panda_functionbay` · `panda_mock` · `panda_mock_jgpc` | (기본) | 값만 다르다 |
 
 한때 `FunctionbayBackend` 가 있었다 — servo 출력 형식을 바꾸고 `publish_joint_velocities`
 를 끄는 클래스였다. 지금 그 둘은 **값에서 파생된다**: 형식은 `servo.command_out_type` 이
@@ -179,7 +195,7 @@ remap 을 그쪽에서, servo 파라미터를 `servo.command_out_topic` 에서 �
 ```python
 from robot_control.backends import get_backend
 
-backend = get_backend('isaac')
+backend = get_backend('panda_isaac')
 client = backend.create_move_group_client(node)
 params = backend.apply_servo_parameters(load_servo_params(...))
 ```
@@ -188,9 +204,9 @@ params = backend.apply_servo_parameters(load_servo_params(...))
 
 | 값 | 뜻 | 뜨는 노드 | 백엔드 |
 |---|---|---|---|
-| `device` | 장치/파일에서 우리가 캡처한다 | `camera_node` (OpenCV) | `mock` · `mock_jgpc` |
-| `compressed` | 시뮬레이터가 **압축만** 준다 | `image_transport/republish` | `functionbay` |
-| `native` | 시뮬레이터가 **raw 를 직접** 준다 | 없다 | `isaac` |
+| `device` | 장치/파일에서 우리가 캡처한다 | `camera_node` (OpenCV) | `panda_mock` · `panda_mock_jgpc` |
+| `compressed` | 시뮬레이터가 **압축만** 준다 | `image_transport/republish` | `panda_functionbay` |
+| `native` | 시뮬레이터가 **raw 를 직접** 준다 | 없다 | `panda_isaac` |
 
 launch 는 `create_raw_image_source_node(backend)` 하나만 부르고, **소비자는 어느 쪽이
 떴는지 모른다** — `camera_image_topic` 만 구독한다. 스위치도 `enable_camera` 하나이며
@@ -213,7 +229,7 @@ raw 는 `image_transport/republish` 가 **뷰어를 켤 때만** 만든다 — �
 아낀 대역폭이 돌아오기 때문이다(0.27 → 9.2 MB/s, 36배).
 
 **두 이름 다 이 파일에서만 온다.** 제어 계열 `panda_functionbay` 와 수집 계열
-`rdfp_collect backend:=functionbay` 가 같은 프로파일을 읽는다. 한때 제어 쪽이 `image_pipeline.yaml`
+`rdfp_collect backend:=panda_functionbay` 가 같은 프로파일을 읽는다. 한때 제어 쪽이 `image_pipeline.yaml`
 (OpenCV 카메라용)에서 `camera_image_topic` 을 가져와, 프로파일은 `/camera_image` 라고
 적혀 있는데 실효값은 `/camera/image_raw` 였다 — 각 launch 안에서는 republish 출력과 뷰어
 구독이 같은 값을 써서 **동작은 했고, 그래서 안 드러났다.**
@@ -230,9 +246,9 @@ raw 는 `image_transport/republish` 가 **뷰어를 켤 때만** 만든다 — �
 
 | 백엔드 | 정본 | 프로파일에 적나 |
 |---|---|:-:|
-| `mock` · `mock_jgpc` | `image_pipeline.yaml` (OpenCV 카메라라 그 값이 카메라를 *정한다*) | ❌ |
-| `isaac` | `scene.file` = `isaac_scene.json` 의 `camera` 블록 (**시뮬레이터도 그것을 읽는다**) | ❌ |
-| `functionbay` | **여기** — 공유 정의 파일이 없다 | ✅ |
+| `panda_mock` · `panda_mock_jgpc` | `image_pipeline.yaml` (OpenCV 카메라라 그 값이 카메라를 *정한다*) | ❌ |
+| `panda_isaac` | `scene.file` = `isaac_scene.json` 의 `camera` 블록 (**시뮬레이터도 그것을 읽는다**) | ❌ |
+| `panda_functionbay` | **여기** — 공유 정의 파일이 없다 | ✅ |
 
 `rdfp_collect` 가 이 순서로 찾는다: `scene.file` 의 `camera` 블록 → 프로파일 →
 `image_pipeline.yaml`. 계약은 `rdfp/recorder/tests/test_functionbay_recorder_wiring.py`
@@ -270,8 +286,8 @@ colcon build --packages-select robot_control
 
 모든 프로파일은 **확정 모드**(`jtc` / `jgpc`)를 갖는다. 표가 있는 이유가 런타임 판별의
 조용한 오판을 없애는 것인데, 표 안에 판별로 되돌아가는 항목을 두면 앞뒤가 안 맞기
-때문이다. mock 계열이 스택 둘이라 예전엔 `auto` 였지만, 지금은 `mock`(JTC)과
-`mock_jgpc`(JGPC)로 나뉘어 있다.
+때문이다. mock 계열이 스택 둘이라 예전엔 `auto` 였지만, 지금은 `panda_mock`(JTC)과
+`panda_mock_jgpc`(JGPC)로 나뉘어 있다.
 
 **`mode='auto'` 도 없다.** 프로파일에 없는 스택을 붙일 때는 `backend` 없이
 `mode='jtc'`/`'jgpc'` 를 **명시한다.** `backend` 와 `mode` 를 둘 다 생략하면

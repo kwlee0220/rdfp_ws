@@ -99,9 +99,9 @@ raw 를 만드는 순간 압축으로 아낀 것이 돌아온다.
 
 | `camera.source` | 뜻 | raw 발행자 | 쓰는 백엔드 |
 |---|---|---|---|
-| `device` | 장치/파일에서 우리가 캡처한다 | `camera_node` (OpenCV) | `mock` · `mock_jgpc` |
-| `compressed` | 시뮬레이터가 **압축만** 준다 | `image_transport/republish` | `functionbay` |
-| `native` | 시뮬레이터가 **raw 를 직접** 준다 | 없다 (시뮬레이터 자신) | `isaac` |
+| `device` | 장치/파일에서 우리가 캡처한다 | `camera_node` (OpenCV) | `panda_mock` · `panda_mock_jgpc` |
+| `compressed` | 시뮬레이터가 **압축만** 준다 | `image_transport/republish` | `panda_functionbay` |
+| `native` | 시뮬레이터가 **raw 를 직접** 준다 | 없다 (시뮬레이터 자신) | `panda_isaac` |
 
 `compressed` 일 때만 `camera.compressed_topic` 이 필요하다. `image_topic` 은 셋 다
 필요하다 — 그것이 정규 채널의 이름이기 때문이다.

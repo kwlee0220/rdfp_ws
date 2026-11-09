@@ -49,7 +49,7 @@ def test_functionbay_defaults_to_the_compressed_stream(collect):
 
     raw 로 되살리면 압축으로 아낀 대역폭이 그대로 돌아온다 (0.27 → 9.2 MB/s, 36배).
     """
-    defaults = collect._backend_defaults('functionbay')
+    defaults = collect._backend_defaults('panda_functionbay')
 
     assert defaults['image_recorder_input_format'] == 'mjpeg'
     # 원본(`/camera_image/compressed`)이 아니라 stamp 를 관절과 같은 벽시계 축으로 옮긴
@@ -60,7 +60,7 @@ def test_functionbay_defaults_to_the_compressed_stream(collect):
 
 def test_raw_backends_do_not_ask_for_mjpeg(collect):
     """압축을 안 쓰는 백엔드에까지 mjpeg 이 새면 0 프레임이 된다."""
-    for name in ('mock', 'mock_jgpc', 'isaac'):
+    for name in ('panda_mock', 'panda_mock_jgpc', 'panda_isaac'):
         defaults = collect._backend_defaults(name)
         assert defaults['image_recorder_input_format'] == 'rawvideo', name
 
@@ -81,7 +81,7 @@ def test_only_the_session_driven_recorder_is_launched(collect):
 
 def test_functionbay_arm_channel_comes_from_the_profile(collect):
     """펑션베이는 명령이 이미 `JointState` 다 — 컨트롤러 토픽이 아니다."""
-    defaults = collect._backend_defaults('functionbay')
+    defaults = collect._backend_defaults('panda_functionbay')
 
     assert defaults['arm_cmd_source'] == 'joint_state'
     assert defaults['target_joint_cmds_input_topic'] == '/input/panda_joint'
@@ -101,13 +101,13 @@ def test_isaac_geometry_comes_from_the_scene_file(collect):
     """
     from robot_control.backends import get_backend
 
-    defaults = collect._backend_defaults('isaac')
+    defaults = collect._backend_defaults('panda_isaac')
 
     assert defaults['camera_resolution'] == '640x480'
     assert defaults['image_recorder_fps'] == 10
     # 프로파일에는 없다 — 있으면 정본이 둘이 된다.
-    assert get_backend('isaac').value('camera', 'resolution') is None
-    assert get_backend('isaac').value('camera', 'fps') is None
+    assert get_backend('panda_isaac').value('camera', 'resolution') is None
+    assert get_backend('panda_isaac').value('camera', 'fps') is None
 
 
 def test_functionbay_geometry_comes_from_the_profile(collect):
@@ -116,7 +116,7 @@ def test_functionbay_geometry_comes_from_the_profile(collect):
     fps 는 시뮬레이터 카메라 XML 의 `Publish_Frequency`(10)와 같아야 한다 — 5 로 두었다가
     소스(약 9.6 Hz)와 어긋나 영상이 1.9배 느리게 재생됐다 (2026-09-17).
     """
-    defaults = collect._backend_defaults('functionbay')
+    defaults = collect._backend_defaults('panda_functionbay')
 
     assert defaults['camera_resolution'] == '640x480'
     assert defaults['image_recorder_fps'] == 10
@@ -124,7 +124,7 @@ def test_functionbay_geometry_comes_from_the_profile(collect):
 
 def test_mock_geometry_falls_back_to_the_yaml(collect):
     """mock 은 OpenCV 카메라라 `image_pipeline.yaml` 이 값을 *정하는* 쪽이다."""
-    for name in ('mock', 'mock_jgpc'):
+    for name in ('panda_mock', 'panda_mock_jgpc'):
         defaults = collect._backend_defaults(name)
         assert defaults['camera_resolution'] is None, name
         assert defaults['image_recorder_fps'] is None, name

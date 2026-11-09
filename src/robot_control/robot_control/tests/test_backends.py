@@ -26,7 +26,7 @@ from robot_control.backends.isaac import COMMANDED_JOINT_STATE_TOPIC, IsaacBacke
 # ----- factory 선택 ----------------------------------------------------------
 
 def test_factory_key_selects_the_class():
-    assert isinstance(get_backend('isaac'), IsaacBackend)
+    assert isinstance(get_backend('panda_isaac'), IsaacBackend)
 
 
 def test_backends_without_a_factory_use_the_base_class():
@@ -36,9 +36,9 @@ def test_backends_without_a_factory_use_the_base_class():
     형식은 `servo.command_out_type` 이, 딸려 오는 `publish_joint_*` 는
     `_float64_multi_array_rule` 이 갖게 되어 남은 코드가 없다.
     """
-    assert type(get_backend('mock')) is Backend
-    assert type(get_backend('mock_jgpc')) is Backend
-    assert type(get_backend('functionbay')) is Backend
+    assert type(get_backend('panda_mock')) is Backend
+    assert type(get_backend('panda_mock_jgpc')) is Backend
+    assert type(get_backend('panda_functionbay')) is Backend
 
 
 def test_unknown_backend_is_rejected():
@@ -64,7 +64,7 @@ def test_bad_factory_spec_is_rejected():
 def test_servo_keys_carry_no_prefix():
     """launch 헬퍼가 `moveit_servo` 안쪽에 합치므로 접두사를 붙이면 **이중이 되어
     조용히 안 먹는다.**"""
-    for name in ('isaac', 'functionbay', 'mock_jgpc'):
+    for name in ('panda_isaac', 'panda_functionbay', 'panda_mock_jgpc'):
         for key in get_backend(name).servo_parameters():
             assert not key.startswith('moveit_servo'), f'{name}: {key}'
             assert '.' not in key, f'{name}: {key} — 중첩 dict 로 쓴다'
@@ -74,7 +74,7 @@ def test_isaac_maps_joint_source_to_a_topic():
     """**값 하나가 파라미터 하나로 안 간다.** 프로파일은 '무엇을 기준으로 삼는가',
     servo 는 '어느 토픽을 읽는가' — 그 사이 변환이 코드다.
     """
-    params = get_backend('isaac').servo_parameters()
+    params = get_backend('panda_isaac').servo_parameters()
 
     assert params['joint_topic'] == COMMANDED_JOINT_STATE_TOPIC
     assert params['scale'] == {'linear': 0.4}
@@ -84,7 +84,7 @@ def test_functionbay_must_disable_velocities():
     """**선택이 아니다.** Float64MultiArray 출력에서 위치와 속도를 함께 내면 servo 의
     파라미터 검증이 실패해 노드가 아예 안 뜬다.
     """
-    params = get_backend('functionbay').servo_parameters()
+    params = get_backend('panda_functionbay').servo_parameters()
 
     assert params['command_out_type'] == 'std_msgs/Float64MultiArray'
     assert params['publish_joint_velocities'] is False
@@ -92,13 +92,13 @@ def test_functionbay_must_disable_velocities():
 
 
 def test_mock_overrides_nothing():
-    assert get_backend('mock').servo_parameters() == {}
+    assert get_backend('panda_mock').servo_parameters() == {}
 
 
 def test_apply_merges_into_the_nested_dict_without_mutating():
     original = {'moveit_servo': {'scale': {'linear': 0.9, 'rotational': 0.8}, 'keep': 1}}
 
-    merged = get_backend('isaac').apply_servo_parameters(original)
+    merged = get_backend('panda_isaac').apply_servo_parameters(original)
 
     assert merged['moveit_servo']['scale']['linear'] == 0.4, '백엔드 값이 이긴다'
     assert merged['moveit_servo']['scale']['rotational'] == 0.8, \
@@ -110,7 +110,7 @@ def test_apply_merges_into_the_nested_dict_without_mutating():
 # ----- null 블록 --------------------------------------------------------------
 
 def test_missing_block_reads_as_absent():
-    fb = get_backend('functionbay')
+    fb = get_backend('panda_functionbay')
 
     assert fb.uses_ros2_control is False
     assert fb.hardware_type is None
@@ -120,15 +120,15 @@ def test_missing_block_reads_as_absent():
 
 
 def test_ros2_control_backends_report_their_hardware_type():
-    assert get_backend('isaac').hardware_type == 'isaac'
-    assert get_backend('mock').hardware_type == 'mock_components'
-    assert get_backend('isaac').uses_ros2_control is True
+    assert get_backend('panda_isaac').hardware_type == 'isaac'
+    assert get_backend('panda_mock').hardware_type == 'mock_components'
+    assert get_backend('panda_isaac').uses_ros2_control is True
 
 
 # ----- 경로 -------------------------------------------------------------------
 
 def test_paths_resolve_under_the_package_share():
-    path = get_backend('isaac').controllers_file()
+    path = get_backend('panda_isaac').controllers_file()
 
     assert path is not None and os.path.isabs(path)
     assert os.path.isfile(path), path
@@ -137,20 +137,20 @@ def test_paths_resolve_under_the_package_share():
 
 def test_missing_path_stays_none():
     """`None` 은 "호출자가 기본값을 쓴다" 는 뜻이다 — mock 은 moveit_resources 것이다."""
-    assert get_backend('mock').controllers_file() is None
-    assert get_backend('mock').scene_file() is None
+    assert get_backend('panda_mock').controllers_file() is None
+    assert get_backend('panda_mock').scene_file() is None
 
 
 def test_scene_file_resolves():
-    assert os.path.isfile(get_backend('isaac').scene_file())
+    assert os.path.isfile(get_backend('panda_isaac').scene_file())
 
 
 # ----- use_sim_time -----------------------------------------------------------
 
 def test_use_sim_time_matches_the_backend():
     """빠뜨리면 스탬프가 벽시계로 찍혀 에피소드 경계와 어긋난다."""
-    assert get_backend('isaac').use_sim_time is True
-    assert get_backend('mock').use_sim_time is False
+    assert get_backend('panda_isaac').use_sim_time is True
+    assert get_backend('panda_mock').use_sim_time is False
 
 
 # ----- Float64MultiArray 규칙 -------------------------------------------------
@@ -162,7 +162,7 @@ def test_float64_output_forces_the_publish_flags():
     검증이 실패해 **노드가 아예 안 뜬다.** 백엔드마다 되적으면 새 백엔드에서 빠뜨리고,
     증상은 "servo 가 안 뜬다" 뿐이라 원인을 안 가리킨다.
     """
-    for name in ('mock_jgpc', 'functionbay'):
+    for name in ('panda_mock_jgpc', 'panda_functionbay'):
         params = get_backend(name).servo_parameters()
         assert params['command_out_type'] == 'std_msgs/Float64MultiArray'
         assert params['publish_joint_positions'] is True
@@ -172,15 +172,15 @@ def test_float64_output_forces_the_publish_flags():
 
 def test_the_rule_does_not_apply_to_other_output_types():
     """기본 출력(JointTrajectory)에는 이 제약이 없다 — 걸면 오히려 이상해진다."""
-    params = get_backend('isaac').servo_parameters()
+    params = get_backend('panda_isaac').servo_parameters()
 
     assert 'publish_joint_velocities' not in params
 
 
 def test_command_out_topic_comes_from_the_profile():
-    assert get_backend('mock_jgpc').servo_parameters()['command_out_topic'] == \
+    assert get_backend('panda_mock_jgpc').servo_parameters()['command_out_topic'] == \
         '/panda_arm_controller/commands'
-    assert get_backend('functionbay').servo_parameters()['command_out_topic'] == \
+    assert get_backend('panda_functionbay').servo_parameters()['command_out_topic'] == \
         '/servo_node/commands'
 
 
@@ -192,7 +192,7 @@ def test_arm_command_is_reachable_like_other_blocks():
     그 비대칭을 모르고 `value('arm_command', 'topic')` 으로 읽으면 조용히 `None` 이
     나오고, launch 는 remap 대상이 없어 기동 중에 죽는다. 실제로 그렇게 깨졌다.
     """
-    fb = get_backend('functionbay')
+    fb = get_backend('panda_functionbay')
 
     assert fb.arm_command_mode == 'jgpc'
     assert fb.arm_command_topic == '/input/panda_joint'
@@ -203,7 +203,7 @@ def test_arm_command_is_reachable_like_other_blocks():
 
 
 def test_jtc_backends_have_no_arm_command_channel():
-    isaac = get_backend('isaac')
+    isaac = get_backend('panda_isaac')
 
     assert isaac.arm_command_mode == 'jtc'
     assert isaac.arm_command_topic is None
@@ -212,17 +212,17 @@ def test_jtc_backends_have_no_arm_command_channel():
 
 def test_joint_names_are_copied():
     """호출자가 바꿔도 프로파일이 오염되면 안 된다."""
-    names = get_backend('functionbay').arm_command_joint_names
+    names = get_backend('panda_functionbay').arm_command_joint_names
     names.append('panda_joint8')
 
-    assert len(get_backend('functionbay').arm_command_joint_names) == 7
+    assert len(get_backend('panda_functionbay').arm_command_joint_names) == 7
 
 
 # ----- motion.velocity_scaling — 전역 기본 속도 -------------------------------
 
 def test_functionbay_declares_a_global_velocity_scaling():
     """0.4 는 실측으로 고른 값이다 (프로파일 주석 참고)."""
-    assert get_backend('functionbay').velocity_scaling == 0.4
+    assert get_backend('panda_functionbay').velocity_scaling == 0.4
 
 
 def test_backends_without_the_block_have_no_opinion():
@@ -231,11 +231,11 @@ def test_backends_without_the_block_have_no_opinion():
     여기서 `0.0` 이나 `1.0` 을 돌려주면 **"프로파일이 정했다"와 "안 정했다"를 구별할 수
     없어** 팩토리가 인자 우선순위를 지킬 수 없다.
     """
-    for name in ('mock', 'mock_jgpc', 'isaac'):
+    for name in ('panda_mock', 'panda_mock_jgpc', 'panda_isaac'):
         assert get_backend(name).velocity_scaling is None, name
 
 
 def test_velocity_scaling_is_a_float():
     """YAML 이 `0.4` 를 문자열로 싣더라도 숫자로 나와야 한다."""
-    value = get_backend('functionbay').velocity_scaling
+    value = get_backend('panda_functionbay').velocity_scaling
     assert isinstance(value, float) and 0.0 < value <= 1.0

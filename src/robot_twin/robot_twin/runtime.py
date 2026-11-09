@@ -14,13 +14,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import inspect
 import threading
 import time
 
-from rclpy.node import Node
+if TYPE_CHECKING:
+    from rclpy.node import Node
 
 from robot_twin.backends import PreconditionFailed
 from robot_twin.config import OperationConfig, TwinConfig
@@ -42,6 +43,11 @@ _WATCHDOG_PERIOD_SEC = 1.0
 # MoveGroup 준비가 늦어지는 상한이다.
 _ORPHAN_CANCEL_WAIT_SEC = 3.0
 
+# `move_to_named_target` 접수 때 SRDF 이름 목록을 기다리는 한도(초). 접수 경로(HTTP
+# 스레드)를 막으므로 짧게 둔다 — `named_targets` 변수의 `timeout_sec` 와 같은 값이다.
+# 클라이언트가 SRDF 를 한 번 받아 두면 조회 없이 캐시에서 바로 나온다.
+_NAMED_TARGET_LOOKUP_TIMEOUT_SEC = 2.0
+
 
 def _fetch_fixtures(runtime: 'RobotTwinRuntime') -> dict:
     """고정물 정의를 백엔드 프로파일에서 읽어 싣는다.
@@ -53,10 +59,10 @@ def _fetch_fixtures(runtime: 'RobotTwinRuntime') -> dict:
     값이 런타임 불변이라 정적 소스가 맞고, **MoveIt 과 무관한 파일 읽기**라
     `_STATIC_PROVIDERS` 로 빠진다.
     """
-    backend = runtime.config.moveit.backend
+    backend = runtime.config.twin.backend
     if not backend:
         # 설정 오류다 — 시간이 지나도 안 고쳐지므로 `StaticSourceUnavailable` 이 아니다.
-        raise ValueError('fixtures require moveit.backend to name a backend profile')
+        raise ValueError('fixtures require twin.backend to name a backend profile')
 
     from robot_control.scene.fixtures import as_payload, load_fixtures
 
@@ -516,6 +522,13 @@ class RobotTwinRuntime:
         Raises:
             TwinError: 정지 수단이 없을 때 (``501``).
         """
+        from robot_twin.backends import requires_move_group
+
+        op = self.config.operation(session.operation)
+        # 팔 정지 경로는 비동기 MoveGroup 연산에만 적용한다. reset_scene이 arm을
+        # 점유하더라도 이 경로로 장면 초기화나 그리퍼 명령을 취소할 수는 없다.
+        if op is None or op.kind != 'async' or not requires_move_group(op):
+            raise cancel_unsupported(session.operation)
         if not self._stop_backend():
             self._logger.warning(
                 f'cancel rejected (session={session.id}): no stop mechanism for this backend'
@@ -631,6 +644,45 @@ class RobotTwinRuntime:
             validate_domain(op.name, inputs, op)
         except ValueError as exc:
             raise invalid_input(f'{op.name}: {exc}') from exc
+
+        # 3차: 로봇에 물어봐야 아는 규칙.
+        if op.name == 'move_to_named_target':
+            self._check_named_target(op, inputs)
+
+    def _check_named_target(self, op: OperationConfig, inputs: dict[str, Any]) -> None:
+        """``target`` 을 SRDF 의 named target 목록과 대조한다.
+
+        대조하지 않으면 없는 이름도 접수되어 실행 단계에서 ``EXECUTION_ABORTED`` 로
+        끝난다 — 입력 오류가 컨트롤러 이상처럼 보인다.
+
+        **목록을 못 얻으면 대조하지 않는다.** 그때 거부하면 올바른 이름까지 ``400`` 이
+        된다. 실행 단계가 SRDF 를 다시 조회하므로 없는 이름은 거기서 여전히 실패한다 —
+        미리 거부할 기회만 놓친다.
+
+        Raises:
+            TwinError: ``target`` 이 목록에 없을 때 (``400 INVALID_INPUT``).
+        """
+        with self._mg_lock:
+            client = self._move_group
+        if client is None:
+            return
+
+        try:
+            # HTTP 스레드에서 부른다 — executor 가 다른 스레드에서 spin 중이다 (설계서 2.3).
+            available = client.get_named_targets(timeout=_NAMED_TARGET_LOOKUP_TIMEOUT_SEC,
+                                                 externally_spun=True)
+        except Exception as exc:
+            self._logger.warning(f"{op.name}: named target check skipped ({exc})")
+            return
+        if not isinstance(available, list):
+            return
+
+        target = inputs.get('target')
+        if target not in available:
+            raise invalid_input(
+                f"{op.name}: unknown target {target!r} — choose one of {available} "
+                "(see the named_targets variable)"
+            )
 
     # ------------------------------------------------------------------
     # 내부 — 실행

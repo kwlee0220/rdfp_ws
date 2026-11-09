@@ -14,6 +14,10 @@
   <exec_depend>rdfp_msgs</exec_depend>
 
   <exec_depend>python3-yaml</exec_depend>
+  <!-- 런처의 twin 인자가 설치된 출하 설정(config/twins)을 찾는다 (shipped_configs.py).
+       ⚠️ XML 주석 안에 연속 하이픈을 쓰면 manifest 가 깨져 colcon 이 이 패키지를 ROS 패키지로 보지
+       않는다 — ament_prefix_path 훅이 안 생겨 `ros2 run robot_twin` 이 "Package not found" 가 된다. -->
+  <exec_depend>ament_index_python</exec_depend>
 
   <!--
     pip-only 의존성 (apt 버전 부재 또는 구버전): fastapi, uvicorn, pydantic>=2

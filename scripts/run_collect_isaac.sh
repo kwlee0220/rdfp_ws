@@ -62,7 +62,7 @@
 # 아니라 빈 결과로 나타난다 — 2026-09-20 에 실제로 9회를 그렇게 돌렸다.
 #
 # **④ 제어 스택·트윈이 먼저 떠 있어야 한다.** 기본은 그 둘을 띄우지 않고 **없으면
-# 여기서 멈춘다** (`run_panda_isaac.sh` · `run_robot_twin.sh --isaac` 가 각자 띄운다).
+# 여기서 멈춘다** (`run_panda_isaac.sh` · `run_robot_twin.sh --twin panda01` 가 각자 띄운다).
 # 순서가 어긋나면 증상이 "에피소드는 도는데 데이터가 없다"라서 늦게 드러난다.
 # `--with-stack` 을 주면 이 스크립트가 직접 띄우고 기다린다.
 #
@@ -80,8 +80,8 @@ set -euo pipefail
 WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_ROOT="${RDFP_DATA_ROOT:-$HOME/rdfp_data}"
 TWIN_HOST="${RDFP_TWIN_HOST:-127.0.0.1}"
-TWIN_PORT="${RDFP_TWIN_PORT:-8802}"
-TWIN_ID="${RDFP_TWIN_ID:-panda_isaac}"
+TWIN_PORT="${RDFP_TWIN_PORT:-8801}"
+TWIN_ID="${RDFP_TWIN_ID:-panda01}"   # Isaac 트윈의 id (2026-10-25)
 CHECK_ONLY=0
 VIEWER=0
 WITH_STACK=0
@@ -280,7 +280,7 @@ if [[ "$WITH_STACK" == "1" ]]; then
 
     if [[ -z "$(_twin_health)" ]]; then
         echo "[collect] 트윈 기동 (로그: $LOG_DIR/robot_twin.log)"
-        "$WS_ROOT/scripts/run_robot_twin.sh" --isaac > "$LOG_DIR/robot_twin.log" 2>&1 &
+        "$WS_ROOT/scripts/run_robot_twin.sh" --twin "$TWIN_ID" > "$LOG_DIR/robot_twin.log" 2>&1 &
         TWIN_PID=$!
         STARTED_STACK=1
         echo -n "[collect] 트윈 대기 "
@@ -297,9 +297,18 @@ _stack_up || fail "제어 스택이 없다 — ./scripts/run_panda_isaac.sh 를 
 
 echo "[collect] 트윈 확인 …"
 HEALTH="$(_twin_health)"
-[[ -n "$HEALTH" ]] || fail "트윈이 없다 ($TWIN_URL) — ./scripts/run_robot_twin.sh --isaac 를 띄우거나 --with-stack 을 준다"
+[[ -n "$HEALTH" ]] || fail "트윈이 없다 ($TWIN_URL) — ./scripts/run_robot_twin.sh --twin $TWIN_ID 를 띄우거나 --with-stack 을 준다"
 grep -q '"move_group":"READY"' <<<"$HEALTH" \
     || fail "트윈의 move_group 이 준비되지 않았다: $HEALTH"
+# 트윈이 이 환경의 것인가. 트윈은 환경마다 id 가 달라(`panda01` · `rdfp01` · `mock01`) 다른
+# 환경의 트윈이 떠 있으면 대개 위 health 가 404 로 비어 걸리지만, **`RDFP_TWIN_ID` 를 바꿔 주면
+# 통과한다**
+# — 그대로 가면 이 스택 위에서 엉뚱한 설정(명령 채널 · 시계)의 트윈이 에러 없이 명령을 낸다.
+# 트윈 메타의 `backend` 로 가른다.
+TWIN_BACKEND="$(curl -sf --max-time 5 "$TWIN_URL" 2>/dev/null \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("backend") or "")' 2>/dev/null || true)"
+[[ "$TWIN_BACKEND" == panda_isaac ]] \
+    || fail "떠 있는 트윈이 이 환경의 것이 아니다 (backend: ${TWIN_BACKEND:-<없음>}, 기대: panda_isaac) — 그 트윈을 내리고 ./scripts/run_robot_twin.sh --twin $TWIN_ID 를 띄운다"
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
     echo "[collect] 선행 조건 OK (--check-only 라 여기서 끝낸다)"
@@ -362,7 +371,7 @@ echo "[collect] 수집 계층 기동 (로그: $LOG_DIR/rdfp_collect.log)"
 collect_viewer_arg="false"
 [[ "$VIEWER" == "1" ]] && collect_viewer_arg="true"
 
-ros2 launch rdfp rdfp_collect.launch.py backend:=isaac \
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac \
     image_recorder_output_dir:="$RECORDINGS_DIR" \
     enable_image_viewer:="$collect_viewer_arg" \
     > "$LOG_DIR/rdfp_collect.log" 2>&1 &

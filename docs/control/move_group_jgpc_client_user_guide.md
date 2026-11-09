@@ -1,6 +1,6 @@
 # `MoveGroupJgpcClient` 사용 가이드 (JGPC / 스트리밍 실행)
 
-`FollowJointTrajectory` 액션이 없는 스택에서 **계획은 MoveIt 에 맡기고 실행은 명령 토픽 스트리밍으로** 하는 방법. named target · joint 목표 · Cartesian 경로 이동, 중단, `TrajectoryStreamer` 직접 사용, `publish_rate` 튜닝까지 이 구현 전반을 다룬다. 백엔드 `mock_jgpc` 와 `functionbay` 가 여기에 해당한다.
+`FollowJointTrajectory` 액션이 없는 스택에서 **계획은 MoveIt 에 맡기고 실행은 명령 토픽 스트리밍으로** 하는 방법. named target · joint 목표 · Cartesian 경로 이동, 중단, `TrajectoryStreamer` 직접 사용, `publish_rate` 튜닝까지 이 구현 전반을 다룬다. 백엔드 `panda_mock_jgpc` 와 `panda_functionbay` 가 여기에 해당한다.
 
 공통 인터페이스와 JTC 구현은 [move_group_client_user_guide.md](move_group_client_user_guide.md)가 갖는다 — 두 문서는 그렇게 역할을 나눈다.
 **JGPC 전용 내용은 이 문서에만 있다** (2026-09-21 경계 정리 — 공통 가이드의 옛 §4.10 · §12 를 여기로 몰았다). 공통 가이드에서 JGPC 는 §1.2 대조표와 포인터로만 나타난다.
@@ -113,7 +113,7 @@ rclpy.init()
 node = Node('named_target_demo')
 
 # 프로파일이 JGPC 로 정해져 있으므로 MoveGroupJgpcClient 가 돌아온다.
-with create_move_group_client(node, backend='mock_jgpc') as mgc:
+with create_move_group_client(node, backend='panda_mock_jgpc') as mgc:
     print(mgc.get_named_targets())            # ['extended', 'ready', 'transport']
     mgc.move_to_named_target('ready')         # JGPC 구현 = 계획 + 스트리밍
 
@@ -129,9 +129,9 @@ rclpy.shutdown()
 백엔드 프로파일이 갖고 있으므로, 호출부는 컨트롤러 종류도 명령 채널도 알 필요가 없다.
 
 ```python
-mgc = create_move_group_client(node, backend='mock_jgpc')    # -> MoveGroupJgpcClient
-mgc = create_move_group_client(node, backend='functionbay')  # -> MoveGroupJgpcClient
-mgc = create_move_group_client(node, backend='isaac')        # -> MoveGroupJtcClient
+mgc = create_move_group_client(node, backend='panda_mock_jgpc')    # -> MoveGroupJgpcClient
+mgc = create_move_group_client(node, backend='panda_functionbay')  # -> MoveGroupJgpcClient
+mgc = create_move_group_client(node, backend='panda_isaac')        # -> MoveGroupJtcClient
 ```
 
 **`backend` 와 `mode` 중 하나는 반드시 지정한다** — 둘 다 생략하면 `ValueError` 가
@@ -385,11 +385,11 @@ print(future.result())    # 중단 전까지 발행한 point 수
 ```bash
 # JTC 환경 (replay_panda_mock.launch.py)
 ros2 run rdfp replay_gui --config dataset_config.yaml \
-    --ros-args -p backend:=mock
+    --ros-args -p backend:=panda_mock
 
 # JGPC 환경 (panda_mock_jgpc.launch.py)
 ros2 run rdfp replay_gui --config dataset_config.yaml \
-    --ros-args -p backend:=mock_jgpc
+    --ros-args -p backend:=panda_mock_jgpc
 ```
 
 이동 대상은 기존과 동일하게 `init_named_target` 파라미터(기본 `ready`)로 바꾼다.

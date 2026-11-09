@@ -7,7 +7,7 @@ from typing import Optional
 from rclpy.node import Node
 
 from robot_control.backend_profiles import (
-    BACKEND_PROFILES, backends, resolve_backend_channel)
+    BACKEND_PROFILES, backends, canonical_backend, resolve_backend_channel)
 from robot_control.moveit.move_group_client import MoveGroupClient
 from robot_control.moveit.move_group_jgpc_client import MoveGroupJgpcClient
 from robot_control.moveit.move_group_jtc_client import MoveGroupJtcClient
@@ -53,12 +53,12 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
     **평소에는 `backend` 하나만 준다.** 나머지 넷은 :data:`BACKEND_PROFILES` 에 없는
     스택을 붙이거나 프로파일의 한 값만 덮어쓸 때 쓰는 탈출구다::
 
-        client = create_move_group_client(node, backend='isaac')
+        client = create_move_group_client(node, backend='panda_isaac')
 
     Args:
         node: 서비스/액션 클라이언트를 올릴 ROS2 Node.
-        backend: :data:`BACKEND_PROFILES` 의 키 (``'isaac'`` / ``'functionbay'`` /
-            ``'mock'`` / ``'mock_jgpc'``). 주면 아래 네 인자의 기본값을 채운다.
+        backend: :data:`BACKEND_PROFILES` 의 키 (``'panda_isaac'`` / ``'panda_functionbay'`` /
+            ``'panda_mock'`` / ``'panda_mock_jgpc'``; 옛 이름은 경고와 함께 받는다). 주면 아래 네 인자의 기본값을 채운다.
             **프로파일은 모두 확정 모드다** — 붙어 있는 스택을 런타임에 짐작하는
             길은 없앴다(아래 ``mode`` 참조).
         mode: ``'jtc'`` / ``'jgpc'``. ``None`` (기본) 이면 ``backend`` 프로파일이
@@ -97,6 +97,9 @@ def create_move_group_client(node: Node, *, backend: Optional[str] = None,
         ValueError: ``backend`` 와 ``mode`` 가 둘 다 없거나, ``mode`` 가 유효하지 않을 때.
     """
     if backend is not None:
+        # 옛 이름(`isaac` 등)을 지금 이름으로 바꾼다(경고). 아래 프로파일 조회 · 중력 보상이
+        # 모두 이 이름을 쓴다.
+        backend = canonical_backend(backend)
         channel = resolve_backend_channel(
             backend, arm_command_mode=mode,
             arm_command_topic=(None if arm_command_topic == DEFAULT_COMMAND_TOPIC

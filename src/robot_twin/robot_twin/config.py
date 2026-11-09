@@ -45,6 +45,13 @@ class TwinMeta(_Base):
 
     id: str
     description: str = ''
+    # 이 트윈이 붙는 로봇 스택의 백엔드 이름(`config/backends/<이름>.yaml`, `<로봇>_<환경>`).
+    # **트윈 전체의 속성이다** — 팔 명령 채널 · 속도 · 프레임(`moveit`), 시계
+    # (`ros.use_sim_time`), 고정물(`fixtures` 변수), 중력 보상이 모두 이 이름에서 나온다
+    # (`TwinConfig._apply_backend`). id 는 환경을 담지 않으므로(같은 로봇을 여러 환경에서
+    # 같은 id 로 띄운다) 클라이언트는 트윈 메타(`GET /robot_twins/<id>`)의 이 값으로 어느
+    # 환경에 붙었는지 안다.
+    backend: Optional[str] = None
 
     @field_validator('id')
     @classmethod
@@ -86,6 +93,7 @@ class RosConfig(_Base):
     domain_id: Optional[int] = Field(default=None, ge=0, le=232)
     rmw: Optional[str] = None
     node_name: str = 'robot_twin'
+    # 생략하면 `twin.backend` 의 프로파일이 채운다 (`TwinConfig._apply_backend`).
     use_sim_time: bool = False
 
 
@@ -97,13 +105,16 @@ class MoveItConfig(_Base):
     (설계서 2.6).
     """
 
+    # **YAML 의 `moveit` 에는 적지 않는다** — `TwinConfig._apply_backend` 가 `twin.backend` 를
+    # 여기로 내려보내고, 직접 적으면 거부한다.
+    #
     # 백엔드 이름 하나로 아래 넷을 채운다 (`robot_control.moveit.BACKEND_PROFILES`).
     # **그 표가 "어느 스택이 JTC 인가"의 정본이다** — 여기 손으로 적으면 백엔드가
     # 바뀔 때 한쪽만 뒤처지고, 어긋남은 에러가 아니라 "명령이 안 먹는다"로 나온다.
     #
     # 명시한 키가 프로파일을 이기므로 `backend` 와 개별 키를 섞어 쓸 수 있다.
     # 모든 프로파일이 확정 모드(`jtc`/`jgpc`)를 가지므로 어느 것이든 쓸 수 있다 —
-    # mock 계열은 `mock`(JTC) 과 `mock_jgpc`(JGPC) 로 나뉘어 있다.
+    # mock 계열은 `panda_mock`(JTC) 과 `panda_mock_jgpc`(JGPC) 로 나뉘어 있다.
     backend: Optional[str] = None
 
     move_group_mode: Optional[MoveGroupMode] = None
@@ -158,7 +169,11 @@ class MoveItConfig(_Base):
         if not isinstance(data, dict) or not data.get('backend'):
             return data
 
-        from robot_control.backend_profiles import resolve_backend_channel
+        from robot_control.backend_profiles import canonical_backend, resolve_backend_channel
+
+        # 옛 이름(`isaac` 등)은 지금 이름으로 바꿔 둔다(경고) — `/health` 등에 보이는 이름이 늘
+        # 지금 이름이게.
+        data = {**data, 'backend': canonical_backend(data['backend'])}
 
         channel = resolve_backend_channel(
             data['backend'],
@@ -217,7 +232,7 @@ class MoveItConfig(_Base):
         # `backend` 로도 안 채워졌으면 여전히 필수다.
         if self.move_group_mode is None:
             raise ValueError(
-                'moveit.move_group_mode is required (or give moveit.backend to fill it)')
+                'moveit.move_group_mode is required (or give twin.backend to fill it)')
         # **`velocity_scaling` 은 여기 없다** — JGPC 전용이 아니라 두 클라이언트가 다
         # 쓰는 값이라 JTC 에서도 정당하다.
         given = {
@@ -410,10 +425,10 @@ class OperationConfig(_Base):
     def _derive_target_enum(self) -> 'OperationConfig':
         """설정의 이름 표에서 ``inputs_schema`` 의 enum 을 파생한다.
 
-        대상은 두 쌍이다 — ``backend.targets`` → ``target.enum`` (그리퍼 목표),
+        대상은 두 쌍이다 — ``backend.labels`` → ``target.enum`` (그리퍼 목표),
         ``backend.scenes`` → ``scene.enum`` (scene 레시피).
 
-        목표 이름을 두 곳에 적으면 조용히 어긋난다. 특히 ``targets`` 에만 추가하고
+        목표 이름을 두 곳에 적으면 조용히 어긋난다. 특히 ``labels`` 에만 추가하고
         ``enum`` 을 빠뜨리면 **jsonschema 설치 여부에 따라** 같은 요청이 ``400`` 이
         되기도 하고 성공하기도 한다 — 스키마 검증은 선택적 의존성이라 미설치 환경에서
         통째로 생략되기 때문이다 (설계서 6.9).
@@ -478,6 +493,55 @@ class TwinConfig(_Base):
     variables: list[VariableConfig] = Field(default_factory=list)
     operations: list[OperationConfig] = Field(default_factory=list)
     sessions: SessionPolicy = Field(default_factory=SessionPolicy)
+
+    @model_validator(mode='before')
+    @classmethod
+    def _apply_backend(cls, data: Any) -> Any:
+        """`twin.backend` 를 `moveit` 과 `ros.use_sim_time` 으로 내려보낸다. **명시한 값이 이긴다.**
+
+        백엔드는 트윈 전체의 속성이라 `twin` 아래에 둔다 — `moveit` 만의 값이 아니다. 팔 명령
+        채널 · 속도 · 프레임은 `MoveItConfig._expand_backend` 가 이 이름으로 채운다.
+
+        시계 축은 트윈이 아니라 로봇 스택의 사정이다 — 프로파일의 `use_sim_time` 을 launch 와
+        `rdfp_collect` 가 쓰므로 트윈도 같은 값을 따른다. 트윈 YAML 에 따로 적어 두면 한쪽만
+        고쳤을 때 변수 stamp 가 에피소드 경계와 다른 시계로 찍히고, 에러 없이 데이터셋에서
+        짝이 안 맞는다.
+
+        옛 자리(`moveit.backend`)는 **받지 않는다** — 받아 주면 두 자리에 다른 값을 적은
+        복사본이 어느 쪽이 이기는지 모른 채 돈다. 오류가 새 자리를 알려 준다.
+        """
+        if not isinstance(data, dict):
+            return data
+        moveit = data.get('moveit')
+        if isinstance(moveit, dict) and 'backend' in moveit:
+            raise ValueError('moveit.backend has moved to twin.backend')
+        twin = data.get('twin')
+        backend = twin.get('backend') if isinstance(twin, dict) else None
+        if not backend:
+            return data
+
+        from robot_control.backend_profiles import BACKEND_PROFILES, canonical_backend
+
+        # 옛 이름(`isaac` 등)은 지금 이름으로 바꿔 둔다(경고) — 트윈 메타에 보이는 이름이 늘
+        # 지금 이름이게.
+        backend = canonical_backend(str(backend))
+        data = {**data, 'twin': {**twin, 'backend': backend}}
+        if moveit is None:
+            moveit = {}
+        if isinstance(moveit, dict):
+            data['moveit'] = {**moveit, 'backend': backend}
+
+        ros = data.get('ros')
+        if ros is None:
+            ros = {}
+        if not isinstance(ros, dict) or 'use_sim_time' in ros:
+            return data
+
+        # 모르는 백엔드는 여기서 따지지 않는다 — `MoveItConfig` 가 이름을 검증해 거부한다.
+        profile = BACKEND_PROFILES[backend] if backend in BACKEND_PROFILES else None
+        if profile is None or profile.get('use_sim_time') is None:
+            return data
+        return {**data, 'ros': {**ros, 'use_sim_time': bool(profile['use_sim_time'])}}
 
     @model_validator(mode='after')
     def _check_unique_names(self) -> 'TwinConfig':

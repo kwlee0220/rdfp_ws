@@ -180,12 +180,12 @@ def test_a_large_camera_hz_change_is_raised() -> None:
 def test_backend_mismatch_is_raised_when_both_are_known() -> None:
     """관절-명령 레이블은 **백엔드를 섞으면 안 된다.**"""
     with pytest.raises(MetadataError, match='backend'):
-        _spec(backend='isaac').assert_compatible(_spec(backend='functionbay'))
+        _spec(backend='panda_isaac').assert_compatible(_spec(backend='panda_functionbay'))
 
 
 def test_an_unknown_backend_does_not_block() -> None:
     """아직 기록하지 않는 데이터가 있다 (R4 미구현)."""
-    _spec(backend='isaac').assert_compatible(_spec(backend=None))
+    _spec(backend='panda_isaac').assert_compatible(_spec(backend=None))
 
 
 # ── 4. metadata 조립 ────────────────────────────────────────────────────────
@@ -218,20 +218,20 @@ def test_notes_flag_the_missing_backend_and_model() -> None:
 
 
 def test_a_known_backend_leaves_no_note() -> None:
-    notes = ' '.join(_built(backend='isaac').notes)
+    notes = ' '.join(_built(backend='panda_isaac').notes)
 
     assert 'backend is unknown' not in notes
 
 
 def test_metadata_dict_round_trip() -> None:
     """저장했다 읽어도 같아야 배치가 쓸 수 있다."""
-    m = _built(backend='isaac')
+    m = _built(backend='panda_isaac')
 
     assert DatasetMetadata.from_dict(m.to_dict()) == m
 
 
 def test_metadata_survives_json() -> None:
     import json
-    m = _built(backend='isaac')
+    m = _built(backend='panda_isaac')
 
     assert DatasetMetadata.from_dict(json.loads(json.dumps(m.to_dict()))) == m

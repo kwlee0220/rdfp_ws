@@ -11,7 +11,7 @@
 # 한 번에 하는 것이 `./scripts/run_collect_functionbay.sh` 다. 이 스크립트는 수집 계층만
 # 따로 띄워 확인할 때 쓴다.
 #
-# `backend:=functionbay` 한 인자가 arm 명령 채널과 **압축 카메라 배선**을 프로파일에서
+# `backend:=panda_functionbay` 한 인자가 arm 명령 채널과 **압축 카메라 배선**을 프로파일에서
 # 가져온다 — `camera.source: compressed` 이므로 세션 레코더가 `input_format=mjpeg` 로
 # 압축 토픽을 직접 구독한다 (raw 로 되살릴 필요가 없다). 그 토픽은 시뮬레이터 원본
 # `/camera_image/compressed` 가 아니라 **제어 계층 `camera_restamp` 의 출력
@@ -41,4 +41,4 @@
 #   ./scripts/run_rdfp_panda_functionbay.sh enable_image_recorder:=false
 #   ./scripts/run_rdfp_panda_functionbay.sh --show-args
 
-ros2 launch rdfp rdfp_collect.launch.py backend:=functionbay "$@"
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_functionbay "$@"

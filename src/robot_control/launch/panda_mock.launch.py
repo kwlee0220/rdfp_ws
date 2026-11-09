@@ -54,7 +54,7 @@ from robot_control.launch_helpers.common import (
 from robot_control.launch_helpers.scene import create_mock_scene_node, declare_scene_arguments
 
 
-_BACKEND = get_backend("mock")
+_BACKEND = get_backend("panda_mock")
 
 
 def generate_launch_description() -> LaunchDescription:

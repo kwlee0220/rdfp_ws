@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Command name="rdfp_ready_command" robot="Panda_Robotiq">
+  <!-- rdfp 가 벤더 차트(panda_peginhole_g2)를 대신해 r2 씬에 거는 시작 차트다.          -->
+  <!-- 벤더 차트는 peg 를 집어 구멍에 넣는 시연(20 s)이라 시작할 때마다 씬이 바뀌고,     -->
+  <!-- 끝나기 전에 /input/* 로 명령이 가면 중간 자세로 끊긴다. 이 차트는 아무것도 집지     -->
+  <!-- 않는다 — 그리퍼를 연 채 팔만 ready 로 옮긴다. peg 는 처음 자리(peg_tray)에 남는다. -->
+  <!-- 설치 · 되돌리기: docs/backends/functionbay/펑션베이_시뮬레이터_사용법.md §2 ⑥      -->
+
+  <!-- ===================== Arm (7 joints) ===================== -->
+  <!-- Time  : 0=q0_robot(벤더 차트의 t=0 값 그대로), 1=그대로 유지, 4=ready             -->
+  <!-- Values: degrees. ready = SRDF group_state (0, -45, 0, -135, 0, 90, 45)            -->
+  <!-- q0 → ready 관절공간 직선 경로에서 링크4~손끝의 최저 높이는 0.38 m 다(FK 계산).    -->
+  <Arm>
+    <Joint Index="0">
+      <Position Time="0 1 4" Value="50.835 50.835 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="1">
+      <Position Time="0 1 4" Value="-17.481 -17.481 -45" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="2">
+      <Position Time="0 1 4" Value="-53.928 -53.928 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="3">
+      <Position Time="0 1 4" Value="-107.903 -107.903 -135" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="4">
+      <Position Time="0 1 4" Value="-14.168 -14.168 0" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="5">
+      <Position Time="0 1 4" Value="97.172 97.172 90" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+    <Joint Index="6">
+      <Position Time="0 1 4" Value="0.021 0.021 45" />
+      <Velocity Time="0 1 4" Value="0 0 0" />
+      <Torque   Time="0 1 4" Value="0 0 0" />
+    </Joint>
+  </Arm>
+  <!-- ===================== Gripper (2 joints) ================= -->
+  <!-- r2 규약: 2축 · degree. 0 = 완전 개방.                                           -->
+  <!-- ⚠️ 모든 관절에 Position/Velocity/Torque 세 줄을 다 둔다. 솔버 입력은 관절당 세 값  -->
+  <!-- (팔 7×3 + 그리퍼 2×3 = 27)이고, 한 줄이라도 빠지면 Player.log 에                   -->
+  <!-- "BuildUserInputs 채운 개수(23) != num_user_inputs(27)" 만 남기고 빈 입력으로 돈다 —  -->
+  <!-- 그리퍼가 명령을 안 따르고 보고값이 얼었다(2026-10-21, 첫 판이 그리퍼 두 줄을 빠뜨렸다). -->
+  <Gripper>
+    <Joint Index="0">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+    <Joint Index="1">
+      <Position Time="0 4" Value="0 0" />
+      <Velocity Time="0 4" Value="0 0" />
+      <Torque   Time="0 4" Value="0 0" />
+    </Joint>
+  </Gripper>
+</Command>

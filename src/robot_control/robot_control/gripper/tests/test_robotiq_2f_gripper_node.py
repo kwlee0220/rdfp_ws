@@ -23,7 +23,7 @@ from robot_control.gripper.profile import (                        # noqa: E402
 from robot_control.gripper.robotiq_2f_gripper_node import Robotiq2FGripperNode  # noqa: E402
 
 # 규약 시험은 **활성 씬이 아니라 규약 파일**을 읽는다 (2026-09-29, 씬을 t1 로 바꾸며).
-_CONFIG_DIR = os.path.dirname(gripper_profile_path('functionbay') or '')
+_CONFIG_DIR = os.path.dirname(gripper_profile_path('panda_functionbay') or '')
 
 
 def _convention(name: str):

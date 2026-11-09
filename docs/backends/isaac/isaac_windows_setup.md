@@ -224,7 +224,7 @@ ros2 launch robot_control panda_isaac.launch.py \
 
 ```bash
 ros2 launch robot_control panda_isaac.launch.py    # 제어
-ros2 launch rdfp rdfp_collect.launch.py backend:=isaac   # 수집 (다른 터미널)
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac   # 수집 (다른 터미널)
 ```
 
 ## 자주 막히는 곳
@@ -257,7 +257,7 @@ grep -h "internal rclpy for ROS Distro" \
 
 | 필요할 때 | 추가 작업 |
 |---|---|
-| 트윈 REST API | `ros2 run robot_twin robot_twin --config src/robot_twin/config/robot_twin_panda_isaac.yaml` (포트 8802) |
+| 트윈 REST API | `./scripts/run_robot_twin.sh --twin panda01` (트윈 `panda01` · 포트 8801) |
 | 데이터셋 DB 적재 | PostgreSQL 설치 + `RDFP_DB_DSN` 설정 + `ros2 run rdfp init-db` |
 
 ## 하드웨어 참고

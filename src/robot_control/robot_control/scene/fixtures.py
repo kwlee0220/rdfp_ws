@@ -4,7 +4,7 @@
 
     from robot_control.scene.fixtures import load_fixtures
 
-    fixtures = load_fixtures('functionbay')
+    fixtures = load_fixtures('panda_functionbay')
     hole = fixtures['peg_hole']
     x, y, z = hole.entry_point()        # 구멍 입구 (panda_link0 기준)
 

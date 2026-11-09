@@ -35,7 +35,7 @@ import sys
 # **지금 쓰는 빌드**를 가리킨다 — 새 빌드를 받으면 여기를 바꾸거나 `FB_MMR_DATABASE` 를 둔다.
 # 옛 빌드를 가리키면 그 빌드의 `SolverConfig.json` 으로 씬을 판별해 조용히 틀린다. `fb_wait_chart` 도 이 값을 쓴다.
 DEFAULT_DATABASE = '/mnt/d/MMR-Build_260929/MMR_Database'
-BACKEND = 'functionbay'
+BACKEND = 'panda_functionbay'
 # 2026-09-11 실측. 새 빌드에서 달라지면 이 표와 비교해 드러낸다.
 KNOWN = {
     ('t1', 'arm'): 2000.0, ('t1', 'gripper'): 200.0,
@@ -139,7 +139,7 @@ def main() -> None:
     ratio = actual / ours
     print(f'  ⚠️ **불일치 (실제/설정 = {ratio:.2f})** — 보상이 '
           f'{"과" if ratio < 1 else "미"}보정된다')
-    print(f'     config/backends/functionbay.yaml 의 '
+    print(f'     config/backends/panda_functionbay.yaml 의 '
           f'motion.gravity_compensation.kp 를 {actual:g} 로 고치고 재빌드한다.')
     raise SystemExit(1)
 

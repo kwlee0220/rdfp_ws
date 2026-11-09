@@ -18,7 +18,7 @@ MINIMAL: dict[str, Any] = {
     'moveit': {'move_group_mode': 'jtc'}
 }
 
-# 배포 설정(`config/robot_twin_panda01.yaml`)의 그리퍼 연산과 같은 모양이다.
+# 배포 설정(`config/twins/mock01.yaml`)의 그리퍼 연산과 같은 모양이다.
 GRIPPER_BACKEND: dict[str, Any] = {'topic': '/gripper_cmds',
                                    'topic_type': 'rdfp_msgs/msg/GripperCommand',
                                    'result_variable': 'gripper_last_command_result'}
@@ -200,7 +200,7 @@ def test_shipped_config_derives_gripper_labels() -> None:
 
     단위 테스트가 전부 인라인 dict 라 실제 YAML 의 오타를 잡을 그물이 없었다.
     """
-    path = Path(__file__).resolve().parents[3] / 'config' / 'robot_twin_panda01.yaml'
+    path = Path(__file__).resolve().parents[2] / 'config' / 'twins' / 'mock01.yaml'
     if not path.exists():
         pytest.skip(f'shipped config not found: {path}')
 
@@ -248,7 +248,7 @@ def test_load_config_rejects_non_mapping(tmp_path) -> None:
 def test_backend_fills_velocity_scaling_from_the_profile():
     """트윈은 `backend=` 를 팩토리에 안 넘기고 **값으로 펼치므로**, 여기서 안 채우면
     프로파일에 적어도 트윈에만 안 먹는다."""
-    cfg = MoveItConfig.model_validate({'backend': 'functionbay'})
+    cfg = MoveItConfig.model_validate({'backend': 'panda_functionbay'})
 
     assert cfg.velocity_scaling == 0.4
     assert cfg.client_kwargs()['velocity_scaling'] == 0.4
@@ -256,14 +256,14 @@ def test_backend_fills_velocity_scaling_from_the_profile():
 
 def test_explicit_velocity_scaling_beats_the_profile():
     """**명시한 키가 이긴다** — 이 클래스의 다른 값들과 같은 규칙이다."""
-    cfg = MoveItConfig.model_validate({'backend': 'functionbay', 'velocity_scaling': 0.1})
+    cfg = MoveItConfig.model_validate({'backend': 'panda_functionbay', 'velocity_scaling': 0.1})
 
     assert cfg.velocity_scaling == 0.1
 
 
 def test_backend_without_the_block_leaves_it_unset():
     """프로파일에 없으면 키를 안 넘겨 팩토리/생성자 기본값이 살아야 한다."""
-    cfg = MoveItConfig.model_validate({'backend': 'mock'})
+    cfg = MoveItConfig.model_validate({'backend': 'panda_mock'})
 
     assert cfg.velocity_scaling is None
     assert 'velocity_scaling' not in cfg.client_kwargs()
@@ -271,7 +271,7 @@ def test_backend_without_the_block_leaves_it_unset():
 
 def test_velocity_scaling_is_allowed_on_jtc():
     """JGPC 전용 키가 아니다 — 두 클라이언트가 다 쓴다. JTC 에서 거부되면 안 된다."""
-    cfg = MoveItConfig.model_validate({'backend': 'mock', 'velocity_scaling': 0.4})
+    cfg = MoveItConfig.model_validate({'backend': 'panda_mock', 'velocity_scaling': 0.4})
 
     assert cfg.move_group_mode == 'jtc'
     assert cfg.client_kwargs()['velocity_scaling'] == 0.4

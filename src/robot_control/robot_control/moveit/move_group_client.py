@@ -4,6 +4,7 @@ from typing import Optional
 
 import abc
 import copy
+import dataclasses
 import math
 import threading
 import time
@@ -68,6 +69,25 @@ _MOVE_GROUP_ACTION = '/move_action'
 _MOVE_GROUP_NODE_NAME = '/move_group'
 
 
+@dataclasses.dataclass(frozen=True)
+class CartesianPathResult:
+    """:meth:`MoveGroupClient.follow_trajectory_async` 의 결과.
+
+    ``fraction`` 은 요청한 경로 중 MoveIt 이 계획해 **실행으로 넘긴** 비율(0~1)이다.
+    임계값 미만은 ``PlanningError`` 로 끝나므로 여기 오는 값은 임계값 이상이다.
+    **도달을 뜻하지 않는다** — 1.0 이어도 open loop(JGPC)는 덜 갔을 수 있다. 쓸모는
+    못 갔을 때 원인을 가르는 것이다: 1.0 미만이면 경로 도중에 IK 해가 없거나 관절이
+    급변한 기하 문제라 같은 목표로 다시 불러도 결과가 같다.
+
+    Attributes:
+        fraction: 계획된 경로 비율. MoveIt ``GetCartesianPath`` 응답 그대로다.
+        published: 스트리밍 구현(JGPC)이 발행한 명령 수. 액션 구현(JTC)은 ``None``.
+    """
+
+    fraction: float
+    published: Optional[int] = None
+
+
 class MoveGroupClient(abc.ABC):
     """MoveIt2 motion planning 클라이언트의 **공통 인터페이스** (추상 클래스).
 
@@ -88,7 +108,7 @@ class MoveGroupClient(abc.ABC):
 
         from robot_control.moveit import create_move_group_client
 
-        with create_move_group_client(node, backend='mock') as client:
+        with create_move_group_client(node, backend='panda_mock') as client:
             client.wait_until_ready()
             client.move_to_named_target('ready')
 
@@ -611,7 +631,8 @@ class MoveGroupClient(abc.ABC):
         """:meth:`follow_trajectory` 의 비동기 버전.
 
         Returns:
-            최종 결과를 담는 ``Future``.
+            :class:`CartesianPathResult` 로 resolve 되는 ``Future``. 실패하면 예외가
+            설정된다.
         """
 
     # ----- Named target — 계획 전용 (컨트롤러 무관) --------------------------

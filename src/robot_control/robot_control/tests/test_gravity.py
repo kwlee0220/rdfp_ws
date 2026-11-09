@@ -40,7 +40,7 @@ def _urdf_path() -> str:
 
 # **활성 백엔드에서 만들지 않는다.** 이 파일이 검증하는 것은 *모델*이고, 어느 씬을 띄웠는지는
 # 운영 선택이다. 2026-09-30 에 `r2` 가 벤더 보상을 받게 되어 프로파일에서 블록을 지웠더니
-# `load_gravity_compensator('functionbay')` 가 `None` 이 되어 **모델이 멀쩡한데 15건이 깨졌다.**
+# `load_gravity_compensator('panda_functionbay')` 가 `None` 이 되어 **모델이 멀쩡한데 15건이 깨졌다.**
 @pytest.fixture(scope='module')
 def comp():
     return GravityCompensator(_urdf_path(), ARM_JOINTS, 2000.0, scale=1.0)
@@ -60,7 +60,7 @@ def test_the_loader_follows_the_profile_both_ways():
     """
     from robot_control.backend_profiles import BACKEND_PROFILES
 
-    for backend in ('functionbay', 'mock', 'isaac'):
+    for backend in ('panda_functionbay', 'panda_mock', 'panda_isaac'):
         spec = (BACKEND_PROFILES[backend].get('motion') or {}).get('gravity_compensation')
         built = load_gravity_compensator(backend)
 
@@ -79,7 +79,7 @@ def test_the_model_covers_the_seven_arm_joints(comp):
 
 def test_backends_without_the_key_get_none():
     """**`None` 이 정상 경로다** — mock·Isaac 은 컨트롤러가 중력을 스스로 잡는다."""
-    assert load_gravity_compensator('mock') is None
+    assert load_gravity_compensator('panda_mock') is None
 
 
 # ----- 실측 대조 — 이 모듈이 존재하는 이유다 ----------------------------------
@@ -205,7 +205,7 @@ def test_describe_follows_the_profile():
     """
     from robot_control.backend_profiles import BACKEND_PROFILES
 
-    for backend in ('functionbay', 'mock', 'isaac'):
+    for backend in ('panda_functionbay', 'panda_mock', 'panda_isaac'):
         spec = (BACKEND_PROFILES[backend].get('motion') or {}).get('gravity_compensation')
         text = describe(backend)
 

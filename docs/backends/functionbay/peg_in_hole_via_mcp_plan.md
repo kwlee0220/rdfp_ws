@@ -14,7 +14,7 @@
 
 | # | 단계 | 상태 | 근거 |
 |:-:|---|:-:|---|
-| **1** | 펑션베이용 트윈 설정 작성 | ✅ **완료** (09-11) | `robot_twin_panda_functionbay.yaml` · 포트 8803 · `mode=jgpc` · `/health` READY · `move_to_named_target ready` COMPLETED · `move_gripper_to_target open` `at_goal=True` |
+| **1** | 펑션베이용 트윈 설정 작성 | ✅ **완료** (09-11) | `robot_twin_panda01_functionbay.yaml`(현 `config/twins/rdfp01.yaml`) · 포트 8803(2026-10-21 부터 8801 — 트윈 id 가 환경 무관 `panda01`) · `mode=jgpc` · `/health` READY · `move_to_named_target ready` COMPLETED · `move_gripper_to_target open` `at_goal=True` |
 | **2** | 프레임 문제 해결 (`grasp_center` ↔ `panda_link8`) | ✅ **완료** (09-11) | `ee_pose` 를 그대로 `move_linear` 에 넣어 **0.00 mm** (전 149) · `frame: panda_link8` 은 **149.27 mm** 로 옛 동작 보존 · 모르는 프레임 **400** |
 | **3** | 고정물 정보를 트윈에 노출 | ✅ **완료** (09-11) | `read_state fixtures` 가 `peg_hole`·`peg_tray` 를 `quality: OK` 로 준다 · 입구 z **+0.028** · 깊이 **25 mm** · 안지름 **17.0 mm** · `scene_objects` 와 둘만으로 *"다른 자리"* 가 `peg_tray` 로 **모호함 없이** 풀린다 |
 | **4** | 클라이언트 절차 구현 (`peg_in_hole.py`) | ✅ **완료** (09-11) | **왕복 4/4 · 양방향** · 삽입 오차 최대 **0.33 mm**(전부 0.5 mm 안) · 밀림 −0.17~−0.20 mm · 기하 확인·앉음 확인·정렬 되먹임 전부 실동작 · 시험 127건 |
@@ -42,7 +42,7 @@ MCP 서버        /home/kwlee/development/mdtpy/robot-twin-client/src/robot_twin
 
 MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈의 `/variables` ·
 `/operations` 카탈로그를 읽어 도구 목록을 자동 생성한다. 설계서:
-[로봇_트윈_MCP_서버_설계서.md](../../twin/로봇_트윈_MCP_서버_설계서.md) (구현 완료 v1).
+[로봇_트윈_MCP_서버_설계_및_운영_가이드.md](../../../../../mdtpy/robot-twin-client/docs/로봇_트윈_MCP_서버_설계_및_운영_가이드.md) (구현 완료 v1).
 
 ### 1.2 트윈이 이미 주는 것
 
@@ -74,7 +74,7 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈�
 
 ### 1.4 중력 보상은 그냥 따라온다
 
-트윈이 `create_move_group_client(backend='functionbay')` 로 클라이언트를 만들면 팩토리가
+트윈이 `create_move_group_client(backend='panda_functionbay')` 로 클라이언트를 만들면 팩토리가
 프로파일에서 보상기를 채운다. **트윈·MCP 쪽 코드 변경이 필요 없다.**
 
 ---
@@ -83,12 +83,12 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈�
 
 ### 2.1 펑션베이용 트윈 설정이 없다 → **1단계**
 
-`src/robot_twin/config/` 에 `robot_twin_panda01.yaml`(mock)과
-`robot_twin_panda_isaac.yaml` 뿐이다. 펑션베이용이 없다.
+`src/robot_twin/config/` 에 `robot_twin_panda01_mock.yaml`(mock)과
+`robot_twin_panda01_isaac.yaml`(현 `config/twins/panda01.yaml`) 뿐이다. 펑션베이용이 없다.
 
 **주의할 것**
 
-- `moveit.backend: functionbay` 한 줄이면 명령 채널 넷이 프로파일에서 채워진다
+- `twin.backend: panda_functionbay` 한 줄이면 명령 채널 넷이 프로파일에서 채워진다 (2026-10-21 전에는 `moveit.backend`)
 - **`check_action_server` 는 꺼야 한다** — 트윈은 컨트롤러보다 먼저 뜰 수 있다
 - **`reset_scene` 을 넣으면 안 된다** — 펑션베이는 `/scene/reset` 을 제공하지 않아
   매번 실패한다 (CLAUDE.md 에 명시)
@@ -152,10 +152,10 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈�
 
 ### 1단계 — 펑션베이용 트윈 설정
 
-**만들 것** `src/robot_twin/config/robot_twin_panda_functionbay.yaml`
+**만들 것** `src/robot_twin/config/robot_twin_panda01_functionbay.yaml`(현 `config/twins/rdfp01.yaml`)
 
 **하는 일**
-- `robot_twin_panda_isaac.yaml` 을 바탕으로 `moveit.backend: functionbay`
+- `robot_twin_panda01_isaac.yaml`(현 `config/twins/panda01.yaml`) 을 바탕으로 `twin.backend: panda_functionbay`
 - `reset_scene` **제외**, `check_action_server: false`
 - 변수 넷(`joint_states` · `ee_pose` · `gripper_state` · `scene_objects`) 유지
 - **모든 `description` 을 펑션베이 기준으로 다시 쓴다** — MCP 도구 설명이 된다
@@ -164,7 +164,7 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈�
 
 | 기준 | 결과 |
 |---|---|
-| 트윈이 뜬다 | ✅ 포트 **8803**, `mode=jgpc`, `/health` `move_group: READY` |
+| 트윈이 뜬다 | ✅ 포트 **8803**(지금은 8801), `mode=jgpc`, `/health` `move_group: READY` |
 | `GET /variables` | ✅ `joint_states` · `ee_pose` · `gripper_state` · `scene_objects` · `session_state` · `named_targets` |
 | `scene_objects` 에 `peg` | ✅ `(+0.5000, +0.0000, +0.0280)` |
 | `GET /operations` | ✅ `move_linear` · `move_gripper_to_target` · `move_to_named_target` · `move_to_joints` · 세션 4종 (**`reset_scene` 없음** — 의도) |
@@ -263,7 +263,7 @@ MCP 서버는 **별도 저장소**(`mdtpy/robot-twin-client`)에 있고 트윈�
 |---|---|
 | `robot_control/scene/fixtures.py` | `as_payload()` — `FixtureSet` → JSON 가능한 값. **좌표 합성을 아는 쪽이 편다** |
 | `robot_twin/runtime.py` | `_STATIC_PROVIDERS` + `_fetch_fixtures()` |
-| `robot_twin_panda_functionbay.yaml` | `fixtures` 변수 (`static`, `staleness_ms: null`) |
+| `robot_twin_panda01_functionbay.yaml` | `fixtures` 변수 (`static`, `staleness_ms: null`) |
 
 시험 `robot_twin` **245 passed / 26 skipped** (240 → +5), `robot_control` **512 passed / 1 skipped** (508 → +4).
 
@@ -677,7 +677,7 @@ peg 을 놓는 순간 물체를 잃는다 — **도구 이름을 대어 막는�
 
 ## 6. 참고
 
-- [로봇_트윈_MCP_서버_설계서.md](../../twin/로봇_트윈_MCP_서버_설계서.md) — MCP 서버 설계 (구현 완료 v1)
+- [로봇_트윈_MCP_서버_설계_및_운영_가이드.md](../../../../../mdtpy/robot-twin-client/docs/로봇_트윈_MCP_서버_설계_및_운영_가이드.md) — MCP 서버 설계 (구현 완료 v1)
 - [로봇_트윈_설계서.md](../../twin/로봇_트윈_설계서.md) · [로봇_트윈_사용자_가이드.md](../../twin/로봇_트윈_사용자_가이드.md)
 - [../simulation/펑션베이_중력_보상.md](펑션베이_중력_보상.md) — 중력 보상
 - [../simulation/펑션베이_인수_체크리스트.md](펑션베이_인수_체크리스트.md) §B-18 — peg-in-hole 왕복 실측

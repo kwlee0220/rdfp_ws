@@ -12,6 +12,16 @@ orchestration 코드는 그대로다.
 타임아웃 안에 메시지가 오지 않으면 **0 이 아닌 코드로 종료**한다. 시뮬레이터가
 떠 있지 않은데 상위 스택이 올라가 조용히 멈춘 것처럼 보이는 상황을 막는다.
 
+**씬 대조** — `expected_gripper_axes` 를 주면 그리퍼 보고도 하나 받아 **축 수를 프로파일의
+씬과 맞춰 본다**(펑션베이 `r2` 2축 · `t1` 6축). 다르면 종료 코드 2 로 끝나 launch 가 내려간다.
+시뮬레이터를 다른 씬(`-Model`)으로 띄우고 프로파일 `sim_scene` 을 안 바꾸면 예전에는 스택이
+멀쩡히 올라왔다가 **그리퍼 명령이 거부될 때에야** 드러났다(2026-10-20).
+
+**씬 대조** — `expected_gripper_axes` 를 주면 그리퍼 보고도 하나 받아 **축 수를 프로파일의
+씬과 맞춰 본다**(펑션베이 `r2` 2축 · `t1` 6축). 다르면 종료 코드 2 로 끝나 launch 가 내려간다.
+시뮬레이터를 다른 씬(`-Model`)으로 띄우고 프로파일 `sim_scene` 을 안 바꾸면 예전에는 스택이
+멀쩡히 올라왔다가 **그리퍼 명령이 거부될 때에야** 드러났다(2026-10-20).
+
 파라미터
 --------
 ============= ====================== ==========================================
@@ -19,10 +29,15 @@ orchestration 코드는 그대로다.
 ============= ====================== ==========================================
 topic         /output/panda_joint    기다릴 토픽 (`sensor_msgs/JointState`)
 timeout_sec   60.0                   이 시간 안에 안 오면 실패 종료
+gripper_topic ""                     씬 대조에 쓸 그리퍼 보고 토픽. 비우면 안 본다
+expected_gripper_axes 0              프로파일 씬의 그리퍼 축 수. 0 이면 안 본다
+sim_scene     ""                     프로파일의 씬 이름 (오류 메시지용)
 ============= ====================== ==========================================
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 import time
 
@@ -33,7 +48,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import JointState
 
-from robot_control.ros2_utils import get_parameter, parse_float, parse_str
+from robot_control.ros2_utils import get_parameter, parse_float, parse_int, parse_str
 
 _DEFAULT_TOPIC = '/output/panda_joint'
 _DEFAULT_TIMEOUT_SEC = 60.0
@@ -45,26 +60,42 @@ _PROGRESS_INTERVAL_SEC = 5.0
 class ReadinessGateNode(Node):
     """지정 토픽의 첫 메시지를 받을 때까지 대기한다."""
 
-    def __init__(self) -> None:
-        super().__init__('readiness_gate')
+    def __init__(self, **kwargs) -> None:
+        # `kwargs` 는 `Node` 로 그대로 넘긴다 — 시험이 `parameter_overrides` 를 준다.
+        super().__init__('readiness_gate', **kwargs)
 
         self.declare_parameter('topic', _DEFAULT_TOPIC)
         self.declare_parameter('timeout_sec', _DEFAULT_TIMEOUT_SEC)
+        self.declare_parameter('gripper_topic', '')
+        self.declare_parameter('expected_gripper_axes', 0)
+        self.declare_parameter('sim_scene', '')
 
         self._topic = get_parameter(self, 'topic', parse_str)
         self._timeout_sec = get_parameter(self, 'timeout_sec', parse_float)
         if self._timeout_sec <= 0.0:
             raise ValueError(f"'timeout_sec' must be > 0, got {self._timeout_sec}")
+        self._gripper_topic = get_parameter(self, 'gripper_topic', parse_str).strip()
+        self._expected_axes = get_parameter(self, 'expected_gripper_axes', parse_int)
+        self._sim_scene = get_parameter(self, 'sim_scene', parse_str).strip()
+        self._check_scene = bool(self._gripper_topic) and self._expected_axes > 0
 
         self._received = False
+        self._gripper_axes: Optional[int] = None
         self._elapsed = 0.0
         self._subscription = self.create_subscription(
             JointState, self._topic, self._on_message, _DEFAULT_QUEUE_SIZE)
+        if self._check_scene:
+            self._gripper_subscription = self.create_subscription(
+                JointState, self._gripper_topic, self._on_gripper, _DEFAULT_QUEUE_SIZE)
         self.create_timer(_PROGRESS_INTERVAL_SEC, self._on_progress)
 
         self.get_logger().info(
             f"Waiting for the simulator: first message on '{self._topic}' "
             f'(timeout {self._timeout_sec:.0f}s)')
+        if self._check_scene:
+            self.get_logger().info(
+                f"Scene check: expecting {self._expected_axes} gripper axes on "
+                f"'{self._gripper_topic}' (profile sim_scene {self._sim_scene or '?'!r})")
 
     @property
     def received(self) -> bool:
@@ -75,6 +106,29 @@ class ReadinessGateNode(Node):
     def topic(self) -> str:
         """기다리는 토픽 이름."""
         return self._topic
+
+    @property
+    def ready(self) -> bool:
+        """기동 완료 — 관절 보고를 받았고, 씬 대조를 켰으면 그리퍼 보고도 받았다."""
+        return self._received and (not self._check_scene or self._gripper_axes is not None)
+
+    @property
+    def scene_mismatch(self) -> bool:
+        """그리퍼 축 수가 프로파일의 씬과 다르다."""
+        return (self._check_scene and self._gripper_axes is not None
+                and self._gripper_axes != self._expected_axes)
+
+    def mismatch_message(self) -> str:
+        """씬 불일치 설명 — 무엇을 고치면 되는지까지 말한다."""
+        return (f"Scene mismatch: the simulator reports {self._gripper_axes} gripper axes on "
+                f"'{self._gripper_topic}', but the profile's sim_scene "
+                f"{self._sim_scene or '?'!r} expects {self._expected_axes}. Set `sim_scene` in "
+                'config/backends/panda_functionbay.yaml to the scene the simulator was started with '
+                '(-Model <scene>_ms), rebuild robot_control and relaunch')
+
+    def waiting_for(self) -> str:
+        """아직 안 온 토픽."""
+        return self._topic if not self._received else self._gripper_topic
 
     @property
     def timeout_sec(self) -> float:
@@ -90,13 +144,23 @@ class ReadinessGateNode(Node):
             f"Simulator is ready: got {len(msg.position)} joint position(s) on "
             f"'{self._topic}'")
 
+    def _on_gripper(self, msg: JointState) -> None:
+        """그리퍼 보고의 축 수를 한 번만 기록한다."""
+        if self._gripper_axes is not None:
+            return
+        self._gripper_axes = len(msg.position)
+        if self._gripper_axes == self._expected_axes:
+            self.get_logger().info(
+                f"Scene check passed: {self._gripper_axes} gripper axes "
+                f"(sim_scene {self._sim_scene or '?'!r})")
+
     def _on_progress(self) -> None:
         """대기 중임을 주기적으로 알린다 (조용히 멈춘 것처럼 보이지 않게)."""
-        if self._received:
+        if self.ready:
             return
         self._elapsed += _PROGRESS_INTERVAL_SEC
         self.get_logger().warning(
-            f"Still waiting for '{self._topic}' ({self._elapsed:.0f}/"
+            f"Still waiting for '{self.waiting_for()}' ({self._elapsed:.0f}/"
             f'{self._timeout_sec:.0f}s) — is the simulator running?')
 
 
@@ -115,13 +179,19 @@ def main(args=None) -> int:
         # 기동 게이트가 재려는 것은 시뮬레이션 시간이 아니라 사람이 기다리는
         # 실제 시간이므로 monotonic 이 맞다.
         deadline = time.monotonic() + node.timeout_sec
-        while rclpy.ok() and not node.received:
+        while rclpy.ok() and not node.ready:
             rclpy.spin_once(node, timeout_sec=0.1)
+            if node.scene_mismatch:
+                node.get_logger().error(node.mismatch_message())
+                return 2
             if time.monotonic() >= deadline:
                 node.get_logger().error(
                     f"Timed out after {node.timeout_sec:.0f}s waiting for "
-                    f"'{node.topic}'; the simulator did not publish")
+                    f"'{node.waiting_for()}'; the simulator did not publish")
                 return 1
+        if node.scene_mismatch:
+            node.get_logger().error(node.mismatch_message())
+            return 2
         return 0
     except KeyboardInterrupt:
         return 0

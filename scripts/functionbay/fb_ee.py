@@ -142,7 +142,7 @@ def main() -> None:
 
     # auto 는 /panda_arm_controller/commands 를 찾는데 이 스택에는 없다 — 백엔드를
     # 명시하면 mode 와 명령 채널을 `BACKEND_PROFILES` 가 채운다.
-    client = create_move_group_client(node, backend='functionbay')
+    client = create_move_group_client(node, backend='panda_functionbay')
     client.wait_until_ready(timeout_sec=30.0)
     print(f'client: {type(client).__name__}\n')
 

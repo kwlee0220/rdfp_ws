@@ -91,8 +91,8 @@ from robot_control.launch_helpers.scene import create_mock_scene_node, declare_s
 
 # JGPC 용 controller 설정 YAML 의 상대 경로. setup.py 가 ``config/*`` 를
 # ``share/rdfp/config/`` 로 설치하므로 package share 에서 읽는다.
-# **백엔드별 값은 `config/backends/mock_jgpc.yaml` 에 있다.**
-_BACKEND = get_backend("mock_jgpc")
+# **백엔드별 값은 `config/backends/panda_mock_jgpc.yaml` 에 있다.**
+_BACKEND = get_backend("panda_mock_jgpc")
 
 # JGPC 가 구독하는 명령 토픽. forward_command_controller 는 ``~/commands`` 를
 # 사용하므로 controller 이름 기준으로 아래 경로가 된다.
@@ -107,7 +107,7 @@ def _controllers_config_path() -> str:
 def _override_servo_params_for_jgpc(servo_params: dict[str, Any]) -> dict[str, Any]:
     """servo 출력을 JGPC 의 Float64MultiArray 명령 토픽으로 돌린다.
 
-    **값과 규칙은 백엔드가 갖는다** (`config/backends/mock_jgpc.yaml` +
+    **값과 규칙은 백엔드가 갖는다** (`config/backends/panda_mock_jgpc.yaml` +
     `robot_control.backends`). 여기서 되적으면 두 곳이 갈리고, 그 어긋남은 에러가
     아니라 "servo 가 안 뜬다" 로만 보인다.
 

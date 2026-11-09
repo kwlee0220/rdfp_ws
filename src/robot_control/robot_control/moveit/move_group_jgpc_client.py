@@ -14,6 +14,7 @@ from robot_control.moveit.move_group_client import (
     MOVE_GROUP_TIMEOUT_SEC,
     PLAN_TIMEOUT_SEC,
     TRAJECTORY_EXEC_TIMEOUT_SEC,
+    CartesianPathResult,
     MoveGroupClient,
 )
 from robot_control.moveit.motion_event_publisher import (
@@ -385,7 +386,9 @@ class MoveGroupJgpcClient(MoveGroupClient):
         스레드 순으로 체인을 구성한다.
 
         Returns:
-            발행한 point 개수로 resolve 되는 ``Future``.
+            :class:`CartesianPathResult` 로 resolve 되는 ``Future``. ``published`` 에
+            발행한 point 개수가 실린다. **스트리밍은 open loop 라** ``fraction`` 은
+            명령한 범위이지 도달한 범위가 아니다.
         """
         self._require_open()
         vs = self._resolve_velocity_scaling(velocity_scaling)
@@ -399,11 +402,14 @@ class MoveGroupJgpcClient(MoveGroupClient):
         goal = OperationTarget(operation=OPERATION_CARTESIAN,
                                pose=waypoints[-1] if waypoints else None,
                                frame=self._tip_frame if waypoints else '')
+        # 계획 응답의 경로 비율. 스트리밍 결과에 실어 호출자가 부분 경로를 알게 한다.
+        planned_fraction = 0.0
         plan_future = self.plan_trajectory_async(waypoints, max_step=max_step,
                                                  jump_threshold=jump_threshold)
 
         def _on_plan_done(future: Future) -> None:
             """계획 서비스 응답 콜백: 결과 검증 후 스트리밍 스레드로 넘긴다."""
+            nonlocal planned_fraction
             try:
                 exc = future.exception()
                 if exc is not None:
@@ -437,6 +443,7 @@ class MoveGroupJgpcClient(MoveGroupClient):
                 self._node.get_logger().info(
                     f'Path planning successful (fraction: {response.fraction})'
                 )
+                planned_fraction = float(response.fraction)
                 trajectory = response.solution
                 if vs != 1.0:
                     trajectory = self.scale_trajectory_velocity(trajectory, vs)
@@ -463,7 +470,8 @@ class MoveGroupJgpcClient(MoveGroupClient):
                 self._node.get_logger().info(
                     f'Cartesian path streaming done: {published} point(s)'
                 )
-                result_future.set_result(published)
+                result_future.set_result(CartesianPathResult(fraction=planned_fraction,
+                                                             published=published))
             except Exception as exc:
                 result_future.set_exception(exc)
 

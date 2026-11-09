@@ -173,13 +173,13 @@ def test_profile_derived_values_agree_with_the_launch(actual):
     에러가 아니라 "명령이 안 먹는다" 로 나타난다.
     """
     checks = [
-        ('panda_isaac', 'isaac', 'camera_image_topic', ('camera', 'image_topic')),
-        ('panda_isaac', 'isaac', 'servo_linear_scale', ('servo', 'linear_scale')),
-        ('panda_isaac', 'isaac', 'servo_joint_source', ('servo', 'joint_source')),
-        ('panda_functionbay', 'functionbay', 'camera_image_topic', ('camera', 'image_topic')),
-        ('panda_functionbay', 'functionbay', 'camera_compressed_topic',
+        ('panda_isaac', 'panda_isaac', 'camera_image_topic', ('camera', 'image_topic')),
+        ('panda_isaac', 'panda_isaac', 'servo_linear_scale', ('servo', 'linear_scale')),
+        ('panda_isaac', 'panda_isaac', 'servo_joint_source', ('servo', 'joint_source')),
+        ('panda_functionbay', 'panda_functionbay', 'camera_image_topic', ('camera', 'image_topic')),
+        ('panda_functionbay', 'panda_functionbay', 'camera_compressed_topic',
          ('camera', 'compressed_topic')),
-        ('panda_functionbay', 'functionbay', 'servo_linear_scale', ('servo', 'linear_scale')),
+        ('panda_functionbay', 'panda_functionbay', 'servo_linear_scale', ('servo', 'linear_scale')),
     ]
     for launch_name, backend, argument, (block, key) in checks:
         profile_value = str((BACKEND_PROFILES[backend].get(block) or {})[key])
@@ -189,7 +189,7 @@ def test_profile_derived_values_agree_with_the_launch(actual):
 
 def test_camera_source_row_matches_the_profiles():
     """프로파일 횡단표의 `camera.source` 행."""
-    expected = {'mock': 'device', 'mock_jgpc': 'device',
-                'isaac': 'native', 'functionbay': 'compressed'}
+    expected = {'panda_mock': 'device', 'panda_mock_jgpc': 'device',
+                'panda_isaac': 'native', 'panda_functionbay': 'compressed'}
     for name, source in expected.items():
         assert (BACKEND_PROFILES[name].get('camera') or {}).get('source') == source, name

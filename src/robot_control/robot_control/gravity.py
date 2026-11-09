@@ -4,7 +4,7 @@
 
     from robot_control.gravity import load_gravity_compensator
 
-    comp = load_gravity_compensator('functionbay')
+    comp = load_gravity_compensator('panda_functionbay')
     q_cmd = comp.compensate(q_desired)      # 이 값을 발행한다
 
 펑션베이의 관절 제어는 **중력 보상이 없는 유한 강성 위치 제어**다. 그래서 정상상태에서

@@ -2,7 +2,7 @@
 #
 # **JTC 다** (2026-09-05). controller_manager 가 ROS 쪽에서 돌아 mock 과 같은 그림이
 # 됐고, MoveGroup/ExecuteTrajectory 액션으로 실행이 완료 판정된다(개루프가 아니다).
-name: isaac
+name: panda_isaac
 # 값으로 표현되지 않는 이 백엔드만의 코드가 있는 곳.
 factory: robot_control.backends.isaac:IsaacBackend
 description: Isaac Sim + topic_based_ros2_control (JTC, 물리 있음)

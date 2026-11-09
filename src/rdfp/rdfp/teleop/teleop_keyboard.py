@@ -17,6 +17,7 @@ from control_msgs.msg import JointJog
 from std_msgs.msg import Int8
 from rdfp_msgs.msg import GripperCommand
 
+from robot_control.backend_profiles import canonical_backend
 from robot_control.moveit import backends, create_move_group_client
 from std_srvs.srv import Trigger
 
@@ -431,10 +432,12 @@ class TeleopKeyboard(Node):
         if not value:
             raise ValueError(
                 f"the 'backend' parameter is required; pick one of {list(backends())} "
-                "(e.g. --ros-args -p backend:=isaac)")
+                "(e.g. --ros-args -p backend:=panda_isaac)")
+        # 옛 이름(`isaac` 등)은 지금 이름으로 바꿔 받는다(경고).
+        value = canonical_backend(str(value))
         if value not in backends():
             raise ValueError(f"backend must be one of {list(backends())}, got {value!r}")
-        return str(value)
+        return value
 
     def _create_move_group(self):
         """`backend` 프로파일로 MoveGroup 클라이언트를 만든다.

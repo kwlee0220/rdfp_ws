@@ -4,7 +4,7 @@
 
     from robot_control.gripper.profile import load_gripper_profile
 
-    profile = load_gripper_profile('functionbay')
+    profile = load_gripper_profile('panda_functionbay')
     profile.command(0.725)        # 심볼이 아니라 스칼라 s [rad] 를 받는다
 
 그 토픽은 `Float64MultiArray` 라 이름이 없고 **배열 순서가 곧 계약**인데, 그 순서와
@@ -166,6 +166,12 @@ def _verify_solver(backend: str, profile: GripperProfile) -> None:
         raise ValueError(
             f'{profile.path}: solver={profile.solver!r} 인데 백엔드 {backend!r} 는 '
             f'{declared!r} 라고 선언한다 — 둘 중 하나가 낡았다')
+    # 씬 이름도 맞춰 본다 — 같은 솔버를 쓰는 씬이 둘 이상이면 솔버만으로는 못 가른다.
+    scene = BACKEND_PROFILES[backend].get('sim_scene')
+    if scene and profile.scene and scene != profile.scene:
+        raise ValueError(
+            f'{profile.path}: scene={profile.scene!r} 인데 백엔드 {backend!r} 는 '
+            f'sim_scene {scene!r} 를 고른다 — sim_scenes.{scene} 의 gripper.profile_file 을 본다')
 
 
 def load_gripper_profile_file(path: str) -> GripperProfile:

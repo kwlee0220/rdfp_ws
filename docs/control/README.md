@@ -82,7 +82,7 @@
 > ⚠️ **펑션베이의 그리퍼 명령 규약은 씬마다 다르다** — `t1`(Crisp)은 6축·라디안·
 > 위치 나열, `r2`(RecurDyn)은 2축·**도**·관절당 `(p, v, f)` 다. 틀리면 에러가 아니라
 > "거의 안 움직인다"(1.745%)로 나타난다. 규약은 `config/functionbay_gripper_*.json`
-> 이 갖고 `config/backends/functionbay.yaml` 의 `gripper.profile_file` 이 가리킨다.
+> 이 갖고 `config/backends/panda_functionbay.yaml` 의 `gripper.profile_file` 이 가리킨다.
 > 근거: [../backends/functionbay/펑션베이_백엔드_설계.md](../backends/functionbay/펑션베이_백엔드_설계.md) §6.1a.
 > **펑션베이에서 물체를 잡으러 간다면** [../backends/functionbay/grasp_center_frame.md](../backends/functionbay/grasp_center_frame.md) 를
 > 먼저 본다 — `/ee_pose` 의 `grasp_center` 는 손끝이 아니라 파지 중심이고 실제 손끝은 약 40 mm 아래다.

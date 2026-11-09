@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rdfp_gui</name>
+  <version>0.0.1</version>
+  <description>Dataset management GUI — rosbag topics vs. DB tables, mapping, import, episode view and export, on top of rdfp</description>
+  <maintainer email="kwlee@todo.todo">kwlee</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <!-- 의존 방향은 rdfp_gui → rdfp 한쪽이다. rdfp 는 이 패키지를 import 하지 않는다
+       (rdfp/tests/test_layer_boundary.py). -->
+  <exec_depend>rdfp</exec_depend>
+  <!-- PySide6 는 pip 전용이다 (apt 에 없다): `pip install PySide6-Essentials` 를 사용자 사이트에.
+       ⚠️ XML 주석 안에 "- -"(연속 하이픈)를 쓰면 manifest 가 깨져 colcon 이 이 패키지를 ROS 패키지로
+       인식하지 못한다 (ament_prefix_path 훅이 안 생겨 `ros2 run` 이 "Package not found"). -->
+
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -5,6 +5,12 @@
 **백엔드 하나 = 파일 하나.** `config/backends/<이름>.yaml` 이며, 파일 이름이 곧
 `backend` 이름이다. 새 백엔드는 가장 가까운 기존 파일을 복사해 값만 바꾼다.
 
+**이름은 `<로봇>_<환경>` 이다** (`panda_mock` · `panda_mock_jgpc` · `panda_isaac` ·
+`panda_functionbay`, 2026-10-21). 프로파일의 값(관절 이름 · 컨트롤러 · 프레임 · 그리퍼 · 중력
+모델)은 환경만이 아니라 로봇에도 묶여 있어서, 환경 이름(`isaac`)만 쓰면 두 번째 로봇(예: Isaac
+위의 UR3 → `ur3_isaac`)이 올 때 한 이름이 두 조합을 가리키게 된다. 옛 이름은 한동안
+`LEGACY_BACKEND_NAMES` 로 받는다(경고를 낸다).
+
 **이 표가 "어느 스택이 무엇인가"의 정본이다.** 같은 사실을 launch·노드·트윈 설정에
 각각 적으면 백엔드가 바뀔 때 한쪽만 뒤처지고, 그 어긋남은 에러가 아니라 "명령이 안
 먹는다"로 나타난다 — Isaac 이 bridge → ros2_control 로 바뀔 때 실제로 그랬다.
@@ -12,6 +18,11 @@
 **이 모듈은 `rclpy` 를 import 하지 않는다.** 설정만 읽는 경로(트윈의 `config.py`,
 순수 파이썬 도구)가 ROS 없이 동작해야 하기 때문이다. `move_group_factory` 는 여기서
 가져다 쓴다 — 그쪽은 `rclpy` 를 끌어온다.
+
+**한 백엔드 안의 시뮬레이터 씬**(펑션베이 `r2`/`t1`)은 파일을 나누지 않고 `sim_scene` 한 줄로
+고른다 — 씬에 딸린 값(솔버 · 그리퍼 규약 · 중력 보상)만 `sim_scenes.<씬>` 에 두고 로더가 공통 블록
+위에 얹는다(`_apply_sim_scene`). 파일을 씬마다 복제하면 공통 값이 갈라지고, 백엔드 이름을 나누면
+launch · 트윈 · 스크립트가 각자 이름을 받아 서로 다른 씬을 읽을 수 있다.
 
 파일을 고친 뒤에는 **`colcon build` 를 다시 돌린다.** 설치본(`share/`)이 먼저 읽히므로
 소스만 고치면 낡은 값이 그대로 쓰인다.
@@ -22,8 +33,33 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import os
+import warnings
 
 import yaml
+
+# 옛 백엔드 이름 → 지금 이름 (2026-10-21). 손에 익은 명령과 외부 스크립트가 바로 깨지지 않게
+# 한동안 받는다. **새 코드 · 문서는 지금 이름만 쓴다.** 언젠가 이 표를 지우면 옛 이름은
+# 모르는 이름이 되어 거부된다.
+LEGACY_BACKEND_NAMES = {
+    'mock': 'panda_mock',
+    'mock_jgpc': 'panda_mock_jgpc',
+    'isaac': 'panda_isaac',
+    'functionbay': 'panda_functionbay',
+}
+
+
+def canonical_backend(name: str) -> str:
+    """옛 이름이면 지금 이름으로 바꾸고 경고한다. 그 밖의 이름은 그대로 돌려준다.
+
+    모르는 이름인지는 판정하지 않는다 — 호출자가 `BACKEND_PROFILES` 로 확인한다. 사용자
+    입력을 받는 입구(`get_backend` · 팩토리 · 노드 파라미터 · 트윈 설정)에서 부른다.
+    """
+    new = LEGACY_BACKEND_NAMES.get(name)
+    if new is None:
+        return name
+    warnings.warn(f"backend '{name}' is deprecated; use '{new}'", FutureWarning, stacklevel=2)
+    return new
+
 
 # `arm_command` 블록의 키 → 소비자가 쓰는 이름. 블록으로 묶는 이유는 앞으로 관절 상태
 # 토픽·servo scale·카메라 토픽 같은 다른 갈래가 형제 블록으로 들어오기 때문이다.
@@ -105,10 +141,19 @@ _BLOCK_KEYS = {
     'scene': {'file', 'fixtures_file'},
 }
 # `factory` 는 백엔드 고유 코드가 있는 클래스 (`module:Class`). 없으면 기본 Backend.
-# `solver` 는 **지금 띄운 씬의 솔버**다. 데이터 파일(그리퍼 규약·처짐 캘리브레이션)이
-# 각자 `solver` 를 들고 있고, 로더가 이 값과 대조해 한쪽만 낡는 것을 막는다.
-_TOP_LEVEL_KEYS = ({'name', 'description', 'factory', 'use_sim_time', 'solver'}
+# `solver` 는 **지금 띄운 씬의 솔버**다. 데이터 파일(그리퍼 규약)이 각자 `solver` 를
+# 들고 있고, 로더가 이 값과 대조해 한쪽만 낡는 것을 막는다.
+#
+# `sim_scene` · `sim_scenes` 는 **한 백엔드 안에서 시뮬레이터 씬을 바꿔 띄우는** 경우다
+# (펑션베이의 `r2`/`t1` — 솔버·그리퍼 규약·중력 보상 주체가 씬마다 다르다). 씬에 딸린
+# 값만 `sim_scenes.<씬>` 에 두고 `sim_scene` 한 줄로 고른다. `scene` 블록(조작 대상 ·
+# 고정물 파일)과는 다른 것이다 — 이름이 겹쳐 `sim_` 을 붙였다.
+_TOP_LEVEL_KEYS = ({'name', 'description', 'factory', 'use_sim_time', 'solver',
+                    'sim_scene', 'sim_scenes'}
                    | set(_BLOCK_KEYS))
+# `sim_scenes.<씬>` 에 둘 수 있는 것. 블록(`gripper` · `motion`)은 **공통 블록 위에 키
+# 단위로 얹힌다** — 같은 키를 공통과 씬 양쪽에 적으면 어느 쪽이 이기는지 헷갈리므로 거부한다.
+_SIM_SCENE_KEYS = {'solver', 'gripper', 'motion'}
 _FALLBACKS = {
     'arm_command_mode': None,
     'arm_command_topic': DEFAULT_ARM_COMMAND_TOPIC,
@@ -143,6 +188,71 @@ def profiles_dir() -> str:
         f'and {source}. Run colcon build from the workspace root.')
 
 
+def _scene_keys(block: dict) -> set:
+    """씬 블록이 정하는 키 — `solver` 와 `(블록, 키)` 쌍."""
+    keys = {'solver'} if 'solver' in block else set()
+    for sub in ('gripper', 'motion'):
+        keys |= {(sub, key) for key in (block.get(sub) or {})}
+    return keys
+
+
+def _apply_sim_scene(path: str, raw: dict) -> dict:
+    """`sim_scenes.<sim_scene>` 의 값을 공통 값 위에 얹은 사본을 돌려준다.
+
+    **모든 씬이 같은 키를 정해야 한다.** 한 씬에만 있는 키는 다른 씬으로 바꿨을 때 공통
+    값(또는 '없음')으로 조용히 떨어지는데, 그것이 의도인지 빠뜨림인지 파일만 봐서는 모른다.
+    '이 씬에는 없다' 는 `null` 로 적는다 (r2 의 `gravity_compensation: null`).
+    """
+    scenes = raw.get('sim_scenes')
+    active = raw.get('sim_scene')
+    if scenes is None and active is None:
+        return raw
+    if not isinstance(scenes, dict) or not scenes:
+        raise ValueError(f'{path}: sim_scenes must be a non-empty mapping when sim_scene is set')
+    if active not in scenes:
+        raise ValueError(f'{path}: sim_scene {active!r} is not one of {sorted(scenes)}')
+
+    shape = None
+    for name, block in scenes.items():
+        if not isinstance(block, dict):
+            raise ValueError(f'{path}: sim_scenes.{name} must be a mapping')
+        bad = set(block) - _SIM_SCENE_KEYS
+        if bad:
+            raise ValueError(f'{path}: unknown sim_scenes.{name} key(s) {sorted(bad)}')
+        if 'solver' in block and 'solver' in raw:
+            raise ValueError(
+                f'{path}: solver is set both at the top level and in sim_scenes.{name}')
+        for sub in ('gripper', 'motion'):
+            value = block.get(sub)
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                raise ValueError(f'{path}: sim_scenes.{name}.{sub} must be a mapping')
+            unknown = set(value) - _BLOCK_KEYS[sub]
+            if unknown:
+                raise ValueError(
+                    f'{path}: unknown sim_scenes.{name}.{sub} key(s) {sorted(unknown)}')
+            twice = set(value) & set(raw.get(sub) or {})
+            if twice:
+                raise ValueError(f'{path}: {sub} key(s) {sorted(twice)} are set both in the common '
+                                 f'block and in sim_scenes.{name}; keep them in one place')
+        keys = _scene_keys(block)
+        if shape is None:
+            shape = keys
+        elif keys != shape:
+            raise ValueError(f'{path}: every sim_scenes entry must set the same keys; '
+                             f'{name!r} differs by {sorted(map(str, keys ^ shape))}')
+
+    chosen = scenes[active]
+    merged = {key: value for key, value in raw.items() if key != 'sim_scenes'}
+    if 'solver' in chosen:
+        merged['solver'] = chosen['solver']
+    for sub in ('gripper', 'motion'):
+        if sub in chosen:
+            merged[sub] = {**(raw.get(sub) or {}), **(chosen[sub] or {})}
+    return merged
+
+
 def _read(path: str) -> dict:
     """프로파일 하나를 소비자 키로 펼친다."""
     with open(path, encoding='utf-8') as handle:
@@ -155,6 +265,8 @@ def _read(path: str) -> dict:
         # 조용히 무시하면 "설정했는데 안 먹는다" 가 된다. 새 블록을 더할 때는
         # `_TOP_LEVEL_KEYS` 와 `_BLOCK_KEYS` 를 함께 넓힌다.
         raise ValueError(f'{path}: unknown key(s) {sorted(unknown)}')
+
+    raw = _apply_sim_scene(path, raw)
 
     for block, allowed in _BLOCK_KEYS.items():
         value = raw.get(block)
@@ -172,7 +284,10 @@ def _read(path: str) -> dict:
     for block in _BLOCK_KEYS:
         if block != 'arm_command' and block in raw:
             flat[block] = raw[block]
-    for key in ('factory', 'use_sim_time'):
+    # `solver` · `sim_scene` 도 싣는다 — 데이터 파일 대조(`gripper.profile._verify_solver`)와
+    # 기동 시 씬 대조가 이 값을 읽는다. 2026-10-20 까지 `solver` 를 빠뜨려 그 대조가
+    # **한 번도 작동하지 않았다** (항상 `None` 이라 건너뛰었다).
+    for key in ('factory', 'use_sim_time', 'solver', 'sim_scene'):
         if key in raw:
             flat[key] = raw[key]
     return flat
@@ -207,6 +322,10 @@ class _Profiles(dict):
 
     import 시점에 파일을 읽으면 아직 빌드하지 않은 트리에서 **import 자체가** 실패해,
     프로파일과 무관한 코드까지 못 쓰게 된다.
+
+    조회(`[]` · `in` · `get`)는 옛 이름도 **조용히** 받는다 — 경고는 사용자 입력을 받는 입구가
+    `canonical_backend` 로 한 번 낸다. 여기서도 내면 같은 이름에 경고가 여러 번 찍힌다.
+    순회(`keys` · `items` · `backends()`)는 지금 이름만 낸다.
     """
 
     _loaded = False
@@ -218,11 +337,11 @@ class _Profiles(dict):
 
     def __getitem__(self, key):
         self._ensure()
-        return super().__getitem__(key)
+        return super().__getitem__(LEGACY_BACKEND_NAMES.get(key, key))
 
     def __contains__(self, key):
         self._ensure()
-        return super().__contains__(key)
+        return super().__contains__(LEGACY_BACKEND_NAMES.get(key, key))
 
     def __iter__(self):
         self._ensure()
@@ -242,7 +361,7 @@ class _Profiles(dict):
 
     def get(self, key, default=None):
         self._ensure()
-        return super().get(key, default)
+        return super().get(LEGACY_BACKEND_NAMES.get(key, key), default)
 
     def reload(self) -> None:
         """파일을 다시 읽는다 (테스트·수정 후 확인용)."""
@@ -279,6 +398,7 @@ def resolve_backend_channel(backend: str, **overrides) -> dict:
         ValueError: 모르는 ``backend`` 일 때. **조용히 auto 로 떨어뜨리지 않는다** —
             오타가 "왜 이 스택에서만 안 되지" 로 나타난다.
     """
+    backend = canonical_backend(backend)
     if backend not in BACKEND_PROFILES:
         raise ValueError(f'backend must be one of {list(backends())}, got {backend!r}')
     profile = BACKEND_PROFILES[backend]
@@ -294,5 +414,5 @@ def resolve_backend_channel(backend: str, **overrides) -> dict:
     return {name: pick(name) for name in _FALLBACKS}
 
 
-__all__ = ['BACKEND_PROFILES', 'DEFAULT_ARM_COMMAND_TOPIC', 'backends', 'load_profiles',
-           'profiles_dir', 'resolve_backend_channel']
+__all__ = ['BACKEND_PROFILES', 'DEFAULT_ARM_COMMAND_TOPIC', 'LEGACY_BACKEND_NAMES', 'backends',
+           'canonical_backend', 'load_profiles', 'profiles_dir', 'resolve_backend_channel']

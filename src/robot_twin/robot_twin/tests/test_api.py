@@ -128,6 +128,58 @@ def client(runtime: FakeRuntime) -> TestClient:
     return TestClient(create_app(runtime))
 
 
+@pytest.mark.parametrize('status', ['running', 'UNKNOWN', ''])
+def test_invalid_session_status_returns_400(client, status) -> None:
+    response = client.get(f'{BASE}/operations/sessions', params={'status': status})
+
+    assert response.status_code == 400
+    assert response.json()['error']['code'] == 'INVALID_INPUT'
+
+
+@pytest.mark.parametrize('status', list(Status))
+def test_session_status_filter_accepts_terminal_and_running_states(client, runtime, status):
+    session = runtime.start_operation('move_to_pose', {})
+    if status is not Status.RUNNING:
+        runtime.sessions.finish(session.id, status)
+
+    response = client.get(f'{BASE}/operations/sessions', params={'status': status.value})
+
+    assert response.status_code == 200
+    assert [s['id'] for s in response.json()['sessions']] == [session.id]
+
+
+@pytest.mark.parametrize('kind', ['sync', 'async'])
+def test_nonfinite_outputs_are_json_null_on_all_session_routes(client, runtime, monkeypatch, kind):
+    """그리퍼의 미측정 폭을 포함한 연산 결과가 POST·조회·취소에서 직렬화되어야 한다."""
+    import math
+
+    name = 'move_gripper_to_target' if kind == 'sync' else 'move_to_pose'
+    start = runtime.start_operation
+    created = []
+
+    def start_with_outputs(name, inputs):
+        session = start(name, inputs)
+        session.outputs = {'width': float('nan'), 'nested': [float('inf'), -float('inf')]}
+        created.append(session)
+        return session
+
+    monkeypatch.setattr(runtime, 'start_operation', start_with_outputs)
+    response = client.post(f'{BASE}/operations/{name}', json={'inputs': {'target': 'open'}})
+    assert response.status_code == (200 if kind == 'sync' else 202)
+    expected = {'width': None, 'nested': [None, None]}
+    assert response.json()['outputs'] == expected
+    session = created[0]
+    endpoint = f'{BASE}/operations/sessions/{session.id}'
+    assert client.get(endpoint).json()['outputs'] == expected
+    for path in ('operations/sessions', f'operations/{name}/sessions'):
+        assert client.get(f'{BASE}/{path}').json()['sessions'][0]['outputs'] == expected
+    if kind == 'async':
+        cancelled = client.delete(endpoint)
+        assert cancelled.status_code == 202
+        assert cancelled.json()['outputs'] == expected
+    assert math.isnan(session.outputs['width'])  # 응답 변환이 저장된 결과를 바꾸지 않는다.
+
+
 # ----------------------------------------------------------------------
 # 디스커버리
 # ----------------------------------------------------------------------
@@ -138,6 +190,17 @@ def test_twin_list_returns_only_itself(client: TestClient) -> None:
 
     assert len(body['twins']) == 1
     assert body['twins'][0]['id'] == 'panda01'
+    assert 'backend' in body['twins'][0]
+
+
+def test_twin_meta_exposes_the_backend() -> None:
+    """id 는 환경을 담지 않으므로(세 환경이 같은 id) 환경은 메타의 `backend` 로 안다."""
+    pytest.importorskip('robot_control.backend_profiles')
+    raw = {**RAW, 'twin': {**RAW['twin'], 'backend': 'panda_mock'}, 'moveit': {}}
+    body = TestClient(create_app(FakeRuntime(TwinConfig.model_validate(raw)))).get(BASE).json()
+
+    assert body['backend'] == 'panda_mock'
+    assert body['move_group_mode'] == 'jtc'
 
 
 def test_twin_meta_exposes_closed_loop(client: TestClient) -> None:
@@ -207,6 +270,34 @@ def test_head_variable(client: TestClient) -> None:
 
     assert res.status_code == 200
     assert res.headers['etag'] == '"7"'
+
+
+# ----- 요청 형식 오류 — 다른 거부와 같은 `error` 형식 ---------------------------
+#
+# FastAPI 기본값(`422 {"detail": [...]}`)이면 `error` 만 읽는 클라이언트(robot-twin-client 의
+# `TwinError`, MCP 서버)에서 사유가 통째로 사라진다 — `HTTP 422 None: None`.
+
+@pytest.mark.parametrize('kwargs', [
+    {'content': b'{not json', 'headers': {'Content-Type': 'application/json'}},   # JSON 문법
+    {'json': [1, 2]},                                                            # 객체 대신 배열
+], ids=['bad-json', 'array-body'])
+def test_malformed_body_is_400_invalid_input(client: TestClient, kwargs) -> None:
+    res = client.post(f'{BASE}/operations/move_to_pose', **kwargs)
+
+    assert res.status_code == 400
+    error = res.json()['error']
+    assert error['code'] == 'INVALID_INPUT'
+    assert 'body' in error['message']
+    assert error['details']                      # FastAPI 의 원본 목록을 남긴다
+    assert 'detail' not in res.json()
+
+
+def test_malformed_query_is_400_invalid_input(client: TestClient) -> None:
+    res = client.get(f'{BASE}/variables/joint_states', params={'refresh': 'not-a-bool'})
+
+    assert res.status_code == 400
+    assert res.json()['error']['code'] == 'INVALID_INPUT'
+    assert 'query.refresh' in res.json()['error']['message']
 
 
 def test_refresh_query_reaches_runtime(client: TestClient, runtime: FakeRuntime) -> None:

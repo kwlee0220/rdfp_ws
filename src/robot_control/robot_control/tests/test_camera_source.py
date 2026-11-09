@@ -31,10 +31,10 @@ def _executable(node) -> str:
 # ----- source -> 노드 --------------------------------------------------------
 
 @pytest.mark.parametrize('backend,executable', [
-    ('mock', 'camera_node'),
-    ('mock_jgpc', 'camera_node'),
-    ('functionbay', 'republish'),
-    ('isaac', None),
+    ('panda_mock', 'camera_node'),
+    ('panda_mock_jgpc', 'camera_node'),
+    ('panda_functionbay', 'republish'),
+    ('panda_isaac', None),
 ])
 def test_source_picks_the_publisher(backend, executable):
     """`camera.source` 하나가 무엇이 뜰지 정한다."""
@@ -60,7 +60,7 @@ def test_every_profile_declares_a_camera_source():
 
 def test_unknown_source_is_rejected():
     """조용히 아무것도 안 띄우면 증상이 "이미지가 안 온다" 뿐이라 원인을 안 가리킨다."""
-    backend = get_backend('mock')
+    backend = get_backend('panda_mock')
     backend._profile['camera'] = {'source': 'typo', 'image_topic': '/x'}
 
     with pytest.raises(ValueError, match='unknown camera.source'):
@@ -69,7 +69,7 @@ def test_unknown_source_is_rejected():
 
 def test_compressed_backend_declares_both_names():
     """압축 백엔드는 이름이 둘이다 — 소비자가 갈리기 때문이다."""
-    backend = get_backend('functionbay')
+    backend = get_backend('panda_functionbay')
 
     assert backend.camera_source == 'compressed'
     assert backend.value('camera', 'compressed_topic')

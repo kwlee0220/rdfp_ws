@@ -361,7 +361,7 @@ A 단계 값 중 `fb_stamp` 원자료에서 계산할 수 있는 것은 이 문�
 | 부담 | 근거 | 대응 |
 |---|---|---|
 | 34 s 마다 약 1.6 s 정지 | A-17 · C-10 영상 공백 | 원격 조작 무반응. `teleop_retarget` 의 `pedal_timeout` 은 2.5 s 이상 (체크리스트 §A-17 상세) |
-| 중력 보상이 우리 몫 | B-3 · B-4 | 프로파일에 `gravity_compensation` 블록을 되살리고 `kp` 20000. 게인이 다시 바뀌면 보상이 그 배수로 틀어지고 에러는 안 난다 |
+| 중력 보상이 우리 몫 | B-3 · B-4 | 프로파일 `sim_scene: t1` (그 씬에 보상 블록과 `kp` 20000 이 들어 있다). 게인이 다시 바뀌면 보상이 그 배수로 틀어지고 에러는 안 난다 |
 | 응답이 약 2배 느리다 | B-6 · B-7 · B-13 | 카메라 주기를 고른 근거(B-7 τ)를 그 값으로 다시 본다 |
 | 주기 설정이 두 파일에서 갈려 있다 | `vm.xml` 50 · `bp.json` 10 | 모델러로 씬을 저장하면 10 으로 되돌아갈 수 있다. 회차마다 A-2 로 확인한다 |
 
@@ -375,14 +375,12 @@ A 단계 값 중 `fb_stamp` 원자료에서 계산할 수 있는 것은 이 문�
 
 ## 7. 씬을 바꿀 때
 
-2026-10-01 현재 프로파일(`src/robot_control/config/backends/functionbay.yaml`)은 **`r2`** 다 —
-`solver: RecurDyn` · `functionbay_gripper_recurdyn.json` · `gravity_compensation` 블록 없음.
-`t1` 으로 바꿀 때는 체크리스트 함정 15 의 순서를 따르고 다음 셋을 함께 바꾼다.
+2026-10-20 부터 씬은 프로파일(`src/robot_control/config/backends/functionbay.yaml`)의 **`sim_scene` 한 줄**로
+고른다 — 씬마다 다른 솔버 · 그리퍼 규약 · 중력 보상(t1 은 블록 + `kp` **20000**, r2 는 `null`)이 `sim_scenes` 에
+함께 있다. 바꾼 뒤 `robot_control` 재빌드 → `./scripts/functionbay/fb_gains.py` 로 게인 대조 → 로봇 스택 · 트윈
+재기동. 기동 로그의 `Scene check passed` 와 `convention: solver=… scene=…` 로 확인한다. 순서는 체크리스트 함정 15.
 
-1. `solver: Crisp` · `gripper.profile_file: config/functionbay_gripper_crisp.json`
-2. `motion.gravity_compensation` 블록 복원 — 내용은 프로파일 주석에 남아 있다. `kp` 는 **20000**.
-3. `robot_control` 재빌드 → 시뮬레이터 기동 후 `./scripts/functionbay/fb_gains.py` 로 게인 대조 →
-   ROS 스택 재기동. 기동 로그의 `convention: solver=Crisp scene=t1` 한 줄로 확인한다.
+(이 문서를 쓴 2026-10-01 에는 프로파일이 `r2` 였고, `t1` 으로 바꾸려면 세 곳을 손으로 고쳐야 했다.)
 
 ---
 

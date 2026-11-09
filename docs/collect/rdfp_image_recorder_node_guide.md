@@ -443,7 +443,7 @@ ros2 launch rdfp rdfp_collect.launch.py \
   camera_resolution:=1280x720
 
 # 백엔드 하나로 카메라 토픽·형식까지 맞춘다 (압축이면 자동으로 mjpeg)
-ros2 launch rdfp rdfp_collect.launch.py backend:=functionbay
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_functionbay
 ```
 
 launch 인자:

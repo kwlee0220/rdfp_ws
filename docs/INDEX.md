@@ -70,6 +70,9 @@
 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) | 절차 | ⭐ `scripts/rosbag.sh` — rosbag2 녹화 · 조회 · 적재 · 삭제의 통합 진입점과 그 아래 `ros2 run rdfp rosbag` 서브커맨드 전부. 녹화 옵션 · 적재 설정 대조 경고, 에피소드 선택(시간 범위는 log time 기준), `export` · `delete` 동작, 활용 절차, Python API |
 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6) |
 | [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 14 테이블(§5), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
+| [collect/데이터셋_관리_GUI_설계안.md](collect/데이터셋_관리_GUI_설계안.md) | 설계안 | 데이터셋 관리 GUI — 함정 7개(§2) · 화면(§3) · 기능(§4) · 결정(§6). 구현이 둘이다: [`src/rdfp_gui`](../src/rdfp_gui/README.md)(원안 구조 — `rdfp.dataset.inspect` + CLI 서브프로세스) 와 `rdfp_gui_codex`(§5 가 설명하는 worker 구조) |
+| [collect/design_gpt.md](collect/design_gpt.md) | 설계안 | Dataset Manager 구현의 설계 배경·확장 계획. 현재 코드 배치와 진입점은 §10.3 |
+| [collect/Dataset_Manager_사용자_가이드.md](collect/Dataset_Manager_사용자_가이드.md) | 절차 | `rdfp_gui_codex` 구현의 설치·실행, 토픽·테이블 조회, 매핑, 선택 Import, NPZ·LeRobot v3 Export. 설계 배경은 [design_gpt.md](collect/design_gpt.md) |
 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) | 절차 | `replay_panda_mock` — 왜 어떤 명령 타입인가(§0), 구조, `replay_arm_path`, 함정 12가지 |
 
 ## learning/ — 학습 데이터
@@ -91,7 +94,7 @@
 |---|:-:|---|
 | [twin/로봇_트윈_사용자_가이드.md](twin/로봇_트윈_사용자_가이드.md) | 절차 · 사양 | 트윈 사용자 가이드 — 기동, REST 전체, 변수 · 연산, 자동 에피소드 수집, 확장, 운영 주의 |
 | [twin/로봇_트윈_설계서.md](twin/로봇_트윈_설계서.md) | 설계 | 트윈 설계 근거 — 스레드 모델 · 스냅샷 · 세션 · 자원 락 · 오류 코드 · 결정 이력 |
-| [twin/로봇_트윈_MCP_서버_설계서.md](twin/로봇_트윈_MCP_서버_설계서.md) | 설계 | MCP 서버(`robot-twin-client`) — 카탈로그 노출, 도구 구성, 결정 13건 |
+| [로봇 트윈 MCP 서버 설계 및 운영 가이드 (robot-twin-client)](../../../mdtpy/robot-twin-client/docs/로봇_트윈_MCP_서버_설계_및_운영_가이드.md) | 설계 | MCP 서버(`robot-twin-client`) — 카탈로그 노출, 도구 구성, 결정 13건 |
 
 ## teleop/
 
@@ -114,11 +117,13 @@
 |---|:-:|---|
 | [backends/README.md](backends/README.md) | — | 진입점 — 백엔드 비교표, 프로파일, launch 를 하나로 합치지 않은 이유, 공통 함정 |
 | [backends/isaac/isaac_bringup_runbook.md](backends/isaac/isaac_bringup_runbook.md) | 절차 | ⭐ Isaac + 스택 + 트윈 + 수집 + 작업 수행 전 과정 명령(§2), Script Editor 목록, 함정 |
+| [backends/isaac/isaac_twin_bringup_summary.md](backends/isaac/isaac_twin_bringup_summary.md) | 절차 | Isaac + 스택 + 트윈을 띄우고 robot-twin-client 로 리셋 · 쌓기까지 시험 (수집 없음) |
 | [backends/isaac/isaac_backend.md](backends/isaac/isaac_backend.md) | 설계 | Isaac 백엔드 — 결정(D1″ `TopicBasedSystem`), 배포, 골격 · 토픽 계약, 운용 근거, 함정 사전(§7), 열린 결정 |
 | [backends/isaac/isaac_windows_setup.md](backends/isaac/isaac_windows_setup.md) | 절차 | 새 Windows 11 + WSL2 머신 구축 8단계, DDS 프로파일(부록) |
 | [backends/isaac/isaac_scene_reset.md](backends/isaac/isaac_scene_reset.md) | 사양 | Isaac 의 `/scene/reset` — `simulation_interfaces` 경유, `result=1` 함정, 선행 조건 |
 | [backends/functionbay/펑션베이_백엔드_설계.md](backends/functionbay/펑션베이_백엔드_설계.md) | 설계 | 토픽 연동형 백엔드 — `joint_state_fusion` · `readiness_gate` · `publish_rate` · 그리퍼 채널(씬별 규약) |
 | [backends/functionbay/펑션베이_시뮬레이터_사용법.md](backends/functionbay/펑션베이_시뮬레이터_사용법.md) | 절차 | 띄우는 순서 — 솔버 → 시뮬레이터(`-Scene LAB_ETRI -Model <씬>_ms`) → `ros_tcp_endpoint` → **`/scene/start`**(저절로 시작하지 않는다) → 로봇 스택 → **차트 종료 대기**(`fb_wait_chart`), 정지 토픽, 씬 바꾸기 |
+| [backends/functionbay/functionbay_twin_bringup_summary.md](backends/functionbay/functionbay_twin_bringup_summary.md) | 절차 | 펑션베이 + 스택 + 트윈을 띄우고 robot-twin-client 로 peg-in-hole 왕복까지 시험 (수집 없음) |
 | [backends/functionbay/펑션베이_인수_체크리스트.md](backends/functionbay/펑션베이_인수_체크리스트.md) | 절차 | ⭐ 새 빌드마다 무엇이 바뀌었는지 가리는 절차 — A · B · C 항목의 확인 방법 · 판정 기준, 측정 함정 17가지. **결과는 저장소 루트 `checklist_results/`** |
 | [backends/functionbay/펑션베이_요청_목록.md](backends/functionbay/펑션베이_요청_목록.md) | 현황 | 벤더 요청 상태 — **2026-09-30: A-1 · A-5 가 `r2` 에서 해결, B-11 종결**(§0.4). 살아 있는 7건 앞에, 닫힌 것은 부록 E |
 | [backends/functionbay/펑션베이_남은_작업.md](backends/functionbay/펑션베이_남은_작업.md) | 현황 | ⭐ **맨 앞 "지금 남은 작업" 7건**(15 수집용 씬 결정 · 16 `/data` 권한 · 4 링크 메시 …) · 원장(§8) · 재현 절차(§9) · 함정(§10) |
@@ -178,6 +183,7 @@
 | rosbag 의 에피소드를 보거나 내보내거나 지운다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) §4~§8 |
 | rosbag 을 DB 에 적재한다 / 수집 데이터를 지운다 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) |
 | 적재 파이프라인 내부 · 스키마 | [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) |
+| bag · DB 를 GUI 로 보고 적재 · export 하고 싶다 | [src/rdfp_gui/README.md](../src/rdfp_gui/README.md) (`rdfp_gui` — 매핑 선 · stamp 진단 · 에피소드 점검) · [collect/Dataset_Manager_사용자_가이드.md](collect/Dataset_Manager_사용자_가이드.md) (`rdfp_gui_codex` 구현) |
 | 적재된 에피소드를 재생한다 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) |
 | **왜 관절-계획 · ACT · `.npz` 인가** | [learning/결정_기록.md](learning/결정_기록.md) |
 | 학습 샘플이 정확히 무엇인가 / R1 · R2 필드 / 배치 규약 | [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) |

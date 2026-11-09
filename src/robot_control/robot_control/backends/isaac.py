@@ -2,7 +2,7 @@
 
 """Isaac Sim 백엔드 — `topic_based_ros2_control/TopicBasedSystem`.
 
-값은 `config/backends/isaac.yaml` 에 있다. 여기에는 **값으로 표현되지 않는 것**만 둔다.
+값은 `config/backends/panda_isaac.yaml` 에 있다. 여기에는 **값으로 표현되지 않는 것**만 둔다.
 """
 
 from __future__ import annotations

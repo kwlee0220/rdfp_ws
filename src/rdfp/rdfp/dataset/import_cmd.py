@@ -66,6 +66,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_common_args(p)
     add_config_arg(p, required=False)
+    p.add_argument('--start-ns', type=int, action='append', dest='start_ns_in', metavar='NS',
+                   help='이 자연키(start_ns)의 에피소드만 적재한다. 여러 번 줄 수 있다 — '
+                        '`rosbag export` 와 데이터셋 GUI 가 선택을 넘기는 길이다')
+    p.add_argument('--topics', nargs='+', metavar='TOPIC',
+                   help='설정의 토픽 목록 대신 이 토픽만 적재한다 (/session 은 자동 포함). '
+                        '⚠️ 적재는 에피소드 단위라 빠진 토픽은 그 에피소드에 빈 채로 커밋된다')
+    p.add_argument('--on-existing', choices=('skip', 'replace', 'error'), dest='on_existing',
+                   help='설정의 on_existing_episode 를 이번 실행만 바꾼다')
     return p
 
 
@@ -112,6 +120,17 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                          rosbag_dir, cfg.rosbag_dir)
         cfg = cfg.model_copy(update={'rosbag_dir': str(rosbag_dir)})
 
+    # GUI 가 토픽을 골라 넘기는 길. 설정의 `topics` 를 **대신한다** (`effective_topics` 가 /session 을
+    # 더한다). 파이프라인은 그대로 `cfg.effective_topics()` 만 보므로 적재 경로가 둘이 되지 않는다.
+    topics = list(getattr(args, 'topics', None) or [])
+    if topics:
+        cfg = cfg.model_copy(update={'topics': topics})
+        _logger.info('topic selection: %d topic(s) from the caller', len(topics))
+    on_existing = getattr(args, 'on_existing', None)
+    if on_existing:
+        cfg = cfg.model_copy(update={'on_existing_episode': on_existing})
+        _logger.info('on_existing_episode: %s (from the caller)', on_existing)
+
     # ROS / 무거운 ingest 의존은 본 함수 진입 시점에만 로드한다 (cli.py 의
     # ROS-free 서브커맨드들이 sensor_msgs 없이도 동작하도록).
     # ``discover_splits`` 는 가벼워 module top-level 에 둔다 (테스트 patch).
@@ -130,6 +149,8 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
         _run_parallel,
     )
     from .ingest.run_log import RunLog
+    from .inspect.findings import LEVEL_ERROR, LEVEL_WARNING
+    from .inspect.preflight import check_import
 
     try:
         splits = discover_splits(cfg.rosbag_dir,
@@ -149,15 +170,25 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
             if not episodes:
                 summary = _empty_summary(splits=len(splits))
             else:
-                # 여기서부터는 실제 import 경로. ``output_mp4_dir`` 이 반드시 필요하다.
-                if cfg.output_mp4_dir is None:
-                    raise PostProcError(
-                        'output_mp4_dir is required for import; '
-                        'add it to the dataset config')
-
                 required_tables, topic_entries, image_topic_types = (
                     _determine_topic_classification(splits, cfg))
                 image_topics = set(image_topic_types)
+
+                # 사전 점검 — 데이터셋 GUI 와 **같은 함수**다 (`inspect/preflight.py`). 죽는 조합
+                # (이미지 토픽 + 레코더 등록 → image_streams UNIQUE 위반)과 `output_mp4_dir` 누락은
+                # 여기서 멈추고, 겹치는 에피소드 창 같은 징후는 경고로 남긴다.
+                known_types = {t: ty for t, (_, ty) in topic_entries.items()}
+                known_types.update(image_topic_types)
+                windows = [(ep.start_ns, ep.stop_ns) for ep in episodes
+                           if hasattr(ep, 'start_ns')]
+                findings = check_import(cfg, topic_types=known_types,
+                                        episode_windows=windows or None)
+                for f in findings:
+                    if f.level == LEVEL_WARNING:
+                        _logger.warning('preflight %s: %s', f.code, f.message)
+                blocking = [f.message for f in findings if f.level == LEVEL_ERROR]
+                if blocking:
+                    raise PostProcError('; '.join(blocking))
                 _logger.info('required tables: %s', sorted(required_tables))
                 if image_topics:
                     _logger.info('camera topics routed to mp4: %s',

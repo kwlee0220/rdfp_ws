@@ -9,7 +9,7 @@
     "",
     "t1(Crisp) 과 r2(RecurDyn) 은 `arm_command`·`servo`·`camera`·`scene` 이 전부 같고",
     "**그리퍼 규약 셋만 다르다.** 그것 때문에 백엔드 프로파일을 통째로 복제하는 것은",
-    "과하다. 대신 `functionbay.yaml` 의 `gripper.profile_file` 이 이 파일을 가리킨다 —",
+    "과하다. 대신 `panda_functionbay.yaml` 의 `gripper.profile_file` 이 이 파일을 가리킨다 —",
     "`fixtures_file` · `gravity_compensation` 과 같은 방식이다.",
     "",
     "== ⚠️ 씬을 바꾸면 이 파일도 바꿔야 한다 ==",

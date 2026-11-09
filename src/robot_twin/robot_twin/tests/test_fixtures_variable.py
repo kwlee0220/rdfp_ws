@@ -15,14 +15,14 @@ import pytest
 from robot_twin.runtime import _STATIC_PROVIDERS, _fetch_fixtures
 
 
-class _FakeMoveIt:
+class _FakeTwin:
     def __init__(self, backend: Optional[str]) -> None:
         self.backend = backend
 
 
 class _FakeConfig:
     def __init__(self, backend: Optional[str]) -> None:
-        self.moveit = _FakeMoveIt(backend)
+        self.twin = _FakeTwin(backend)
 
 
 class _FakeRuntime:
@@ -39,7 +39,7 @@ def test_fixtures_are_fetched_without_a_move_group_client() -> None:
     거절한다. 제공자를 그 앞에 둔 이유가 이것이다.
     """
     pytest.importorskip('robot_control.scene.fixtures')
-    payload = _fetch_fixtures(_FakeRuntime('functionbay'))
+    payload = _fetch_fixtures(_FakeRuntime('panda_functionbay'))
 
     assert payload['frame'] == 'panda_link0'
     assert set(payload['fixtures']) == {'peg_hole', 'peg_tray'}
@@ -48,7 +48,7 @@ def test_fixtures_are_fetched_without_a_move_group_client() -> None:
 def test_hole_entry_point_is_what_the_agent_aims_at() -> None:
     """*"다른 hole"* 의 목적지가 되는 값이다 — 실측(2026-09-09)과 맞는가."""
     pytest.importorskip('robot_control.scene.fixtures')
-    hole = _fetch_fixtures(_FakeRuntime('functionbay'))['fixtures']['peg_hole']
+    hole = _fetch_fixtures(_FakeRuntime('panda_functionbay'))['fixtures']['peg_hole']
 
     assert hole['entry_point']['z'] == pytest.approx(0.028)
     assert hole['depth'] == pytest.approx(0.025)
@@ -60,7 +60,7 @@ def test_missing_backend_is_a_config_error_not_a_retry() -> None:
 
     백엔드 이름이 없는 것은 시간이 지나도 안 고쳐지므로 그 자리가 아니다.
     """
-    with pytest.raises(ValueError, match='moveit.backend'):
+    with pytest.raises(ValueError, match='twin.backend'):
         _fetch_fixtures(_FakeRuntime(None))
 
 
@@ -83,7 +83,7 @@ def test_functionbay_config_declares_the_fixtures_variable() -> None:
     import yaml
 
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))), 'config', 'robot_twin_panda_functionbay.yaml')
+        os.path.abspath(__file__)))), 'config', 'twins', 'rdfp01.yaml')
     raw: Any = yaml.safe_load(open(path, encoding='utf-8'))
     names = {v['name']: v for v in raw['variables']}
 

@@ -116,7 +116,7 @@ watch ./scripts/list_rdfp_topics.sh    # 주요 토픽 (터미널 #2)
 
 ```bash
 ros2 launch robot_control panda_isaac.launch.py          # 또는 panda_functionbay — 백엔드별 선행 조건은 런북
-ros2 launch rdfp rdfp_collect.launch.py backend:=isaac   # 다른 터미널, 같은 백엔드
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac   # 다른 터미널, 같은 백엔드
 ```
 
 #### 3.2.3 rosbag2 녹화 시작 (별도 터미널)
@@ -136,12 +136,12 @@ ros2 launch rdfp rdfp_collect.launch.py backend:=isaac   # 다른 터미널, 같
 * **트윈으로** — `robot-twin-collect`(`~/development/mdtpy/robot-twin-client`)가 세션 · 에피소드
   경계를 찍으며 작업을 반복한다. 로봇 트윈(`scripts/run_robot_twin.sh`)이 떠 있어야 한다.
 * **키보드 텔레오퍼레이션으로** — `teleop_keyboard` 는 **`backend` 파라미터가 필수**다(기본값이
-  없어 안 주면 노드가 뜨지 않는다). 래퍼는 `TELEOP_BACKEND`(기본 `isaac`)를 넘기고 터미널
+  없어 안 주면 노드가 뜨지 않는다). 래퍼는 `TELEOP_BACKEND`(기본 `panda_isaac`)를 넘기고 터미널
   자동반복 속도도 맞춘다.
 
   ```bash
-  ./scripts/run_teleop_keyboard.sh                                 # backend:=isaac
-  ros2 run rdfp teleop_keyboard --ros-args -p backend:=functionbay
+  ./scripts/run_teleop_keyboard.sh                                 # backend:=panda_isaac
+  ros2 run rdfp teleop_keyboard --ros-args -p backend:=panda_functionbay
   ```
 
   ⚠️ `teleop_keyboard` 는 기동하면서 servo 를 시작하므로, **트윈으로 작업할 때는 띄워 두지
@@ -224,10 +224,10 @@ arm 을 구동하는 경로는 `replay_arm_path` 로 고른다 — `ee_twist`(�
 #### 3.4.2 적재된 에피소드 재생 도구 실행 (Tk GUI)
 
 ```bash
-ros2 run rdfp replay_gui --config /data/rdfp/dataset.yaml --ros-args -p backend:=mock
+ros2 run rdfp replay_gui --config /data/rdfp/dataset.yaml --ros-args -p backend:=panda_mock
 ```
 
-`backend` 는 **필수**다 (기본값 없음). 붙을 스택에 맞춰 `mock`(JTC) / `mock_jgpc`(JGPC) 등을 준다.
+`backend` 는 **필수**다 (기본값 없음). 붙을 스택에 맞춰 `panda_mock`(JTC) / `panda_mock_jgpc`(JGPC) 등을 준다.
 
 ## 4. 의존성
 
@@ -299,7 +299,7 @@ USB 풋페달 클러치(`clutch_pedal`)를 쓰면 `python3-evdev` 가 더 필요
 
 ⚠️ 선언한 `pixel_format` · 해상도 · fps 와 다른 프레임은 **경고만 남기고 버린다** — mp4 는
 생기고 오류도 없어서, 적재에서 `image_frames: 0` 으로야 드러난다. Isaac 카메라는 `rgb8` 이고
-`backend:=isaac` 이 그 값을 넣는다.
+`backend:=panda_isaac` 이 그 값을 넣는다.
 
 상세는 [rdfp_image_recorder_node_guide.md](../../docs/collect/rdfp_image_recorder_node_guide.md).
 
@@ -377,7 +377,7 @@ recorder 세부 설정은 이 노드에서 노출하지 않으며 `FFMpegMp4Reco
 ros2 run rdfp session_control_node
 
 # launch 로 실행 — rdfp_collect 가 이 노드를 띄운다 (재생 스택 replay_panda_mock 은 띄우지 않는다)
-ros2 launch rdfp rdfp_collect.launch.py backend:=isaac
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_isaac
 ```
 
 ### 8.2 상태 머신
@@ -603,10 +603,21 @@ GUI 동작 특성:
 - 종료 시 use-after-destroy 방지 가드: 워커 스레드가 2초 안에 종료되지 못하면 publisher destroy
   와 `cv2.VideoCapture.release()` 를 건너뛰고 warning 으로 leak 을 가시화한다.
 
-## 11. 라이선스
+## 11. 데이터셋 관리 GUI (`dataset_manager`)
+
+별도 패키지 [rdfp_gui_codex](../rdfp_gui_codex/README.md)에서 제공한다. 저장된 MCAP 토픽과 PostgreSQL 테이블을 한 화면에서 비교하고, 선택 토픽 Import와 에피소드 단위 Export를 수행하는 데스크톱 도구다. 메시지 정의·테이블 스키마·실제 데이터 조회, JSONB/CDR 범용 테이블 등록, 매핑 해제, 영상 프레임 미리보기를 지원한다. 학습 데이터는 NPZ 또는 LeRobot v3로 내보낸다.
+
+```bash
+# rdfp_ws 루트에서 실행한다. 설치·DB 설정은 아래 가이드를 참고한다.
+./scripts/run_dataset_manager.sh
+```
+
+실행 환경과 사용 방법은 [Dataset Manager 사용자 가이드](../../docs/collect/Dataset_Manager_사용자_가이드.md)에 정리했다. 기존 적재 CLI와는 중복 처리 정책이 다르며, Manager의 교체는 선택한 에피소드·토픽에만 적용한다. 같은 schema에 대한 CLI 적재와 GUI의 쓰기·Export 작업은 동시에 실행하지 않는다.
+
+## 12. 라이선스
 
 Apache-2.0 (`package.xml`).
 
-## 12. 관리자
+## 13. 관리자
 
 - kwlee (kwlee@etri.re.kr)

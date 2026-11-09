@@ -13,7 +13,7 @@ ros2_control 없이 토픽만으로 잇던 옛 경로(`panda_isaac_bridge`)는 *
 -----------------
 - `execute_trajectory()` 가 돌아온다. 완료/중단이 액션으로 판정되므로 개루프 스트리밍의
   "성공을 반환했지만 도달하지 않았다"가 사라진다.
-- 호출부가 채널을 몰라도 된다 — `create_move_group_client(backend='isaac')` 가
+- 호출부가 채널을 몰라도 된다 — `create_move_group_client(backend='panda_isaac')` 가
   프로파일에서 JTC 를 고르므로 트윈 설정의 `arm_command_*` 재정의 3종과
   `teleop_keyboard` 의 4파라미터 지정이 필요 없다.
 - servo 가 기본 경로(`JointTrajectory` → `/panda_arm_controller/joint_trajectory`)로
@@ -96,11 +96,11 @@ from robot_control.launch_helpers.gripper import create_gripper_node
 from robot_control.backends import get_backend
 from robot_control.backends.isaac import COMMANDED_JOINT_STATE_TOPIC
 
-# **백엔드별 값은 `config/backends/isaac.yaml` 에 있다.** 여기서 다시 적으면 두 곳이
+# **백엔드별 값은 `config/backends/panda_isaac.yaml` 에 있다.** 여기서 다시 적으면 두 곳이
 # 갈리고, 그 어긋남은 에러가 아니라 "명령이 안 먹는다" 로 나타난다.
 #
 # 아래 값들은 **launch 인자의 기본값**으로만 쓴다 — 덮어쓰기는 그대로 살아 있다.
-_BACKEND = get_backend('isaac')
+_BACKEND = get_backend('panda_isaac')
 
 # `description/panda.ros2_control.xacro` 의 분기 이름.
 HARDWARE_TYPE = _BACKEND.hardware_type

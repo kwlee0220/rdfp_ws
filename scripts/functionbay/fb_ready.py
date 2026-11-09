@@ -88,7 +88,7 @@ DEFAULT_SETTLE_SEC = 4.0
 try:
     from robot_control.gravity import load_gravity_compensator
 
-    GRAVITY = load_gravity_compensator('functionbay')
+    GRAVITY = load_gravity_compensator('panda_functionbay')
 except Exception as exc:                                   # noqa: BLE001
     print(f'[ready] 중력 보상을 로드하지 못했다 ({exc}) — 보상 없이 발행한다')
     GRAVITY = None

@@ -76,7 +76,7 @@ def main():
     # 백엔드 이름 하나로 정한다 — 명령 채널은 `BACKEND_PROFILES` 가 채운다.
     # auto 는 /panda_arm_controller/commands 를 보는데 이 스택에는 없어 JTC 로
     # 오판하고, JTC 실행 액션 서버는 존재하지 않는다.
-    client = create_move_group_client(node, backend='functionbay')
+    client = create_move_group_client(node, backend='panda_functionbay')
     client.wait_until_ready(timeout_sec=30.0)
     print('client ready:', type(client).__name__, flush=True)
 

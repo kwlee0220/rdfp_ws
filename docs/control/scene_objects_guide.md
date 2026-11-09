@@ -451,7 +451,7 @@ ORDER BY s.stamp_ts DESC;
 | 발행 노드 (Isaac) | [isaac/scene_state_node.py](../../src/robot_control/robot_control/isaac/scene_state_node.py) + `config/isaac_scene.json` |
 | pose 합성 (ROS 무의존) | [scene/pose_math.py](../../src/robot_control/robot_control/scene/pose_math.py) |
 | launch 헬퍼 | [launch_helpers/scene.py](../../src/robot_control/robot_control/launch_helpers/scene.py) |
-| 트윈 설정 | `src/robot_twin/config/robot_twin_panda01.yaml` (변수 2개 + `reset_scene`) |
+| 트윈 설정 | `src/robot_twin/config/twins/mock01.yaml` (변수 2개 + `reset_scene`) |
 | 트윈 핸들러 | [backends.py](../../src/robot_twin/robot_twin/backends.py) `_sample_scene` / `_reset_scene` |
 | 녹화 대상 | [config/recording_topics.list](../../config/recording_topics.list) |
 | DB 적재 | [writers/scene_objects.py](../../src/rdfp/rdfp/dataset/db/writers/scene_objects.py) · [readers/scene_objects.py](../../src/rdfp/rdfp/dataset/db/readers/scene_objects.py) · [sql/schema.sql](../../src/rdfp/rdfp/dataset/sql/schema.sql) |

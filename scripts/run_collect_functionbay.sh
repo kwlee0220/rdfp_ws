@@ -72,8 +72,8 @@ set -euo pipefail
 WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_ROOT="${RDFP_DATA_ROOT:-$HOME/rdfp_data}"
 TWIN_HOST="${RDFP_TWIN_HOST:-127.0.0.1}"
-TWIN_PORT="${RDFP_TWIN_PORT:-8803}"
-TWIN_ID="${RDFP_TWIN_ID:-panda_functionbay}"
+TWIN_PORT="${RDFP_TWIN_PORT:-8801}"
+TWIN_ID="${RDFP_TWIN_ID:-rdfp01}"   # 펑션베이 트윈의 id (2026-10-25)
 CHECK_ONLY=0
 VIEWER=0
 WITH_STACK=0
@@ -210,7 +210,7 @@ fi
 
 # 레코더가 구독할 압축 토픽은 **프로파일에서 읽는다** — 여기 적어 두면 프로파일과 갈린다.
 CAMERA_TOPIC="$(python3 -c "from robot_control.backends import get_backend
-print(get_backend('functionbay').value('camera', 'compressed_topic'))" 2>/dev/null)" \
+print(get_backend('panda_functionbay').value('camera', 'compressed_topic'))" 2>/dev/null)" \
     || fail "백엔드 프로파일을 못 읽었다 — colcon build 후 install/setup.bash 를 소싱한다"
 
 TWIN_URL="http://$TWIN_HOST:$TWIN_PORT/api/v1/robot_twins/$TWIN_ID"
@@ -270,7 +270,7 @@ if [[ "$WITH_STACK" == "1" ]]; then
 
     if [[ -z "$(_twin_health)" ]]; then
         echo "[collect] 트윈 기동 (로그: $LOG_DIR/robot_twin.log)"
-        "$WS_ROOT/scripts/run_robot_twin.sh" --functionbay > "$LOG_DIR/robot_twin.log" 2>&1 &
+        "$WS_ROOT/scripts/run_robot_twin.sh" --twin "$TWIN_ID" > "$LOG_DIR/robot_twin.log" 2>&1 &
         TWIN_PID=$!
         STARTED_STACK=1
         echo -n "[collect] 트윈 대기 "
@@ -287,9 +287,17 @@ _stack_up || fail "제어 스택이 없다 — ./scripts/run_panda_functionbay.s
 
 echo "[collect] 트윈 확인 …"
 HEALTH="$(_twin_health)"
-[[ -n "$HEALTH" ]] || fail "트윈이 없다 ($TWIN_URL) — ./scripts/run_robot_twin.sh --functionbay 를 띄우거나 --with-stack 을 준다"
+[[ -n "$HEALTH" ]] || fail "트윈이 없다 ($TWIN_URL) — ./scripts/run_robot_twin.sh --twin $TWIN_ID 를 띄우거나 --with-stack 을 준다"
 grep -q '"move_group":"READY"' <<<"$HEALTH" \
     || fail "트윈의 move_group 이 준비되지 않았다: $HEALTH"
+# 트윈이 이 환경의 것인가. 트윈은 환경마다 id 가 달라(`rdfp01` · `panda01` · `mock01`) 다른
+# 환경의 트윈이 떠 있으면 대개 위 health 가 404 로 비어 걸리지만, **`RDFP_TWIN_ID` 를 바꿔 주면
+# 통과한다** — 그대로 가면 이 스택 위에서 엉뚱한 설정(명령 채널 ·
+# 시계)의 트윈이 에러 없이 명령을 낸다. 트윈 메타의 `backend` 로 가른다.
+TWIN_BACKEND="$(curl -sf --max-time 5 "$TWIN_URL" 2>/dev/null \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("backend") or "")' 2>/dev/null || true)"
+[[ "$TWIN_BACKEND" == panda_functionbay ]] \
+    || fail "떠 있는 트윈이 이 환경의 것이 아니다 (backend: ${TWIN_BACKEND:-<없음>}, 기대: panda_functionbay) — 그 트윈을 내리고 ./scripts/run_robot_twin.sh --twin $TWIN_ID 를 띄운다"
 
 # ② `/joint_states` 가 오고, 그 stamp 가 벽시계 축인가 (C-4).
 echo "[collect] /joint_states stamp 확인 (C-4) …"
@@ -375,7 +383,7 @@ echo "[collect] 수집 계층 기동 (로그: $LOG_DIR/rdfp_collect.log)"
 collect_viewer_arg="false"
 [[ "$VIEWER" == "1" ]] && collect_viewer_arg="true"
 
-ros2 launch rdfp rdfp_collect.launch.py backend:=functionbay \
+ros2 launch rdfp rdfp_collect.launch.py backend:=panda_functionbay \
     image_recorder_output_dir:="$RECORDINGS_DIR" \
     enable_image_viewer:="$collect_viewer_arg" \
     > "$LOG_DIR/rdfp_collect.log" 2>&1 &
