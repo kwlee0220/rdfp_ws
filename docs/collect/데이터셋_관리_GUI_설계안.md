@@ -2,7 +2,7 @@
 
 > **상태: 구현 · 통합 완료 (2026-11-23).** rosbag2 녹화물 → PostgreSQL 적재 → 학습 샘플 Export 를 관리하는 데스크톱 도구다.
 > 구현은 화면 [src/rdfp_gui](../../src/rdfp_gui/README.md)(`ros2 run rdfp_gui dataset_gui`) + 엔진 `rdfp.dataset`(조회 · 점검 `inspect/`, 적재 단위 `ingest/units.py`, 동적 매핑 `db/dynamic.py`, LeRobot `export/lerobot_v3.py`)이다.
-> 2026-11-04~23 에는 [design_gpt.md](../archive/design_gpt.md) 를 따른 병행 구현 `rdfp_gui_codex` 가 있었다. 그 장점(선택 토픽 적재 · JSONB 동적 매핑 · 원자적 export · LeRobot v3 · 작업 이력)을 **`rdfp` 엔진으로 흡수**하고 그 패키지는 삭제했다 — 경위는 §6.7.
+> 2026-11-04~23 에는 `design_gpt.md` 를 따른 병행 구현 `rdfp_gui_codex` 가 있었다. 그 장점(선택 토픽 적재 · JSONB 동적 매핑 · 원자적 export · LeRobot v3 · 작업 이력)을 **`rdfp` 엔진으로 흡수**하고 그 패키지는 삭제했다 — 경위는 §6.7.
 >
 > 관련 문서: [데이터셋_적재_시스템_설계서.md](데이터셋_적재_시스템_설계서.md)(적재 파이프라인 · 스키마),
 > [데이터셋_적재_운영_가이드.md](데이터셋_적재_운영_가이드.md)(CLI 운영), [rosbag_명령_가이드.md](rosbag_명령_가이드.md),
@@ -349,12 +349,12 @@ ros2 run rdfp init-db                   # 적재 메타 테이블 (한 번 — �
 
 ### 6.7 병행 구현의 통합 (2026-11-23)
 
-2026-11-04 에 이 설계안을 따른 `rdfp_gui` 와, [design_gpt.md](../archive/design_gpt.md) 를 따른 `rdfp_gui_codex` 가 따로 구현됐다. 비교 결과:
+2026-11-04 에 이 설계안을 따른 `rdfp_gui` 와, `design_gpt.md` 를 따른 `rdfp_gui_codex` 가 따로 구현됐다. 비교 결과:
 
 - `rdfp_gui` 는 함정을 **보이게** 하는 진단(매핑 선 · stamp 진단 · 미완료 세션 · 에피소드 점검)과 **적재 경로 하나**(CLI 서브프로세스)가 강점이었다.
 - `rdfp_gui_codex` 는 **선택 토픽 적재 · JSONB 동적 매핑 · 원자적 export · LeRobot v3 · 작업 이력**이 강점이었다. 그러나 적재기를 GUI 패키지 안에 따로 두어 **기존(CLI) 적재분과 호환되지 않았다** — 실측으로 기존 65 에피소드를 '출처 미확인 충돌'로 전부 거부했고, 에피소드마다 bag 을 다시 읽어 65 에피소드에 ~13 분이 걸렸다.
 
-그래서 **화면은 `rdfp_gui`, 엔진은 `rdfp` 로 모으고 Codex 의 장점을 엔진으로 흡수했다.** 기존 적재분은 시각이 맞으면 **연결(adopt)** 하는 규칙으로 받아들였다. `rdfp_gui_codex` 는 Import 를 먼저 동결한 뒤 같은 날 패키지 · 실행 스크립트를 삭제했다(설계 · 사용법 문서는 `docs/archive/`). design_gpt 에서 가져오지 않은 것: GUI 전용 요청 파일 CLI(§6.4), 내용 해시 출처(§4.4), `raw_cdr` 보존(현재 리더가 원본 바이트를 들고 있지 않다 — JSONB 태그 표기로 대신한다).
+그래서 **화면은 `rdfp_gui`, 엔진은 `rdfp` 로 모으고 Codex 의 장점을 엔진으로 흡수했다.** 기존 적재분은 시각이 맞으면 **연결(adopt)** 하는 규칙으로 받아들였다. `rdfp_gui_codex` 는 Import 를 먼저 동결한 뒤 같은 날 패키지 · 실행 스크립트를 삭제했다. design_gpt 에서 가져오지 않은 것: GUI 전용 요청 파일 CLI(§6.4), 내용 해시 출처(§4.4), `raw_cdr` 보존(현재 리더가 원본 바이트를 들고 있지 않다 — JSONB 태그 표기로 대신한다).
 
 ---
 

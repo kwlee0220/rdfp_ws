@@ -1,7 +1,5 @@
 # Scene 물체 상태 — `SceneObject` / `SceneObjects` 계약
 
-작성 2026-08-23 · 현행
-
 scene 안 물체의 종류·크기·자세가 — 시뮬레이터 종류와 상관없이 똑같은 형식으로 — 어디서 나와 어디로 가는지 설명한다. 그 "똑같은 형식"이 `rdfp_msgs/SceneObjects` 메시지와 `/scene/objects` 토픽이며, 이 문서에서 **계약**이라 부르는 것이 그것이다 — 필드 이름부터 단위·좌표계·쿼터니언 순서·QoS 까지 포함한 약속이라, 양쪽이 그것만 지키면 서로의 구현을 몰라도 된다.
 
 계약의 정본은 `src/rdfp_msgs/msg/*.msg` 의 주석이며, 이 문서는 그 내용에 발행 노드·트윈·launch·데이터셋 쪽 사정을 합쳐 한 곳에 모은 것이다.
@@ -213,7 +211,7 @@ MoveIt planning scene 을 원본으로 삼는다. 아래는 **이 노드에만 �
 
 `/monitored_planning_scene` 토픽을 구독한다. 토픽은 **diff** 를 실어 나르므로(변경된 물체만, `is_diff=True`) **전체 상태는 노드가 누적해서 들고 있어야 한다.**
 
-> **`/get_planning_scene` 서비스 폴링으로 되돌리지 않는다.** 처음에는 그 방식이었으나 **간헐적으로 빈 world 를 반환**했다 — 물체가 있는 상태에서 1초 간격 10회 조회에 `[3,0,0,0,0,0,3,3,3,0]`. 요청 컴포넌트 마스크를 바꿔도, 다른 조회자를 모두 없애도, RViz 를 종료해도 같았다. `move_group` 의 planning scene monitor 가 diff scene 과 parent 를 오가는 것으로 보인다. 토픽 구독은 이 불안정과 무관하다.
+> **`/get_planning_scene` 서비스 폴링은 쓰지 않는다.** **간헐적으로 빈 world 를 반환**한다 — 물체가 있는 상태에서 1초 간격 10회 조회에 `[3,0,0,0,0,0,3,3,3,0]`. 요청 컴포넌트 마스크를 바꿔도, 다른 조회자를 모두 없애도, RViz 를 종료해도 같았다. `move_group` 의 planning scene monitor 가 diff scene 과 parent 를 오가는 것으로 보인다. 토픽 구독은 이 불안정과 무관하다.
 
 #### 6.2.2 구독 QoS 는 VOLATILE 이어야 한다
 
@@ -266,7 +264,7 @@ TF 조회에 실패한 물체는 **그 물체만 빠지고** 나머지는 발행
 `panda_functionbay.launch.py` 가 `create_functionbay_scene_node()` 로 띄운다.
 
 **원본이 TF 다** — Isaac 과 같다. 시뮬레이터가 `world → <body 이름>` 을 약 29 Hz 로
-내보내고(2026-09-08 새 빌드, 벤더 요청 B-12), 이 노드가 `lookup_transform` 으로 받아
+내보내고, 이 노드가 `lookup_transform` 으로 받아
 계약으로 바꾼다. **쿼터니언을 뒤집지 않는다** — 실측으로 시뮬레이터가 **ROS 규약 xyzw**
 로 준다는 것을 확인했다(XML 의 `rpy="0 0 0"` 이 항등으로 나온다).
 
@@ -308,20 +306,20 @@ peg 치수는 `assets/industrealkit/peg_round_16mm.obj` 의 경계 상자에서 
 
 ### MoveIt 은 이 물체들을 모른다
 
-**planning scene 에 아무것도 넣지 않는다.** 2026-09-01 결정이며, 그 전까지 있던 `planning_scene_sync` 노드와 `SceneObject.fixture` 필드는 이때 함께 삭제됐다.
+**planning scene 에 아무것도 넣지 않는다.** `/scene/objects` 를 planning scene 에 옮기는 노드도 없고, `SceneObject` 에는 고정물을 구분하는 필드도 없다.
 
-근거는 이렇다. 조작 대상을 planning scene 에 넣으면 **파지 자세가 시작 자세 충돌이 되어** 관절공간 계획이 `INVALID_MOTION_PLAN`(-2)으로 거부된다. 그래서 넣을 수 있는 것은 환경 물체뿐인데, 위처럼 환경 물체를 아예 발행하지 않기로 하면 **넣을 것이 하나도 남지 않는다.** 매 tick 빈 diff 를 내는 노드가 되므로 없앴다.
+근거는 이렇다. 조작 대상을 planning scene 에 넣으면 **파지 자세가 시작 자세 충돌이 되어** 관절공간 계획이 `INVALID_MOTION_PLAN`(-2)으로 거부된다. 그래서 넣을 수 있는 것은 환경 물체뿐인데, 위처럼 환경 물체를 아예 발행하지 않기로 하면 **넣을 것이 하나도 남지 않는다.** 그래서 동기화 노드를 두지 않는다.
 
 > ⚠️ **감수하는 위험 — 관절공간 이동 중 팔이 탁자를 통과한다.**
 >
-> 이건 가설이 아니라 관측이다. 예전에 Isaac 에서 손가락이 상판 안에 박혀 그리퍼가 물리적으로 막혔고, 그것을 "그리퍼 고장"으로 오독한 이력이 있다. **단순성을 위해 감수하기로 한 것**이며(2026-09-01), 되살릴 근거가 생기면 아래 대안을 검토한다.
+> 이건 가설이 아니라 관측이다. Isaac 에서 손가락이 상판 안에 박혀 그리퍼가 물리적으로 막힐 수 있고, 겉으로는 "그리퍼 고장"처럼 보인다. **단순성을 위해 감수하는 위험**이며, 탁자 회피가 필요해지면 아래 대안을 검토한다.
 >
 > 다만 노출 범위는 좁다.
 >
 > - **자기충돌 검사는 그대로 동작한다** — 로봇 링크끼리의 충돌은 world 물체와 무관하게 SRDF 의 ACM 으로 검사된다.
 > - **파지 동작은 영향이 0 이다** — 접근·하강·상승이 전부 cartesian 인데 `GetCartesianPath` 는 `avoid_collisions` 기본값이 `False` 라 애초에 planning scene 을 보지 않았다.
 >
-> 실제로 잃는 것은 **`move_to_named_target` / `move_to_joints` 중의 탁자 회피**뿐이다. 되살릴 때의 후보는 (1) 안전한 경유 자세를 SRDF `group_state` 에 정의, (2) 탁자만 launch 시점에 상자 하나로 planning scene 에 정적 등록, (3) 작업공간 z 하한을 `PositionConstraint` 로 강제. **(2)가 이 설계와 가장 잘 맞는다** — scene 채널을 건드리지 않고 환경 설정으로만 다룬다.
+> 실제로 잃는 것은 **`move_to_named_target` / `move_to_joints` 중의 탁자 회피**뿐이다. 탁자 회피가 필요할 때의 후보는 (1) 안전한 경유 자세를 SRDF `group_state` 에 정의, (2) 탁자만 launch 시점에 상자 하나로 planning scene 에 정적 등록, (3) 작업공간 z 하한을 `PositionConstraint` 로 강제. **(2)가 이 설계와 가장 잘 맞는다** — scene 채널을 건드리지 않고 환경 설정으로만 다룬다.
 
 ### 자동 라벨링은 지지면을 데이터에서 볼 수 없다
 
@@ -388,13 +386,12 @@ scenes:
 | `enable_scene` | 전 스택 | 아래 참조 | 백엔드 scene 상태 노드 기동 여부 |
 | `scene_publish_rate` | 전 스택 | `2.0` | `/scene/objects` 발행 Hz |
 
-`enable_scene` 의 기본값만 launch 마다 다르다:
+`enable_scene` 의 기본값은 모든 launch 에서 `true` 이며, 이유는 launch 마다 다르다:
 
 | launch | 기본 | 왜 |
 |---|---|---|
-| `panda_mock` · `panda_mock_jgpc` · `rdfp_panda_*` | `true` | 아래 "기본 on 은 의도적이다" |
-| `panda_isaac` | `true` | `/scene/objects` 는 데이터셋 채널이므로 수집 스택에서는 켜져 있어야 한다 |
-| `panda_isaac` | **`false`** | Isaac 백엔드는 단계별로 올린다 — Phase 3 에 도달하기 전에는 물체 TF 자체가 없어서, 켜 두면 조회 실패 경고만 쌓인다 |
+| `panda_mock` · `panda_mock_jgpc` | `true` | 아래 "기본 on 은 의도적이다" |
+| `panda_isaac` · `panda_functionbay` | `true` | `/scene/objects` 는 데이터셋 채널이므로 수집 스택에서는 켜져 있어야 한다 |
 
 - **기본 on 은 의도적이다.** 노드는 2 Hz 타이머 하나를 쓰고 `/scene/reset` 요청이 오기 전까지 아무것도 바꾸지 않는 반면, 꺼 두면 트윈의 `reset_scene` 이 **서비스를 찾지 못해** 실패하면서 로그에 원인이 남지 않는다.
 - **`publish_rate` 라는 이름을 쓸 수 없다** — EE pose 헬퍼가 이미 그 이름을 50 Hz 기본값으로 선언하고 있어 충돌한다.
@@ -436,7 +433,7 @@ ORDER BY s.stamp_ts DESC;
 | scene 이 조용히 얼어붙었다 | 주기 발행이므로 `staleness_ms` 로 감지된다 (이벤트 발행이면 구분 불가) |
 | mock 에서 파지 성패가 안 잡힌다 | 물리가 없어 pose 가 변하지 않는다. 배관 검증용이다 |
 | Isaac 인데 물체가 안 보인다 | TF 가 안 오거나 `isaac_scene.json` 에 없는 물체다 — 그 물체만 빠진다 (§6.3) |
-| MoveIt 이 테이블을 뚫는다 | **설계상 그렇다** (§7). planning scene 에 아무것도 넣지 않기로 했다 — 단순성을 위해 감수한 위험이다 |
+| MoveIt 이 테이블을 뚫는다 | **설계상 그렇다** (§7). planning scene 에 아무것도 넣지 않는다 — 단순성을 위해 감수하는 위험이다 |
 | 곰 인형 같은 물체를 배치할 수 없다 | `reset_scene` 은 primitive 만 받는다. `mesh` 는 읽기 전용이며 기하를 실을 필드도 없다 (§6.1) |
 
 ---
@@ -465,6 +462,6 @@ ORDER BY s.stamp_ts DESC;
 - [로봇_트윈_설계서.md](../twin/로봇_트윈_설계서.md) — §5.5 projection 어휘(`scene_object_map`), §6.3 `reset_scene` 의 `[scene, arm]` 자원
 - [../twin/로봇_트윈_사용자_가이드.md](../twin/로봇_트윈_사용자_가이드.md) 「자동 에피소드 수집」 · [../backends/isaac/isaac_bringup_runbook.md](../backends/isaac/isaac_bringup_runbook.md) §2 — `reset_scene` 을 쓰는 자동 생성 루프(`robot-twin-collect`)와 초기 배치 기록
 - [scene_objects_observation_decision.md](../learning/scene_objects_observation_decision.md) — 학습 입력에 넣을 것인가 (미결)
-- [README.md](../backends/README.md) — §5 백엔드 계약. 이 토픽은 그 §5.3 의 "환경 오브젝트"(선택)를 계약으로 승격한 것이다
+- [README.md](../backends/README.md) — 백엔드 비교와 공통 함정
 - [robot_control/launch/README.md](../../src/robot_control/launch/README.md) — §5 헬퍼 인벤토리
 - [rdfp/launch/README.md](../../src/rdfp/launch/README.md) — scene 인자가 YAML 밖에 있는 이유

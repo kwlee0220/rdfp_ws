@@ -4,7 +4,7 @@
 scratch DB 를 만들 수 없으면(`createdb` 권한) 모듈 전체를 건너뛴다 — `export/test_writer.py` 와
 같은 방식이다.
 
-시나리오는 설계안 §4.4 · design_gpt §14.2 의 인수 테스트에서 왔다.
+시나리오는 설계안 §4.4 에서 왔다.
 """
 
 from __future__ import annotations

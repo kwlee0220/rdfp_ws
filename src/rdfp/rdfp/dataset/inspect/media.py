@@ -2,7 +2,7 @@
 
 **PyAV 로 읽는다** — `cv2.CAP_PROP_POS_FRAMES` 탐색은 매번 디코더를 비워 느리다(CLAUDE.md, 4.8배).
 프레임 번호는 `image_frames.frame_index` 와 같은 0-기반 mp4 프레임 번호다. 시각으로 찾지 않는다
-— 명목 fps 로 ROS 시각을 계산하면 실제 stamp 와 어긋난다(design_gpt §4.2).
+— 명목 fps 로 ROS 시각을 계산하면 실제 stamp 와 어긋난다.
 """
 
 from __future__ import annotations
