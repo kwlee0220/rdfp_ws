@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
 
 from rdfp.dataset.inspect.bag_inspect import SchemaText
 from rdfp.dataset.inspect.db_inspect import TableSchema
-from rdfp.dataset.inspect.mapping import STATUS_MAPPED, STATUS_SPECIAL, STATUS_UNMAPPED
+from rdfp.dataset.db.dynamic import registrable
+from rdfp.dataset.inspect.mapping import (SOURCE_DYNAMIC, STATUS_MAPPED, STATUS_SPECIAL,
+                                          STATUS_UNMAPPED)
 
 from ..context import fmt_time
 from ..snapshot import TableEntry, TopicEntry
@@ -18,13 +20,17 @@ from .common import COLORS, esc, mono_font
 
 _STATUS_TEXT = {STATUS_MAPPED: '매핑됨', STATUS_SPECIAL: '특수', STATUS_UNMAPPED: '매핑 없음'}
 
-_NOT_IMPLEMENTED = ('동적 매핑(테이블 생성 · 등록 해제 · 테이블 삭제)은 미구현이다 — 설계안 §4.3 · §9 의 '
-                    '열 생성 규칙 확정이 먼저다. 내장 매핑은 export · 재생이 의존해 GUI 에서 지우지 않는다.')
+_BUILTIN_LOCKED = ('내장 매핑은 export · 재생이 의존해 GUI 에서 해제 · 삭제하지 않는다 '
+                   '(설계안 §4.3.2). 동적 매핑(JSONB)만 해제 · 삭제할 수 있다.')
 
 
 class DetailPanel(QWidget):
     browse_requested = Signal()
     diagnose_requested = Signal()
+    #: 동적 매핑 조작 — (타입 이름, 테이블 이름 | '')
+    create_requested = Signal(str)
+    unregister_requested = Signal(str, str)
+    drop_requested = Signal(str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -51,16 +57,36 @@ class DetailPanel(QWidget):
         self._diagnose = QPushButton('stamp 진단')
         self._diagnose.setEnabled(False)
         self._diagnose.clicked.connect(self.diagnose_requested)
+        # 동적 매핑 — 등록 해제와 테이블 삭제를 **따로 둔다** (설계안 §4.3.2: 합치면 매핑을
+        # 끄려다 데이터를 지우는 사고가 난다).
         self._create = QPushButton('테이블 생성…')
-        self._create.setEnabled(False)
-        self._create.setToolTip(_NOT_IMPLEMENTED)
-        self._unmap = QPushButton('매핑 제거')
-        self._unmap.setEnabled(False)
-        self._unmap.setToolTip(_NOT_IMPLEMENTED)
-        for b in (self._browse, self._diagnose, self._create, self._unmap):
+        self._unmap = QPushButton('등록 해제')
+        self._drop = QPushButton('테이블 삭제…')
+        for b in (self._create, self._unmap, self._drop):
+            b.setEnabled(False)
+        self._create.clicked.connect(lambda: self.create_requested.emit(self._type_name))
+        self._unmap.clicked.connect(
+            lambda: self.unregister_requested.emit(self._type_name, self._table))
+        self._drop.clicked.connect(lambda: self.drop_requested.emit(self._type_name, self._table))
+        for b in (self._browse, self._diagnose, self._create, self._unmap, self._drop):
             buttons.addWidget(b)
         buttons.addStretch(1)
         layout.addLayout(buttons)
+        self._type_name = ''
+        self._table = ''
+
+    def _set_mapping_actions(self, *, type_name: str, table: str, can_create: bool,
+                             dynamic: bool, create_tip: str = '') -> None:
+        """동적 매핑 버튼 — 매핑 없는 일반 타입이면 생성, 동적 매핑이면 해제 · 삭제."""
+        self._type_name, self._table = type_name, table
+        self._create.setEnabled(can_create)
+        self._create.setToolTip(create_tip or 'registry 에 없는 타입을 JSONB 테이블에 담는다 '
+                                              '(rdfp mapping register)')
+        self._unmap.setEnabled(dynamic)
+        self._drop.setEnabled(dynamic)
+        locked = '' if dynamic else _BUILTIN_LOCKED
+        self._unmap.setToolTip(locked or '다음 적재부터 무시한다 — 테이블과 행은 남는다')
+        self._drop.setToolTip(locked or '테이블을 지운다 — 행 수를 보고 테이블 이름을 다시 적어야 한다')
 
     def clear(self, message: str = '상세: (토픽이나 테이블을 고른다)') -> None:
         self._header.setText(message)
@@ -68,6 +94,7 @@ class DetailPanel(QWidget):
         self._schema.setPlainText('')
         self._browse.setEnabled(False)
         self._diagnose.setEnabled(False)
+        self._set_mapping_actions(type_name='', table='', can_create=False, dynamic=False)
 
     def set_schema_text(self, text: str) -> None:
         self._schema.setPlainText(text)
@@ -114,6 +141,13 @@ class DetailPanel(QWidget):
             self._schema.setPlainText('(메시지 정의를 읽는 중…)')
         self._browse.setEnabled(True)
         self._diagnose.setEnabled(entry.diagnosis is None and not diagnosing)
+        type_name = s.types[0] if s.types else ''
+        blocked = registrable(type_name) if type_name else 'type unknown'
+        can_create = m.status == STATUS_UNMAPPED and blocked is None and len(s.types) == 1
+        self._set_mapping_actions(
+            type_name=type_name, table=m.table or '', can_create=can_create,
+            dynamic=m.source == SOURCE_DYNAMIC,
+            create_tip='' if can_create else (blocked or '이미 매핑된 토픽이다'))
 
     # ----- 테이블 ---------------------------------------------------------------
 
@@ -146,6 +180,9 @@ class DetailPanel(QWidget):
                                   else ('(스키마를 읽는 중…)' if not db_error else ''))
         self._browse.setEnabled(entry.rows is not None)
         self._diagnose.setEnabled(False)
+        dynamic = info.source == SOURCE_DYNAMIC
+        self._set_mapping_actions(type_name=info.type_names[0] if dynamic else '',
+                                  table=info.name, can_create=False, dynamic=dynamic)
 
 
 __all__ = ['DetailPanel']

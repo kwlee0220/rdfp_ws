@@ -8,18 +8,22 @@ from typing import Optional
 import json
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QSpinBox,
+                               QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QSlider,
+                               QSpinBox,
                                QTextBrowser, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
 from rdfp.dataset.inspect.db_inspect import MESSAGE_TABLES, EpisodeSummary, recording_files_for
+from rdfp.dataset.inspect.media import read_frame
 from rdfp.dataset.inspect.findings import LEVEL_WARNING
 from rdfp.dataset.inspect.preflight import check_export
 
 from ..context import AppContext, fmt_time
-from ..jobs import build_episode_delete_command, build_export_command, episodes_spec
+from ..jobs import (LEROBOT_PYTHON_ENV, build_episode_delete_command, build_export_command,
+                    episodes_spec)
 from ..snapshot import exported_flag
 from ..store import DataStore
 from ..workers import Background
@@ -28,11 +32,17 @@ from .common import COLORS, FindingsList, TypedConfirmDialog, brush, esc, mono_f
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 _COLUMNS = ['id', '시작', '길이', 'task', '결과', '백엔드', '행 합', 'joint_states', 'gripper_cmds',
-            'motion', 'scene', '영상', '검증', '세션 (bag)']
+            'motion', 'scene', '영상', '검증', '출처 (녹화본)']
 
 
 def _result_text(success: Optional[bool]) -> str:
     return 'success' if success is True else ('failure' if success is False else '-')
+
+
+def _source_text(s: EpisodeSummary) -> str:
+    if s.source_id is None:
+        return '미연결'
+    return f'{s.source_id} (연결)' if s.adopted else s.source_id
 
 
 def export_preflight(cfg, ids, *, camera_topic: str, label: str) -> list:
@@ -145,8 +155,14 @@ class EpisodePanel(QWidget):
                                 s.task_label or '-', _result_text(s.success), s.backend or '-',
                                 f'{s.message_rows:,}', f'{rc.get("joint_states", 0):,}',
                                 str(rc.get('gripper_cmds', 0)), motion,
-                                str(rc.get('scene_objects', 0)), video, check, ''])
+                                str(rc.get('scene_objects', 0)), video, check,
+                                _source_text(s)])
         item.setData(0, _ROLE_ID, s.id)
+        if s.source_id is None:
+            item.setToolTip(13, '출처를 기록하기 전에 적재된 에피소드 — 다음 Import 가 시작 · 종료 '
+                                '시각이 맞으면 연결한다(adopt)')
+        elif s.adopted:
+            item.setToolTip(13, '나중에 연결한 출처 — 시작 · 종료 시각 일치로만 연결했다')
         if warnings:
             item.setToolTip(12, '\n'.join(f'• {w.message}' for w in warnings))
             item.setForeground(12, brush(LEVEL_WARNING))
@@ -275,6 +291,11 @@ class EpisodeDetailDialog(QDialog):
             self._tables.addTopLevelItem(item)
         self._tables.itemDoubleClicked.connect(self._browse)
         layout.addWidget(self._tables, 1)
+        for table, n in sorted(s.dynamic_rows.items()):
+            self._tables.addTopLevelItem(QTreeWidgetItem([f'{table} (동적)', f'{n:,}']))
+
+        if s.streams:
+            layout.addWidget(self._frame_preview(s))
 
         layout.addWidget(QLabel('metadata (sessions.metadata)'))
         meta = QPlainTextEdit()
@@ -291,10 +312,77 @@ class EpisodeDetailDialog(QDialog):
         layout.addWidget(buttons)
 
     def _browse(self, item, _column) -> None:
+        table = item.text(0).removesuffix(' (동적)')
         dialog = BrowserDialog(self.ctx, self.bg,
-                               DbSource(item.text(0), episode_id=self.summary.id,
+                               DbSource(table, episode_id=self.summary.id,
                                         episodes=self._episodes), self)
         dialog.show()
+
+    # ----- 영상 프레임 미리보기 ----------------------------------------------------
+
+    def _frame_preview(self, s: EpisodeSummary) -> QWidget:
+        """프레임 번호(= `image_frames.frame_index`)로 mp4 한 장을 본다. 디코드는 워커에서 한다."""
+        box = QWidget()
+        col = QVBoxLayout(box)
+        col.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        self._stream = QComboBox()
+        for st in s.streams:
+            self._stream.addItem(st.topic, st)
+        self._frame = QSpinBox()
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        row.addWidget(QLabel('영상'))
+        row.addWidget(self._stream)
+        row.addWidget(QLabel('프레임'))
+        row.addWidget(self._frame)
+        row.addWidget(self._slider, 1)
+        col.addLayout(row)
+        self._image = QLabel('프레임을 고른다')
+        self._image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image.setMinimumHeight(220)
+        col.addWidget(self._image)
+        self._frame_token: Optional[int] = None
+        self._stream.currentIndexChanged.connect(self._stream_changed)
+        self._frame.valueChanged.connect(self._slider.setValue)
+        self._slider.valueChanged.connect(self._frame.setValue)
+        self._slider.sliderReleased.connect(self._load_frame)
+        self._frame.editingFinished.connect(self._load_frame)
+        self._stream_changed()
+        return box
+
+    def _stream_changed(self) -> None:
+        st = self._stream.currentData()
+        last = max(0, (st.frame_count or st.frames_in_db) - 1)
+        for w in (self._frame, self._slider):
+            w.blockSignals(True)
+            w.setRange(0, last)
+            w.setValue(0)
+            w.blockSignals(False)
+        self._load_frame()
+
+    def _load_frame(self) -> None:
+        st = self._stream.currentData()
+        if st is None or not st.file_exists:
+            self._image.setText('mp4 파일을 찾을 수 없다')
+            return
+        if self._frame_token is not None:
+            self.bg.cancel(self._frame_token)
+        index = self._frame.value()
+        self._image.setText(f'프레임 {index} 디코드 중…')
+        self._frame_token = self.bg.run(read_frame, self._show_frame, self._frame_failed,
+                                        st.resolved_path, index)
+
+    def _show_frame(self, rgb) -> None:
+        self._frame_token = None
+        height, width = rgb.shape[:2]
+        image = QImage(rgb.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+        self._image.setPixmap(QPixmap.fromImage(image).scaled(
+            640, 360, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+
+    def _frame_failed(self, text: str) -> None:
+        self._frame_token = None
+        self._image.setText(text.strip().splitlines()[-1] if text.strip() else 'decode failed')
 
 
 class ExportDialog(QDialog):
@@ -325,9 +413,8 @@ class ExportDialog(QDialog):
         opts = QHBoxLayout()
         opts.addWidget(QLabel('형식'))
         self._format = QComboBox()
-        self._format.addItem('npz (현행 — rdfp-train 이 읽는 형식)', 'npz')
-        self._format.addItem('LeRobot v3 (미구현 — 설계안 §6.5)', 'lerobot_v3')
-        self._format.model().item(1).setEnabled(False)
+        self._format.addItem('npz (학습 정본 — rdfp-train 이 읽는 형식)', 'npz')
+        self._format.addItem('LeRobot v3 (교환용 파생물 — fps 격자로 다시 샘플링)', 'lerobot_v3')
         opts.addWidget(self._format)
         opts.addWidget(QLabel('레이블'))
         self._label = QComboBox()
@@ -369,6 +456,31 @@ class ExportDialog(QDialog):
         cam_row.addWidget(self._keep)
         layout.addLayout(cam_row)
 
+        media_row = QHBoxLayout()
+        self._copy = QCheckBox('영상을 트리 안에 복사 (--copy-media)')
+        self._copy.setToolTip('mp4 를 videos/ 로 복사한다 — 학습 기계로 옮길 때 recordings 를 따로 '
+                              '챙기지 않아도 된다 (npz 전용. LeRobot 은 언제나 영상을 품는다)')
+        media_row.addWidget(self._copy)
+        media_row.addStretch(1)
+        media_row.addWidget(QLabel('LeRobot fps'))
+        self._fps = QSpinBox()
+        self._fps.setRange(1, 120)
+        self._fps.setValue(10)
+        media_row.addWidget(self._fps)
+        media_row.addWidget(QLabel('최대 영상 시차 (s)'))
+        self._skew = QDoubleSpinBox()
+        self._skew.setDecimals(3)
+        self._skew.setRange(0.001, 10.0)
+        self._skew.setSingleStep(0.05)
+        self._skew.setValue(0.2)
+        self._skew.setToolTip('격자 시각과 가장 가까운 이전 프레임의 시차 — 넘으면 공백을 메우지 않고 '
+                              '에피소드를 거부한다')
+        media_row.addWidget(self._skew)
+        layout.addLayout(media_row)
+        self._lerobot_note = QLabel('')
+        self._lerobot_note.setWordWrap(True)
+        layout.addWidget(self._lerobot_note)
+
         layout.addWidget(QLabel('<b>사전 점검</b>'))
         self._findings = FindingsList()
         layout.addWidget(self._findings, 1)
@@ -393,6 +505,10 @@ class ExportDialog(QDialog):
             w.valueChanged.connect(lambda *_: self._rebuild())
         self._out.textChanged.connect(lambda *_: self._rebuild())
         self._keep.toggled.connect(lambda *_: self._rebuild())
+        self._copy.toggled.connect(lambda *_: self._rebuild())
+        self._fps.valueChanged.connect(lambda *_: self._rebuild())
+        self._skew.valueChanged.connect(lambda *_: self._rebuild())
+        self._format.currentIndexChanged.connect(lambda *_: self._rebuild())
         self._preflight()
 
     def _pick_dir(self) -> None:
@@ -416,8 +532,12 @@ class ExportDialog(QDialog):
     def _checked(self, findings) -> None:
         self._token = None
         self._findings.set_findings(findings)
-        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(
-            not self._findings.has_errors())
+        self._update_ok()
+
+    def _update_ok(self) -> None:
+        ok = (self.spec is not None and self._token is None
+              and not self._findings.has_errors())
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(ok)
 
     def _check_failed(self, text: str) -> None:
         from rdfp.dataset.inspect.findings import LEVEL_ERROR, Finding
@@ -427,13 +547,35 @@ class ExportDialog(QDialog):
                                              text.strip().splitlines()[-1])])
 
     def _rebuild(self) -> None:
-        self.spec = build_export_command(
-            str(self.ctx.config_path), self._out.text().strip(), episode_ids=self.ids,
-            label=self._label.currentData(), chunk_len=self._chunk.value(),
-            delta_sec=self._delta.value(), step_sec=self._step.value(),
-            camera_topic=self._camera.currentData() or '',
-            keep_untrustworthy=self._keep.isChecked())
-        self._command.setText(self.spec.command_line())
+        fmt = self._format.currentData()
+        lerobot = fmt == 'lerobot_v3'
+        self._copy.setEnabled(not lerobot)
+        self._fps.setEnabled(lerobot)
+        self._skew.setEnabled(lerobot)
+        try:
+            self.spec = build_export_command(
+                str(self.ctx.config_path), self._out.text().strip(), episode_ids=self.ids,
+                label=self._label.currentData(), chunk_len=self._chunk.value(),
+                delta_sec=self._delta.value(), step_sec=self._step.value(),
+                camera_topic=self._camera.currentData() or '',
+                keep_untrustworthy=self._keep.isChecked(), fmt=fmt,
+                copy_media=self._copy.isChecked(), fps=self._fps.value(),
+                max_skew_sec=self._skew.value())
+        except ValueError as exc:
+            self.spec = None
+            self._command.setText('')
+            self._lerobot_note.setText(f'<span style="color:{COLORS["error"]}">{esc(exc)}</span>'
+                                       f' — 예: <code>export {LEROBOT_PYTHON_ENV}=\'uv run '
+                                       f'--no-project --python ~/development/rdfp/rdfp-train/.venv/'
+                                       f'bin/python --with psycopg[binary] --with pydantic --with '
+                                       f'pyyaml python\'</code> 로 GUI 를 띄운다')
+        else:
+            self._command.setText(self.spec.command_line())
+            self._lerobot_note.setText(
+                'LeRobot v3 는 교환용 파생물이다 — 실제 카메라 stamp 를 fps 격자로 다시 샘플링하고 '
+                '(같은 프레임 반복 · 시차를 manifest 에 남긴다), 행동은 a(t) 로 넣는다. 학습 정본은 '
+                'npz 다 (결정_기록 28).' if lerobot else '')
+        self._update_ok()
 
 
 __all__ = ['EpisodeDetailDialog', 'EpisodePanel', 'ExportDialog', 'export_preflight']

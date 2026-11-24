@@ -41,15 +41,20 @@ src/rdfp/rdfp/dataset/inspect/     공유 조회 · 점검 (bag_inspect · mappi
 pip install --user PySide6-Essentials            # apt 에 없다. Qt 위젯만 있으면 된다 (Addons 불필요)
 sudo apt install libxcb-cursor0                  # X11 세션에서 Qt 6.5+ xcb 플러그인이 요구한다 (없으면 창이 안 뜬다)
 cd ~/development/ros/rdfp_ws
-colcon build --packages-select rdfp rdfp_gui       # rdfp 의 inspect 모듈 · episode-delete 도 함께
+colcon build --packages-select rdfp rdfp_gui
 source install/setup.bash
-ros2 run rdfp_gui dataset_gui --config config/dataset_config.yaml
-# 또는
-./scripts/run_dataset_gui.sh
+ros2 run rdfp init-db                            # 적재 메타 테이블(2026-11-23) — 한 번. 기존 행은 그대로다
+./scripts/run_dataset_gui.sh                     # = ros2 run rdfp_gui dataset_gui --config config/dataset_config.yaml
 ```
 
 `--config` 를 생략하면 다른 dataset CLI 와 같이 `$RDFP_HOME/config/dataset_config.yaml` 을 찾는다. DSN 은
 설정의 `db.dsn_env`(기본 `RDFP_DB_DSN`) 환경변수에서만 읽고 **화면에 비밀번호를 보이지 않는다.**
+
+| 환경 변수 | 뜻 |
+|---|---|
+| `RDFP_GUI_PYTHON` | GUI 를 띄울 파이썬(별도 venv). 주면 설치본 대신 소스 경로로 띄운다 |
+| `RDFP_LEROBOT_PYTHON` | **LeRobot v3 export** 를 돌릴 파이썬 명령. `lerobot==0.4.4` + `psycopg` + `pydantic` + `pyyaml` 이 있어야 한다 — ROS 파이썬에는 lerobot 이 없다. 예: `uv run --no-project --python ~/development/rdfp/rdfp-train/.venv/bin/python --with 'psycopg[binary]' --with pydantic --with pyyaml python` (그 venv 를 바꾸지 않는 임시 overlay) |
+| `XDG_STATE_HOME` | 작업 이력 SQLite 위치 (기본 `~/.local/state/rdfp-dataset-gui/jobs.sqlite3`) |
 
 ## 3. 화면
 
@@ -63,22 +68,34 @@ ros2 run rdfp_gui dataset_gui --config config/dataset_config.yaml
 토픽 상태 기호: `●` 매핑됨 · `◇` 특수(`/session` 에피소드 경계, `sensor_msgs/Image` → mp4) · `✖` **매핑 없음**
 (적재가 조용히 무시한다) · `△` 매핑은 있는데 stamp 진단에 걸림.
 
-## 4. 구현 범위 (2026-11-04)
+## 4. 구현 범위 (2026-11-23 통합)
 
-설계안 §8 의 **1 · 2 · 3 단계**다. **4 단계(동적 매핑 — 테이블 생성 · 등록 해제 · 테이블 삭제, `topic_tables`)
-와 5 단계(LeRobot v3 export)는 미구현**이며 버튼은 비활성으로 두고 이유를 툴팁에 적었다 — 둘 다 설계 확정이
-먼저다(설계안 §9 · §6.5). Import 의 토픽 부분 적재는 `import --topics` 로 되지만, 빠진 토픽을 **기존**
-에피소드에 채우는 `--only-topics-replace` 는 없다 (사전 점검이 그 사실을 경고한다).
+병행 구현 `rdfp_gui_codex`(삭제됨)의 장점을 **`rdfp` 엔진으로 흡수**했다 — 화면은 여기, 로직은 `rdfp` 에 있고 CLI 와
+GUI 가 같은 경로를 쓴다. 경위 · 근거: [설계안 §6.7](../../docs/collect/데이터셋_관리_GUI_설계안.md).
 
-`rdfp` 쪽에 함께 들어간 것: `rdfp.dataset.inspect` 패키지, `import --start-ns/--topics/--on-existing` 와
-사전 점검(`preflight.check_import` — CLI 도 같은 함수를 부른다), `episode-delete` 콘솔 스크립트.
+| 기능 | 화면 | 명령 |
+|---|---|---|
+| 선택 토픽 적재 · **빠진 토픽 나중에 채우기** | ① Import… (토픽 체크) | `import --topics …` |
+| 고른 토픽만 교체 (에피소드 id 유지) | ① Import… [고른 토픽만 교체] | `import --topics … --only-topics-replace` |
+| 출처(녹화본) 기록 · 옛 적재분 연결 · **같은 키의 다른 녹화본 거부** | ② 출처 열 | `import` (자동) |
+| JSONB 동적 매핑 — 테이블 생성 · 등록 해제 · 테이블 삭제 | ① 상세 버튼 (DDL 미리보기 · 이름 타이핑) | `mapping register \| unregister \| drop` |
+| 원자적 export · `manifest.json` · 영상 복사 | ② Export… | `export [--copy-media]` |
+| LeRobot v3 (교환용 파생물) | ② Export… 형식 | `export --format lerobot_v3 --fps … --max-skew-sec …` |
+| 영상 프레임 미리보기 | ② 상세 | — (`rdfp.dataset.inspect.media`) |
+| 작업 이력 | 하단 [작업 이력] 탭 | — (로컬 SQLite) |
+
+미구현: 에피소드 뷰의 `postproc_run.jsonl` 실패 표시, 토픽 밀도 타임라인, `--progress-json`(진행률은 로그에서 읽는다).
 
 ## 5. 테스트
 
 ```bash
 cd src/rdfp_gui && PYTHONPATH=.:../rdfp:$PYTHONPATH python3 -m pytest rdfp_gui/tests -q   # offscreen
 cd src/rdfp && PYTHONPATH=.:$PYTHONPATH python3 -m pytest rdfp/dataset/inspect/tests rdfp/tests -q
+cd src/rdfp && PYTHONPATH=.:$PYTHONPATH python3 -m pytest rdfp/dataset/tests/test_ingest_units.py -q  # scratch PostgreSQL
 ```
+
+`test_ingest_units.py` 는 `createdb` 로 scratch DB 를 만들어 `import` · `mapping` CLI 를 끝까지 돌린다(만들 수 없으면
+skip). LeRobot 끝까지의 검증은 lerobot 이 있는 파이썬에서 한다 — 이 워크스페이스의 테스트는 격자 샘플링까지만 본다.
 
 Qt 테스트는 `QT_QPA_PLATFORM=offscreen` 으로 돈다(conftest 가 설정). PySide6 가 없으면 Qt 테스트만 skip 된다.
 `setup.cfg` 의 `addopts = -p no:anyio` 는 다른 패키지와 같은 이유로 지우면 안 된다(워크스페이스 CLAUDE.md "Tests").

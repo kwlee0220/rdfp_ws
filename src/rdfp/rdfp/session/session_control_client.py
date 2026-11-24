@@ -88,7 +88,8 @@ class SessionControlClient:
         Args:
             node: 서비스 클라이언트를 붙일 호출자의 ROS2 노드.
             namespace: session_control_node 의 노드 이름(서비스 prefix). 기본값은
-                'session_control'. 절대 경로(`/ns/session_control`)도 허용된다.
+                절대 경로 '/session_control' 이다. 서버를 다른 이름 · namespace 로 띄운
+                경우에만 `/ns/session_control` 처럼 절대 경로로 준다.
             wait_timeout_sec: 서비스 5 개가 모두 준비될 때까지 대기할 총 타임아웃.
                 0 이하이면 대기하지 않는다 — 이어서 `wait_until_ready()` 로 예외 없이
                 확인할 수 있다.

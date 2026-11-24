@@ -28,9 +28,16 @@ class _Task(QRunnable):
         try:
             result = self._fn(*self._args)
         except Exception:  # noqa: BLE001 — 어떤 예외든 화면에 보여야 한다
-            self._owner._failed.emit(self._token, traceback.format_exc())
+            self._emit(self._owner._failed, traceback.format_exc())
             return
-        self._owner._done.emit(self._token, result)
+        self._emit(self._owner._done, result)
+
+    def _emit(self, signal, payload) -> None:
+        # 창을 닫은 뒤 끝난 작업은 받을 곳이 없다 — 결과를 버린다 (C++ 객체가 이미 지워졌다).
+        try:
+            signal.emit(self._token, payload)
+        except RuntimeError:
+            pass
 
 
 class Background(QObject):

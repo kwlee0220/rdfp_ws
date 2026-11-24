@@ -73,6 +73,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--command-topic', default=DEFAULT_COMMAND_TOPIC)
     p.add_argument('--keep-untrustworthy', action='store_true',
                    help='이벤트가 없어 정상 종료로 **가정한** 에피소드도 통계에 넣는다')
+    p.add_argument('--copy-media', action='store_true',
+                   help='mp4 를 트리 안 videos/ 로 복사한다 (manifest.media_root=dataset) — '
+                        '학습 기계로 옮길 때 recordings 디렉터리를 따로 챙기지 않아도 된다')
+    p.add_argument('--format', choices=('npz', 'lerobot_v3'), default='npz',
+                   help='npz(학습 정본, 기본) 또는 lerobot_v3(교환용 파생물 — fps 격자로 다시 '
+                        '샘플링한다. lerobot==0.4.4 가 있는 파이썬에서 돌린다)')
+    p.add_argument('--fps', type=int, default=10, help='lerobot_v3: 격자 fps (실측 주기를 보고 고른다)')
+    p.add_argument('--max-skew-sec', type=float, default=0.2,
+                   help='lerobot_v3: 격자 시각과 영상 프레임의 최대 시차 — 넘으면 에피소드를 거부한다')
     return p
 
 
@@ -99,6 +108,21 @@ def cmd_export(args: argparse.Namespace, config_path: str) -> int:
                 LOG.error('no episodes with camera frames — nothing to export')
                 return 1
             LOG.info('exporting %d episode(s) as %s', len(ids), args.label)
+            if args.format == 'lerobot_v3':
+                from .export.lerobot_v3 import export_lerobot_v3
+
+                result = export_lerobot_v3(
+                    conn, ids, out_dir=args.out, fps=args.fps, max_skew_sec=args.max_skew_sec,
+                    label=args.label, camera_topic=args.camera_topic,
+                    joint_topic=args.joint_topic, command_topic=args.command_topic,
+                    media_roots=cfg.mp4_roots(),
+                    skip_untrustworthy=not args.keep_untrustworthy)
+                conn.rollback()
+                print(f'{len(result["kept"])} episode(s), {result["frames"]} frame(s) '
+                      f'-> {args.out} (LeRobot v3 @ {args.fps} fps)')
+                for item in result['excluded']:
+                    print(f'  excluded: episode {item["episode_id"]} ({item["reason"]})')
+                return 0
             meta, lines = export_dataset(
                 conn, ids, out_dir=args.out, label=args.label,
                 delta_sec=args.delta_sec, step_sec=args.step_sec,
@@ -107,7 +131,8 @@ def cmd_export(args: argparse.Namespace, config_path: str) -> int:
                 camera_topic=args.camera_topic, joint_topic=args.joint_topic,
                 command_topic=args.command_topic,
                 recordings_dir=cfg.recordings_dir,
-                skip_untrustworthy=not args.keep_untrustworthy)
+                skip_untrustworthy=not args.keep_untrustworthy,
+                copy_media=args.copy_media, media_roots=cfg.mp4_roots())
             conn.rollback()   # 읽기만 했다
     except ExportError as exc:
         LOG.error('%s', exc)

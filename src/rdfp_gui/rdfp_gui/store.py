@@ -57,9 +57,17 @@ class DataStore(QObject):
 
         def done(snapshot: DbSnapshot) -> None:
             self.db = snapshot
+            if self.bag is not None:
+                # 동적 매핑을 bag 토픽 상태에 덧입히고, 테이블별 '들어오는 토픽'을 다시 센다.
+                self.bag.apply_dynamic(snapshot.dynamic)
+                snapshot.refresh_incoming(self.bag)
+                self.bag_changed.emit()
             self.db_changed.emit()
             if snapshot.error:
                 self.status.emit(f'DB: {snapshot.error}')
+            elif not snapshot.meta_ready:
+                self.status.emit('DB: 적재 메타 테이블이 없다 — `ros2 run rdfp init-db` 를 한 번 '
+                                 '돌린다 (기존 행은 그대로다). 그 전에는 Import 가 멈춘다')
             else:
                 self.status.emit(f'DB: 테이블 {len(snapshot.tables)} · 적재된 에피소드 '
                                  f'{len(snapshot.exported_keys or ())}')

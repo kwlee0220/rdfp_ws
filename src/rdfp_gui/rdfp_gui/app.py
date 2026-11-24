@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow, QMessageB
                                QTabWidget)
 
 from .context import AppContext
+from .history import JobHistory
 from .jobs import JobRunner, JobSpec, workspace_cwd
 from .panels.config_panel import ConfigPanel
 from .panels.episode_panel import EpisodePanel
@@ -45,7 +46,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.session_panel, '③ 세션 (bag)')
         self.tabs.addTab(self.config_panel, '④ 설정')
 
-        self.job_panel = JobPanel(self.runner)
+        try:
+            history = JobHistory()
+        except Exception as exc:  # noqa: BLE001 — 이력은 부가 기능이다; 못 열어도 창은 뜬다
+            _logger.warning('job history unavailable: %s', exc)
+            history = None
+        self.job_panel = JobPanel(self.runner, history=history)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.tabs)
         splitter.addWidget(self.job_panel)
@@ -139,6 +145,8 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self.runner.cancel()
+        # 돌고 있는 조회(스레드)가 끝나기를 잠깐 기다린다 — 결과는 버려진다.
+        self.bg.wait(3000)
         event.accept()
 
 

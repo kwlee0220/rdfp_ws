@@ -27,12 +27,21 @@ RDFP_SCRIPT_MODULES = {
     'import': 'rdfp.dataset.import_cmd',
     'export': 'rdfp.dataset.export_cmd',
     'episode-delete': 'rdfp.dataset.episode_delete_cmd',
+    'mapping': 'rdfp.dataset.mapping_cmd',
 }
+
+#: LeRobot v3 export 를 돌릴 파이썬(명령 접두). `lerobot==0.4.4` 와 `psycopg` · `pydantic` ·
+#: `pyyaml` 이 있어야 한다 — ROS 파이썬에는 lerobot 이 없다. 예:
+#:   export RDFP_LEROBOT_PYTHON='uv run --no-project \
+#:       --python ~/development/rdfp/rdfp-train/.venv/bin/python \
+#:       --with psycopg[binary] --with pydantic --with pyyaml python'
+LEROBOT_PYTHON_ENV = 'RDFP_LEROBOT_PYTHON'
 
 KIND_IMPORT = 'import'
 KIND_EXPORT = 'export'
 KIND_REINDEX = 'reindex'
 KIND_EPISODE_DELETE = 'episode-delete'
+KIND_MAPPING = 'mapping'
 
 
 @dataclass
@@ -45,9 +54,13 @@ class JobSpec:
     cwd: Optional[str] = None
     total_hint: Optional[int] = None    # 진행률의 분모를 미리 알면 (에피소드 수)
     notes: list = field(default_factory=list)
+    #: 이 작업에만 더하는 환경 변수 (예: 다른 파이썬이 rdfp 소스를 찾게 하는 PYTHONPATH).
+    env: dict = field(default_factory=dict)
 
     def command_line(self) -> str:
-        return shlex.join(self.argv)
+        """터미널에 그대로 붙여 넣으면 같은 일을 하는 한 줄 (환경 변수 포함)."""
+        prefix = ' '.join(f'{k}={shlex.quote(v)}' for k, v in sorted(self.env.items()))
+        return f'{prefix} {shlex.join(self.argv)}' if prefix else shlex.join(self.argv)
 
 
 def rdfp_command(script: str, *, prefer_ros2: Optional[bool] = None) -> list:
@@ -77,6 +90,7 @@ def episodes_spec(ids: Iterable[int]) -> str:
 
 def build_import_command(config_path: str, *, start_ns: Sequence[int] = (),
                          topics: Sequence[str] = (), on_existing: Optional[str] = None,
+                         only_topics_replace: bool = False,
                          prefer_ros2: Optional[bool] = None) -> JobSpec:
     """`ros2 run rdfp import --config … [--start-ns …] [--topics …] [--on-existing …]`.
 
@@ -87,19 +101,47 @@ def build_import_command(config_path: str, *, start_ns: Sequence[int] = (),
         argv += ['--start-ns', str(int(ns))]
     if topics:
         argv += ['--topics', *topics]
+    if only_topics_replace:
+        if not topics:
+            raise ValueError('only_topics_replace needs an explicit topic list')
+        argv.append('--only-topics-replace')
     if on_existing:
         argv += ['--on-existing', on_existing]
     return JobSpec(title='import', argv=argv, kind=KIND_IMPORT,
                    total_hint=len(start_ns) or None)
 
 
+def rdfp_source_root() -> str:
+    """`rdfp` 패키지가 있는 경로 — 다른 파이썬(LeRobot 환경)이 같은 코드를 쓰게 한다."""
+    import rdfp
+
+    return os.path.dirname(os.path.dirname(os.path.abspath(rdfp.__file__)))
+
+
+def lerobot_python() -> Optional[list]:
+    """`RDFP_LEROBOT_PYTHON` 을 명령 접두로. 없으면 ``None``."""
+    value = os.environ.get(LEROBOT_PYTHON_ENV, '').strip()
+    return shlex.split(value) if value else None
+
+
 def build_export_command(config_path: str, out_dir: str, *, episode_ids: Sequence[int],
                          label: str = 'joint_plan', chunk_len: int = 20, delta_sec: float = 0.1,
                          step_sec: float = 0.1, camera_topic: str = '',
-                         keep_untrustworthy: bool = False,
+                         keep_untrustworthy: bool = False, fmt: str = 'npz',
+                         copy_media: bool = False, fps: int = 10, max_skew_sec: float = 0.2,
                          prefer_ros2: Optional[bool] = None) -> JobSpec:
-    argv = rdfp_command('export', prefer_ros2=prefer_ros2) + [
-        '--config', str(config_path), '--out', str(out_dir)]
+    """`export` 명령. LeRobot v3 는 `RDFP_LEROBOT_PYTHON` 의 파이썬으로 돈다(ROS 파이썬에 없다)."""
+    env: dict = {}
+    if fmt == 'lerobot_v3':
+        prefix = lerobot_python()
+        if prefix is None:
+            raise ValueError(f'{LEROBOT_PYTHON_ENV} is not set — LeRobot v3 export needs a Python '
+                             f'with lerobot==0.4.4 + psycopg + pydantic + pyyaml')
+        argv = [*prefix, '-m', RDFP_SCRIPT_MODULES['export']]
+        env['PYTHONPATH'] = rdfp_source_root()
+    else:
+        argv = rdfp_command('export', prefer_ros2=prefer_ros2)
+    argv += ['--config', str(config_path), '--out', str(out_dir)]
     if episode_ids:
         argv += ['--episodes', episodes_spec(episode_ids)]
     argv += ['--label', label, '--chunk-len', str(int(chunk_len)),
@@ -108,7 +150,32 @@ def build_export_command(config_path: str, out_dir: str, *, episode_ids: Sequenc
         argv += ['--camera-topic', camera_topic]
     if keep_untrustworthy:
         argv.append('--keep-untrustworthy')
-    return JobSpec(title='export', argv=argv, kind=KIND_EXPORT, total_hint=len(episode_ids) or None)
+    if fmt == 'lerobot_v3':
+        argv += ['--format', 'lerobot_v3', '--fps', str(int(fps)),
+                 '--max-skew-sec', repr(float(max_skew_sec))]
+    elif copy_media:
+        argv.append('--copy-media')
+    return JobSpec(title=f'export ({fmt})', argv=argv, kind=KIND_EXPORT,
+                   total_hint=len(episode_ids) or None, env=env)
+
+
+def build_mapping_command(config_path: str, action: str, type_name: str, *,
+                          table: Optional[str] = None, confirm_table: Optional[str] = None,
+                          prefer_ros2: Optional[bool] = None) -> JobSpec:
+    """`rdfp mapping register|unregister|drop`. 확인은 GUI 다이얼로그가 이미 받았다."""
+    if action not in ('register', 'unregister', 'drop'):
+        raise ValueError(f'unknown mapping action: {action}')
+    argv = rdfp_command('mapping', prefer_ros2=prefer_ros2) + [
+        action, '--config', str(config_path), '--type', type_name]
+    if action == 'register' and table:
+        argv += ['--table', table]
+    if action in ('unregister', 'drop'):
+        argv.append('--yes')
+    if action == 'drop':
+        if not confirm_table:
+            raise ValueError('drop needs the table name typed back')
+        argv += ['--confirm', confirm_table]
+    return JobSpec(title=f'mapping {action}', argv=argv, kind=KIND_MAPPING)
 
 
 def build_reindex_command(session_dir: str) -> JobSpec:
@@ -244,6 +311,8 @@ class JobRunner(QObject):
         proc = QProcess(self)
         env = QProcessEnvironment.systemEnvironment()
         env.insert('PYTHONUNBUFFERED', '1')
+        for key, value in spec.env.items():
+            env.insert(key, value)
         proc.setProcessEnvironment(env)
         if spec.cwd:
             proc.setWorkingDirectory(spec.cwd)
@@ -318,7 +387,8 @@ def workspace_cwd() -> Optional[str]:
 
 __all__ = [
     'ImportProgress', 'JobRunner', 'JobSpec', 'KIND_EPISODE_DELETE', 'KIND_EXPORT', 'KIND_IMPORT',
-    'KIND_REINDEX', 'RDFP_SCRIPT_MODULES', 'build_episode_delete_command', 'build_export_command',
-    'build_import_command', 'build_reindex_command', 'episodes_spec', 'parse_summary_json',
-    'rdfp_command', 'workspace_cwd',
+    'KIND_MAPPING', 'KIND_REINDEX', 'LEROBOT_PYTHON_ENV', 'RDFP_SCRIPT_MODULES',
+    'build_episode_delete_command', 'build_export_command', 'build_import_command',
+    'build_mapping_command', 'build_reindex_command', 'episodes_spec', 'lerobot_python',
+    'parse_summary_json', 'rdfp_command', 'rdfp_source_root', 'workspace_cwd',
 ]

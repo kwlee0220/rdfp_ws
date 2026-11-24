@@ -9,6 +9,12 @@ import pytest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 
+@pytest.fixture(autouse=True)
+def _isolated_history(tmp_path, monkeypatch):
+    """작업 이력(SQLite)을 시험마다 임시 디렉터리에 — 사용자 홈에 쓰지 않는다."""
+    monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path / 'state'))
+
+
 @pytest.fixture(scope='session')
 def qapp():
     """세션에 하나뿐인 QApplication. PySide6 가 없으면 Qt 테스트는 통째로 skip 한다."""

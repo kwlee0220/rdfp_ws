@@ -14,7 +14,7 @@ import pytest
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 FORBIDDEN_ROOTS = {'rclpy', 'rdfp_msgs', 'sensor_msgs', 'std_msgs', 'geometry_msgs',
-                   'builtin_interfaces', 'rdfp_gui_codex'}
+                   'builtin_interfaces'}
 
 
 def _source_files() -> list[pathlib.Path]:

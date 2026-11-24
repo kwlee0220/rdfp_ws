@@ -15,5 +15,11 @@ DROP TABLE IF EXISTS joint_states         CASCADE;
 DROP TABLE IF EXISTS joint_jogs           CASCADE;
 DROP TABLE IF EXISTS twist_stampeds       CASCADE;
 DROP TABLE IF EXISTS pose_stampeds        CASCADE;
+-- 적재 메타 (2026-11-23). 동적 매핑 테이블(topic_tables 가 가리키는 것)은 sessions 를
+-- CASCADE 로 지울 때 FK 만 사라지고 남는다 — 이름이 사용자 정의라 여기서 열거할 수 없다.
+DROP TABLE IF EXISTS ingest_units         CASCADE;
+DROP TABLE IF EXISTS episode_sources      CASCADE;
+DROP TABLE IF EXISTS ingest_sources       CASCADE;
+DROP TABLE IF EXISTS topic_tables         CASCADE;
 DROP TABLE IF EXISTS topics               CASCADE;
 DROP TABLE IF EXISTS sessions             CASCADE;

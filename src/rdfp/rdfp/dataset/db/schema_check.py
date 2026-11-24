@@ -55,12 +55,29 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     'image_streams':   ['id', 'episode_id', 'topic_id', 'mp4_path', 'codec',
                         'pixel_format', 'container_fps', 'frame_id',
                         'width', 'height', 'frame_count', 'created_at'],
+    # 적재 메타 (2026-11-23) — 출처 · 적재 단위 · 동적 매핑. 메시지 테이블이 아니다.
+    'ingest_sources':  ['source_id', 'location', 'first_seen', 'last_seen'],
+    'episode_sources': ['episode_id', 'source_id', 'adopted'],
+    'ingest_units':    ['episode_id', 'topic_id', 'table_name', 'rows', 'adopted',
+                        'completed_at'],
+    'topic_tables':    ['type_name', 'table_name', 'schema_hash', 'schema_text', 'active',
+                        'created_at'],
 }
+
+#: 적재 메타 테이블. 메시지 테이블처럼 행 수를 에피소드별로 세거나 export 하지 않는다.
+META_TABLES: frozenset[str] = frozenset(
+    {'ingest_sources', 'episode_sources', 'ingest_units', 'topic_tables'})
 
 
 # sessions 와 topics 는 자식 row 가 FK 로 참조하는 룩업 테이블이며, 비-session/
 # 비-topics 테이블만 FK 검증 루프(_verify_fk) 의 대상이다.
 _LOOKUP_TABLES: frozenset[str] = frozenset({'sessions', 'topics'})
+
+# FK 열이 없는 것이 **정상인** 테이블 — 열별로 다르다 (`episode_sources` 는 토픽과 무관하다).
+_NO_FK: dict[str, frozenset[str]] = {
+    'episode_id': frozenset({'ingest_sources', 'topic_tables'}),
+    'topic_id': frozenset({'ingest_sources', 'topic_tables', 'episode_sources'}),
+}
 
 
 class SchemaCheckError(RuntimeError):
@@ -122,7 +139,8 @@ def ensure_schema(
 def _verify_fk(conn: psycopg.Connection, needed: Iterable[str], *,
                column: str, parent_table: str, parent_column: str,) -> None:
     """비-session/topics 테이블의 FK 컬럼이 지정 부모를 참조하는지 확인한다."""
-    children = [t for t in needed if t not in _LOOKUP_TABLES]
+    children = [t for t in needed
+                if t not in _LOOKUP_TABLES and t not in _NO_FK.get(column, ())]
     if not children:
         return
     with conn.cursor() as cur:
@@ -152,4 +170,4 @@ def _verify_fk(conn: psycopg.Connection, needed: Iterable[str], *,
         )
 
 
-__all__ = ['REQUIRED_COLUMNS', 'SchemaCheckError', 'ensure_schema']
+__all__ = ['META_TABLES', 'REQUIRED_COLUMNS', 'SchemaCheckError', 'ensure_schema']

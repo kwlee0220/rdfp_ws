@@ -14,13 +14,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
 import logging
 from pathlib import Path
-from typing import Optional
 
 from ..config import SESSION_TOPIC, DatasetConfig
 from rdfp.dataset.db.connection import open_connection
-from rdfp.dataset.db.registry import resolve_message_type
 from rdfp.dataset.db.writers.base import WriterBase
 from rdfp.dataset.db.writers.session_command import SessionWriter
 from rdfp.rosbag.catalog import Split
@@ -28,8 +28,11 @@ from rdfp.rosbag.merged_stream import merge_split_streams
 from .episode.detector import Episode
 from .exceptions import PostProcError
 from .run_log import RunLog
-from .media.frame_router import FrameRouter
 from .media.recorder_registry import RecorderRegistrar
+from .units import Origin, finish_units, make_writer, open_episode, register_recordings
+
+if TYPE_CHECKING:
+    from .media.frame_router import FrameRouter
 
 
 _logger = logging.getLogger(__name__)
@@ -42,7 +45,8 @@ class EpisodeResult(dict):
 def process_episode(cfg: DatasetConfig, episode: Episode, split_paths: list[str],
                     topic_entries: dict[str, tuple[str, str]],
                     topic_ids: dict[str, int],
-                    image_topics: set[str], run_log_path: Path,) -> dict:
+                    image_topics: set[str], run_log_path: Path,
+                    origin: Optional[Origin] = None) -> dict:
     """단일 에피소드를 처리해 DB / mp4 에 적재한다.
 
     본 함수는 multiprocessing 워커로 호출될 수 있도록 모든 입력이 pickle
@@ -79,7 +83,7 @@ def process_episode(cfg: DatasetConfig, episode: Episode, split_paths: list[str]
     run_log = RunLog(run_log_path)
     try:
         result = _process_episode_inner(cfg, episode, split_paths, topic_entries, topic_ids,
-                                        image_topics,)
+                                        image_topics, origin)
     except PostProcError as e:
         _logger.error('episode failed: %s', e)
         run_log.episode_failed(start_ns=episode.start_ns, stop_ns=episode.stop_ns,
@@ -120,113 +124,97 @@ def process_episode(cfg: DatasetConfig, episode: Episode, split_paths: list[str]
 def _process_episode_inner(cfg: DatasetConfig, episode: Episode, split_paths: list[str],
                            topic_entries: dict[str, tuple[str, str]],
                            topic_ids: dict[str, int],
-                           image_topics: set[str],) -> dict:
+                           image_topics: set[str],
+                           origin: Optional[Origin] = None) -> dict:
     """실제 처리 로직. 예외는 호출자가 잡는다.
 
-        DB 트랜잭션과 FrameRouter 컨텍스트를 열고, 에피소드 구간 메시지를 읽어
-        writer / router 로 분배한다. 에피소드가 이미 존재할 때의 정책은
-        `cfg.on_existing_episode` 에 따라 분기한다.
+    무엇을 넣고 건너뛸지는 직렬 경로와 같은 `units.open_episode` 가 정한다.
 
-    Args:
-        cfg: postproc 설정.
-        episode: 처리할 에피소드 정보.
-        split_paths: 에피소드 구간을 포함하는 rosbag split 파일 경로 목록.
-        topic_entries: **토픽 이름 → (table_name, type_name)** 매핑.
-        topic_ids: **토픽 이름 → topics.id** 매핑.
-        image_topics: mp4 라우팅 대상 토픽 이름 집합.
     Returns:
-        dict: 에피소드 처리 결과 요약. `status` 필드는 'done' 또는 'skipped' 이며,
-            'done' 인 경우 `episode_id`, `inserted`, `mp4_files` 필드가 포함된다.
-    Raises:
-        PostProcError: 처리 실패 사유가 명확할 때.
-        Exception: 그 외 처리 중 예외 발생 시.
+        dict: `status` 는 'done' 또는 'skipped'('이미 전부 적재돼 새로 넣은 것이 없다').
     """
+    from .pipeline import _media_selection, _replace_topics, _units_for
+
     # 에피소드 시간 구간만 스트리밍 (mcap_reader 의 time_range_ns 필터 사용).
     ep_range = (episode.start_ns, episode.stop_ns)
-
-    # 이 워커가 읽어야 하는 토픽 (세션 토픽은 필요 없음). cfg.effective_topics()
-    # 로 전역 대상 토픽을 얻되, 세션 토픽은 에피소드 경계가 이미 확정된 상태이
-    # 므로 재수신하지 않는다.
     want_topics = set(cfg.effective_topics()) if cfg.effective_topics() else set()
-    if SESSION_TOPIC in want_topics:
-        want_topics.discard(SESSION_TOPIC)
+    want_topics.discard(SESSION_TOPIC)
+    units = _units_for(topic_entries, topic_ids, image_topics)
 
     with open_connection(cfg.db) as conn:
-        # FrameRouter 가 sink 에 conn / topic_id 를 주입해야 하므로 conn 보다
-        # 늦게 생성한다.
-        router = FrameRouter(
-            Path(cfg.output_mp4_dir),
-            conn=conn,
-            topic_ids={t: topic_ids[t] for t in image_topics if t in topic_ids},
-            fps=cfg.mp4.nominal_fps, codec=cfg.mp4.codec,
-        )
+        router: Optional['FrameRouter'] = None
+        if image_topics:
+            from .media.frame_router import FrameRouter
+
+            router = FrameRouter(
+                Path(cfg.output_mp4_dir), conn=conn,
+                topic_ids={t: topic_ids[t] for t in image_topics if t in topic_ids},
+                fps=cfg.mp4.nominal_fps, codec=cfg.mp4.codec)
         sess_writer = SessionWriter(conn)
         try:
-            episode_id = _open_episode(sess_writer, episode, cfg.on_existing_episode, router)
+            opening = open_episode(
+                conn, sess_writer, episode, origin=origin, policy=cfg.on_existing_episode,
+                units=units, replace_topics=_replace_topics(cfg, image_topics),
+                remove_episode_dir=(router.remove_existing_episode_dir
+                                    if router is not None else None))
         except Exception:
             conn.rollback()
             raise
+        episode_id = opening.episode_id
 
-        if episode_id is None:
-            conn.rollback()
-            return {
-                'status': 'skipped',
-                'start_ns': episode.start_ns, 'stop_ns': episode.stop_ns,
-            }
+        writers: dict[str, WriterBase] = {
+            topic: make_writer(conn, table_name, type_name, topic_ids[topic])
+            for topic, (table_name, type_name) in topic_entries.items()
+            if topic not in opening.skip_topics
+        }
+        registrar = (RecorderRegistrar(conn, cfg.recordings_dir)
+                     if cfg.recordings_dir else None)
 
-        # topic → writer instance. 토픽별 테이블이 다를 수 있으므로 table 을 인스턴스에 바인딩한다.
-        # topic_id 도 함께 주입하여 INSERT 시 어느 토픽의 row 인지 기록한다.
-        writers: dict[str, WriterBase] = {}
-        for topic, (table_name, type_name) in topic_entries.items():
-            binding = resolve_message_type(type_name)
-            if binding is None:
-                continue
-            writers[topic] = binding.writer_cls(
-                conn, table=table_name, topic_id=topic_ids[topic],
-            )
-
-        router.open_episode(episode_id)
+        if router is not None:
+            router.open_episode(episode_id)
         try:
-            _ingest_messages(
-                split_paths, ep_range, want_topics, image_topics,
-                writers, router, episode_id,
-            )
+            # `want_topics` 가 비었으면 '전 토픽'이다 (`effective_topics` 규약). 그때는 걸러
+            # 읽지 않고 건너뛸 토픽만 버린다. 골라 읽는데 남은 것이 없으면 읽지 않는다.
+            pending = {t for t in want_topics if t not in opening.skip_topics}
+            if pending or not want_topics:
+                _ingest_messages(split_paths, ep_range, pending, image_topics,
+                                 writers, router, episode_id, skip=opening.skip_topics)
             for w in writers.values():
                 w.flush()
-            mp4_files = router.finalize_episode()
+            mp4_files = router.finalize_episode() if router is not None else []
+            inserted: dict[str, int] = {}
+            written: dict[str, tuple] = {}
+            for topic, w in writers.items():
+                n = w.consume_inserted_count()
+                written[topic] = (w.table, topic_ids[topic], n)
+                inserted[w.table] = inserted.get(w.table, 0) + n
+            finish_units(conn, opening, written)
+            if router is not None:
+                for table, n in router.consume_inserted_count().items():
+                    inserted[table] = inserted.get(table, 0) + n
             # **레코더 mp4 등록은 커밋 직전에, 같은 트랜잭션 안에서 한다** (I4).
-            # 메시지 적재가 롤백되면 영상 등록도 함께 되돌아가야 한다 — 따로
-            # 커밋하면 에피소드 없는 `image_streams` 행이 남는다.
-            registrar = (RecorderRegistrar(conn, cfg.recordings_dir)
-                         if cfg.recordings_dir else None)
             if registrar is not None:
-                registrar.register(episode_id, episode.start_ns)
+                register_recordings(conn, registrar, opening, episode.start_ns,
+                                    only_topics=_media_selection(cfg))
+                for table, n in registrar.consume_inserted_count().items():
+                    inserted[table] = inserted.get(table, 0) + n
             conn.commit()
         except Exception:
             for w in writers.values():
                 w.drop_pending()
-            router.abort_episode()
+            if router is not None:
+                router.abort_episode()
             conn.rollback()
             raise
 
-        inserted: dict[str, int] = {}
-        for w in writers.values():
-            inserted[w.table] = w.consume_inserted_count()
-        # FrameRouter 가 finalize 단계에서 INSERT 한 image_streams / image_frames 행도
-        # 결과에 포함시킨다 (message-writer 경로가 아니라 위 루프에서 누락됨).
-        for table, n in router.consume_inserted_count().items():
-            inserted[table] = inserted.get(table, 0) + n
-        # 레코더 등록분도 요약에 넣는다 — 빼먹으면 DB 에는 행이 있는데 요약은
-        # 0 으로 보고한다 (FrameRouter 에서 실제로 겪은 함정과 같다).
-        if registrar is not None:
-            for table, n in registrar.consume_inserted_count().items():
-                inserted[table] = inserted.get(table, 0) + n
-
+    nothing_new = opening.existed and not opening.replaced and not any(inserted.values())
     return {
-        'status': 'done',
+        'status': 'skipped' if nothing_new else 'done',
         'episode_id': int(episode_id),
         'inserted': inserted,
         'mp4_files': list(mp4_files),
+        'replaced': opening.replaced,
+        'adopted': opening.adopted,
         'start_ns': episode.start_ns,
         'stop_ns': episode.stop_ns,
     }
@@ -234,7 +222,8 @@ def _process_episode_inner(cfg: DatasetConfig, episode: Episode, split_paths: li
 
 def _ingest_messages(split_paths: list[str], ep_range: tuple[int, int], want_topics: set[str],
                      image_topics: set[str], writers: dict[str, WriterBase],
-                     router: FrameRouter, episode_id: int) -> None:
+                     router: Optional['FrameRouter'], episode_id: int,
+                     skip: frozenset = frozenset()) -> None:
     """에피소드 구간 내 메시지를 writer / router 로 분배한다.
 
     Args:
@@ -257,55 +246,16 @@ def _ingest_messages(split_paths: list[str], ep_range: tuple[int, int], want_top
     """
     topic_filter = sorted(want_topics) if want_topics else None
     for m in merge_split_streams(split_paths, topics=topic_filter, time_range_ns=ep_range,):
-        if m.topic == SESSION_TOPIC:
+        if m.topic == SESSION_TOPIC or m.topic in skip:
             continue
         if m.topic in image_topics:
-            router.on_image(m.topic, m.type_name, m.msg)
+            if router is not None:
+                router.on_image(m.topic, m.type_name, m.msg)
             continue
         writer = writers.get(m.topic)
         if writer is None:
             continue
         writer.append(episode_id, m.msg)
-
-
-def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str,
-                  router: FrameRouter,) -> Optional[int]:
-    """sessions INSERT + 정책 분기. 상세는 pipeline._open_episode 와 동일.
-
-        단일 에피소드 트랜잭션의 첫 단계. 커밋은 `exit` 단계에서 수행되며,
-        호출자(Pool.imap_unordered) 가 다른 에피소드를 계속 처리할 수 있게 한다.
-
-    Args:
-        sess_writer: SessionWriter 인스턴스. DB 커넥션이 열려있어야 한다.
-        ep: 처리할 에피소드 정보.
-        policy: 에피소드가 이미 존재할 때의 정책. 'skip', 'error', 'replace' 중 하나여야 한다.
-        router: FrameRouter 인스턴스. 'replace' 정책에서 기존 에피소드의 mp4 파일을
-            삭제하는 데 사용된다.
-
-    Returns:
-        int: 확보된 에피소드 ID. 새로 INSERT 했든 기존 ID 를 재사용했든 ID 는 반환된다.
-        None: 'skip' 정책으로 기존 에피소드가 존재할 때. 이 경우 호출자에게 None 이 반환되며,
-            호출자는 이를 처리하지 않고 다음 에피소드를 계속 처리할 수 있다.
-    Raises:
-        PostProcError: 'error' 정책으로 기존 에피소드가 존재할 때,
-            또는 알 수 없는 정책이 주어졌을 때.
-    """
-    existing = sess_writer.find_existing(ep.start_ns)
-    if existing is None:
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
-                                          ep.success, ep.metadata)
-    if policy == 'skip':
-        return None
-    if policy == 'error':
-        raise PostProcError(
-            f'episode already present (start_ns={ep.start_ns}, id={existing})'
-        )
-    if policy == 'replace':
-        sess_writer.delete_by_id(existing)
-        router.remove_existing_episode_dir(existing)
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
-                                          ep.success, ep.metadata)
-    raise PostProcError(f'unknown on_existing_episode policy: {policy!r}')
 
 
 def serialize_splits(splits: list[Split]) -> list[str]:

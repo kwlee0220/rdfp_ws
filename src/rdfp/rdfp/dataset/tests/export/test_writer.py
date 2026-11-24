@@ -445,3 +445,81 @@ def test_command_label_warns_about_the_gravity_offset_gap(conn, tmp_path):
                                  label=LABEL_COMMAND)
     assert any('gravity' in n for n in meta.notes)
     assert any('gravity-offset' in n for n in lines[0].notes)
+
+
+# ----- 원자적 게시 · manifest · 영상 복사 (2026-11-23) ------------------------------
+
+def test_export_writes_a_checksummed_manifest(conn, tmp_path):
+    ep, t0 = _make_episode(conn)
+    out = tmp_path / 'ds'
+    export_dataset(conn, [ep], out_dir=str(out), arm_joints=ARM, chunk_len=4)
+    manifest = json.loads((out / 'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['format'] == 'rdfp_npz'
+    assert manifest['media_root'] == 'recordings_dir'
+    assert manifest['requested_episodes'] == [ep] and manifest['kept_episodes'] == [ep]
+    from rdfp.dataset.export.writer import sha256_file
+    assert manifest['files']['metadata.json'] == sha256_file(str(out / 'metadata.json'))
+    assert f'episodes/{ep}.npz' in manifest['files']
+    # 임시 디렉터리가 남지 않는다.
+    assert [p.name for p in tmp_path.iterdir()] == ['ds']
+
+
+def test_non_empty_output_is_refused(conn, tmp_path):
+    """덮어쓰면 이전 결과와 섞인다 — 새 경로를 고르게 한다."""
+    ep, t0 = _make_episode(conn)
+    (tmp_path / 'old.txt').write_text('x')
+    with pytest.raises(ExportError, match='not empty'):
+        export_dataset(conn, [ep], out_dir=str(tmp_path), arm_joints=ARM)
+
+
+def test_failed_export_leaves_nothing_behind(conn, tmp_path, monkeypatch):
+    """중간에 죽으면 반쪽 데이터셋이 남지 않는다 — 예전에는 일부 `.npz` 가 남았다."""
+    ep, t0 = _make_episode(conn)
+    ep2, _ = _make_episode(conn)
+    import rdfp.dataset.export.writer as writer_mod
+
+    real = writer_mod.export_episode
+    calls = []
+
+    def boom(conn_, episode_id, **kw):
+        calls.append(episode_id)
+        if len(calls) == 2:
+            raise RuntimeError('disk full')
+        return real(conn_, episode_id, **kw)
+
+    monkeypatch.setattr(writer_mod, 'export_episode', boom)
+    out = tmp_path / 'ds'
+    with pytest.raises(RuntimeError, match='disk full'):
+        export_dataset(conn, [ep, ep2], out_dir=str(out), arm_joints=ARM)
+    assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_copy_media_puts_videos_inside_the_tree(conn, tmp_path):
+    ep, t0 = _make_episode(conn)
+    rec = tmp_path / 'recordings'
+    rec.mkdir()
+    (rec / 'cam.mp4').write_bytes(b'\x00\x01video')
+    with conn.cursor() as cur:
+        cur.execute('UPDATE image_streams SET mp4_path = %s WHERE episode_id = %s',
+                    ('cam.mp4', ep))
+    out = tmp_path / 'ds'
+    _, lines = export_dataset(conn, [ep], out_dir=str(out), arm_joints=ARM,
+                              recordings_dir=str(rec), copy_media=True)
+    assert lines[0].mp4 == f'videos/{ep}.mp4'
+    assert (out / 'videos' / f'{ep}.mp4').read_bytes() == b'\x00\x01video'
+    manifest = json.loads((out / 'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['media_root'] == 'dataset'
+    assert f'videos/{ep}.mp4' in manifest['files']
+
+
+def test_copy_media_without_the_file_fails_cleanly(conn, tmp_path):
+    ep, t0 = _make_episode(conn)
+    with conn.cursor() as cur:
+        cur.execute('UPDATE image_streams SET mp4_path = %s WHERE episode_id = %s',
+                    ('missing.mp4', ep))
+    out = tmp_path / 'ds'
+    with pytest.raises(ExportError, match='mp4 not found'):
+        export_dataset(conn, [ep], out_dir=str(out), arm_joints=ARM,
+                       recordings_dir=str(tmp_path), copy_media=True)
+    assert not out.exists()

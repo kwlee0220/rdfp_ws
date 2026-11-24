@@ -52,9 +52,11 @@ setup(
             'init-db = rdfp.dataset.init_db_cmd:main',
             'replay_gui = rdfp.dataset.replay_gui_cmd:main',
             'episode-delete = rdfp.dataset.episode_delete_cmd:main',
+            'mapping = rdfp.dataset.mapping_cmd:main',
         ],
-        # robot twin 의 세션/에피소드 백엔드를 등록한다. robot_twin 은 이 그룹을
-        # 조회할 뿐 rdfp 를 import 하지 않는다 — 계층 역행 의존을 없애는 seam 이다.
+        # robot twin 의 세션/에피소드 백엔드를 등록한다. robot_twin 은 세션 제어가
+        # 필요할 때 이 팩토리를 불러오므로(ep.load()) 코드에서 rdfp 를 직접 import
+        # 하지 않아도 된다 — 계층 역행 의존을 없애는 seam 이다.
         'robot_twin.backends': [
             'session_control = rdfp.session.twin_backend:create_session_control_client',
         ],

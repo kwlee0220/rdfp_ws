@@ -146,28 +146,43 @@ class RecorderRegistrar:
         self._root = Path(root)
         self._index = scan_recordings(root) if index is None else index
         self._inserted: dict = {}
+        #: 마지막 `register` 가 실제로 등록한 `(토픽, topic_id, 프레임 수)`. 적재 단위 기록에 쓴다.
+        self.last_registered: list = []
 
     @property
     def index(self) -> dict:
         """에피소드 키 → 녹화 목록. 다음 에피소드에 물려주면 재훑기를 피한다."""
         return self._index
 
-    def register(self, episode_id: int, episode_ns: int) -> dict:
+    def register(self, episode_id: int, episode_ns: int, *,
+                 only_topics: Optional[frozenset] = None,
+                 replace_topics: frozenset = frozenset()) -> dict:
         """한 에피소드의 녹화를 등록하고 테이블별 INSERT 수를 돌려준다.
 
         해당 에피소드의 녹화가 없으면 빈 dict 다 — **오류가 아니다.** 영상 없이
         수집한 에피소드가 정상적으로 있을 수 있다(헤드리스 실행 등).
 
+        **이미 등록된 카메라는 건너뛴다** (적재 단위 규칙, 2026-11-23) — 같은 `(episode_id,
+        topic_id)` 로 두 번 넣으면 UNIQUE 위반으로 에피소드가 통째로 실패한다.
+
+        Args:
+            only_topics: 주면 이 토픽의 녹화만 등록한다 (`import --topics` 가 고른 것).
+            replace_topics: 이미 등록돼 있어도 지우고 다시 등록할 토픽
+                (`--only-topics-replace`).
+
         Raises:
             RecordingError: mp4 가 없거나 sidecar 줄 수가 `nframe` 과 다를 때.
                 조용히 넘기면 **프레임 인덱스가 밀린 채로** 적재된다.
         """
+        self.last_registered = []
         recordings = self._index.get(episode_ns) or []
         if not recordings:
             return {}
 
         counts: dict = {}
         for rec in recordings:
+            if only_topics is not None and rec.topic not in only_topics:
+                continue
             if not rec.mp4_path.exists():
                 raise RecordingError(
                     f'{rec.metadata_path}: mp4 not found ({rec.mp4_path})')
@@ -176,6 +191,10 @@ class RecorderRegistrar:
                     f'{rec.metadata_path}: sidecar not found ({rec.sidecar_path})')
 
             topic_id = self._topic_id(rec)
+            if self._registered(episode_id, topic_id):
+                if rec.topic not in replace_topics:
+                    continue
+                self._unregister(episode_id, topic_id)
             frames = list(_iter_sidecar(rec.sidecar_path))
             if len(frames) != rec.nframe:
                 raise RecordingError(
@@ -202,6 +221,7 @@ class RecorderRegistrar:
             writer.flush()
             counts['image_frames'] = (counts.get('image_frames', 0)
                                       + writer.consume_inserted_count())
+            self.last_registered.append((rec.topic, topic_id, rec.nframe))
 
         for table, n in counts.items():
             self._inserted[table] = self._inserted.get(table, 0) + n
@@ -215,6 +235,34 @@ class RecorderRegistrar:
         """
         out, self._inserted = self._inserted, {}
         return out
+
+    def pending(self, episode_id: int, episode_ns: int, *,
+                only_topics: Optional[frozenset] = None) -> list:
+        """아직 등록되지 않은 녹화의 토픽 — `register` 가 지금 넣을 것. 쓰지 않는다."""
+        out = []
+        for rec in self._index.get(episode_ns) or []:
+            if only_topics is not None and rec.topic not in only_topics:
+                continue
+            with self._conn.cursor() as cur:
+                cur.execute('SELECT 1 FROM image_streams s JOIN topics t ON t.id = s.topic_id '
+                            'WHERE s.episode_id = %s AND t.topic_name = %s',
+                            (episode_id, rec.topic))
+                if cur.fetchone() is None:
+                    out.append(rec.topic)
+        return out
+
+    def _registered(self, episode_id: int, topic_id: int) -> bool:
+        with self._conn.cursor() as cur:
+            cur.execute('SELECT 1 FROM image_streams WHERE episode_id = %s AND topic_id = %s',
+                        (episode_id, topic_id))
+            return cur.fetchone() is not None
+
+    def _unregister(self, episode_id: int, topic_id: int) -> None:
+        with self._conn.cursor() as cur:
+            cur.execute('DELETE FROM image_frames WHERE episode_id = %s AND topic_id = %s',
+                        (episode_id, topic_id))
+            cur.execute('DELETE FROM image_streams WHERE episode_id = %s AND topic_id = %s',
+                        (episode_id, topic_id))
 
     def _topic_id(self, rec: Recording) -> int:
         """토픽 행을 확보한다.

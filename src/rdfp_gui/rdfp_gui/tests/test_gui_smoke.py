@@ -205,3 +205,118 @@ def test_table_entry_detail_without_db(qapp) -> None:
     text = panel._summary.toPlainText()
     assert 'joint_states' in text and 'no dsn' in text
     assert not panel._browse.isEnabled()
+
+
+# ----- 통합 (2026-11-23) — 동적 매핑 버튼 · DDL 미리보기 · LeRobot export · 출처 열 ----------------
+
+def _entry(topic: str, type_name: str, dynamic=None):
+    from rdfp.dataset.inspect.bag_inspect import TopicSummary
+    from rdfp.dataset.inspect.mapping import classify_topic
+    from rdfp_gui.snapshot import TopicEntry
+
+    return TopicEntry(summary=TopicSummary(topic, (type_name,), 10, 1),
+                      mapping=classify_topic(topic, type_name, dynamic))
+
+
+def test_detail_panel_offers_create_only_for_unmapped_plain_types(qapp) -> None:
+    from rdfp.dataset.db.dynamic import DynamicMapping
+    from rdfp_gui.panels.detail_panel import DetailPanel
+
+    panel = DetailPanel()
+    panel.show_topic(_entry('/status', 'demo_msgs/msg/Status'))
+    assert panel._create.isEnabled() and not panel._unmap.isEnabled()
+    panel.show_topic(_entry('/joint_states', 'sensor_msgs/msg/JointState'))
+    assert not panel._create.isEnabled() and not panel._drop.isEnabled()   # 내장은 잠긴다
+    panel.show_topic(_entry('/cam/compressed', 'sensor_msgs/msg/Image'))
+    assert not panel._create.isEnabled()
+    dyn = {'demo_msgs/msg/Status': DynamicMapping('demo_msgs/msg/Status', 'status', 'h', True)}
+    panel.show_topic(_entry('/status', 'demo_msgs/msg/Status', dyn))
+    assert not panel._create.isEnabled()
+    assert panel._unmap.isEnabled() and panel._drop.isEnabled()
+    seen = []
+    panel.drop_requested.connect(lambda t, table: seen.append((t, table)))
+    panel._drop.click()
+    assert seen == [('demo_msgs/msg/Status', 'status')]
+
+
+def test_create_table_dialog_previews_ddl_and_validates_the_name(qapp) -> None:
+    from rdfp_gui.panels.mapping_panel import CreateTableDialog
+
+    dialog = CreateTableDialog('rdfp_msgs/msg/ClutchState')
+    ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+    assert dialog.table_name() == 'clutch_states'
+    assert 'CREATE TABLE "clutch_states"' in dialog._ddl.toPlainText()
+    assert ok.isEnabled()
+    dialog._name.setText('Bad Name')
+    assert not ok.isEnabled() and dialog._error.text()
+
+
+def test_snapshot_applies_dynamic_mappings(tmp_path, ctx) -> None:
+    from rdfp.dataset.db.dynamic import DynamicMapping
+
+    bag = load_bag_snapshot(ctx.cfg)
+    entry = bag.entry('/joint_states')
+    assert entry.mapping.source == 'builtin'
+    bag.apply_dynamic({'x/msg/Y': DynamicMapping('x/msg/Y', 'ys', 'h', True)})
+    assert bag.entry('/joint_states').mapping.table == 'joint_states'   # 내장이 이긴다
+
+
+def test_export_dialog_gates_lerobot_on_the_python_env(qapp, ctx, monkeypatch) -> None:
+    from rdfp_gui.jobs import LEROBOT_PYTHON_ENV
+    from rdfp_gui.panels.episode_panel import ExportDialog
+    from rdfp_gui.workers import Background
+
+    monkeypatch.delenv(LEROBOT_PYTHON_ENV, raising=False)
+    s = EpisodeSummary(id=1, start_ns=S0, stop_ns=S0 + SEC, task_label='pick', success=True,
+                       metadata={}, streams=[StreamInfo('/cam', 'a.mp4', 5, 5, None)])
+    bg = Background()
+    dialog = ExportDialog(ctx, bg, [s])
+    _wait(qapp, bg, None)
+    assert dialog.spec is not None and dialog._copy.isEnabled()
+    dialog._copy.setChecked(True)
+    assert '--copy-media' in dialog.spec.argv
+    dialog._format.setCurrentIndex(dialog._format.findData('lerobot_v3'))
+    assert dialog.spec is None                         # 환경 변수가 없으면 명령을 못 만든다
+    assert LEROBOT_PYTHON_ENV in dialog._lerobot_note.text()
+    assert not dialog._buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+    monkeypatch.setenv(LEROBOT_PYTHON_ENV, '/v/bin/python')
+    dialog._rebuild()
+    assert dialog.spec is not None and dialog.spec.argv[0] == '/v/bin/python'
+    assert not dialog._copy.isEnabled() and dialog._fps.isEnabled()
+
+
+def test_episode_rows_show_provenance(qapp, ctx) -> None:
+    from rdfp_gui.panels.episode_panel import EpisodePanel
+    from rdfp_gui.store import DataStore
+    from rdfp_gui.workers import Background
+
+    bg = Background()
+    store = DataStore(ctx, bg)
+    panel = EpisodePanel(ctx, store, bg)
+    linked = EpisodeSummary(id=1, start_ns=S0, stop_ns=S0 + SEC, task_label='t', success=None,
+                            metadata={}, source_id='session_x')
+    adopted = EpisodeSummary(id=2, start_ns=S0 + 5 * SEC, stop_ns=S0 + 6 * SEC, task_label='t',
+                             success=None, metadata={}, source_id='session_x', adopted=True)
+    legacy = EpisodeSummary(id=3, start_ns=S0 + 9 * SEC, stop_ns=S0 + 10 * SEC, task_label='t',
+                            success=None, metadata={})
+    store.episodes = EpisodeData(summaries=[linked, adopted, legacy], checks={})
+    store.db = DbSnapshot(exported_keys={S0, S0 + 5 * SEC, S0 + 9 * SEC})
+    store.episodes_changed.emit()
+    texts = [panel._tree.topLevelItem(i).text(13) for i in range(3)]
+    assert texts == ['session_x', 'session_x (연결)', '미연결']
+
+
+def test_job_panel_records_history(qapp, tmp_path) -> None:
+    from rdfp_gui.history import JobHistory
+    from rdfp_gui.jobs import JobRunner
+    from rdfp_gui.panels.job_panel import JobPanel
+
+    runner = JobRunner()
+    history = JobHistory(tmp_path / 'h.sqlite3')
+    panel = JobPanel(runner, history=history)
+    spec = JobSpec(title='import', argv=['ros2', 'run', 'rdfp', 'import'], kind='import')
+    runner.started.emit(spec)
+    runner.finished.emit(1, None)
+    assert panel._past.topLevelItemCount() == 1
+    assert panel._past.topLevelItem(0).text(2) == '실패 (exit 1)'
+    assert history.recent()[0].command == 'ros2 run rdfp import'

@@ -17,7 +17,7 @@ PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # 이 패키지가 import 해서는 안 되는 최상위 모듈 — 데이터셋 GUI 패키지와 Qt 바인딩.
 # (`replay_gui_cmd` 는 tkinter 라 걸리지 않는다.)
-FORBIDDEN_ROOTS = {'rdfp_gui', 'rdfp_gui_codex', 'PySide6', 'PyQt5', 'PyQt6', 'shiboken6'}
+FORBIDDEN_ROOTS = {'rdfp_gui', 'PySide6', 'PyQt5', 'PyQt6', 'shiboken6'}
 
 
 def _source_files() -> list[pathlib.Path]:

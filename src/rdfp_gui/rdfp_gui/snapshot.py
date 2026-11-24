@@ -86,6 +86,15 @@ class BagSnapshot:
     def mcap_paths(self, topic: str) -> list:
         return mcap_paths_for_topic(self.sessions, topic)
 
+    def apply_dynamic(self, dynamic: dict) -> None:
+        """DB 의 동적 매핑으로 토픽 상태를 다시 가른다 — 매핑 없음(✖)이던 토픽이 매핑됨(●)이 된다.
+
+        bag 은 DB 보다 먼저 읽히므로 동적 매핑은 나중에 덧입힌다. 진단 결과는 그대로 둔다.
+        """
+        for entry in self.topics:
+            type_name = entry.summary.types[0] if entry.summary.types else ''
+            entry.mapping = classify_topic(entry.name, type_name, dynamic)
+
 
 @dataclass
 class DbSnapshot:
@@ -93,6 +102,14 @@ class DbSnapshot:
     extra_tables: list = field(default_factory=list)    # DB 에만 있는 테이블
     exported_keys: Optional[set] = None                 # sessions 의 start_ns 전부. None = 못 봤다
     error: Optional[str] = None
+    dynamic: dict = field(default_factory=dict)         # 타입 → DynamicMapping (활성만)
+    dynamic_all: dict = field(default_factory=dict)     # 해제된 것까지
+    meta_ready: bool = True                             # 적재 메타 테이블이 있는가 (init-db)
+
+    def refresh_incoming(self, bag: Optional['BagSnapshot']) -> None:
+        """bag 토픽의 매핑이 바뀐 뒤(동적 매핑 덧입힘) 테이블별 '들어오는 토픽'을 다시 센다."""
+        for entry in self.tables:
+            entry.incoming = _incoming(bag, entry.name)
 
     def entry(self, table: str) -> Optional[TableEntry]:
         for t in self.tables:
@@ -161,25 +178,33 @@ def _incoming(bag: Optional[BagSnapshot], table: str) -> list:
 def load_db_snapshot(cfg: Optional[DatasetConfig], bag: Optional[BagSnapshot]) -> DbSnapshot:
     """테이블 · 행 수 · 적재된 에피소드 키. DB 에 못 붙어도 테이블 목록(내장)은 돌려준다 — 오른쪽
     패널이 비면 매핑 선을 그릴 수 없다."""
-    infos = builtin_tables()
     if cfg is None:
+        infos = builtin_tables()
         return DbSnapshot(tables=[TableEntry(i, None, _incoming(bag, i.name)) for i in infos],
                           error='config not loaded')
     from rdfp.dataset.db.connection import open_connection
+    from rdfp.dataset.db.dynamic import load_mappings
+    from rdfp.dataset.db.schema_check import META_TABLES
 
     try:
         with open_connection(cfg.db) as conn:
             present = list_tables(conn)
             counts = table_row_counts(conn, present)
             exported = fetch_exported_keys(conn) if 'sessions' in present else set()
+            dynamic_all = load_mappings(conn, active_only=False)
             conn.rollback()
     except Exception as exc:  # noqa: BLE001 — 접속 실패 종류가 많다; 메시지만 보인다
+        infos = builtin_tables()
         return DbSnapshot(tables=[TableEntry(i, None, _incoming(bag, i.name)) for i in infos],
                           error=str(exc))
+    dynamic = {t: m for t, m in dynamic_all.items() if m.active}
+    infos = builtin_tables(dynamic_all)
     tables = [TableEntry(i, counts.get(i.name) if i.name in present else None,
                          _incoming(bag, i.name)) for i in infos]
     extra = sorted(set(present) - {i.name for i in infos})
-    return DbSnapshot(tables=tables, extra_tables=extra, exported_keys=exported)
+    return DbSnapshot(tables=tables, extra_tables=extra, exported_keys=exported,
+                      dynamic=dynamic, dynamic_all=dynamic_all,
+                      meta_ready=META_TABLES <= set(present))
 
 
 def load_episode_data(cfg: Optional[DatasetConfig]) -> EpisodeData:

@@ -7,7 +7,7 @@
 MoveIt2 클라이언트 · 그리퍼 · 카메라 · scene 상태는 하위 패키지
 [`robot_control`](../robot_control/README.md), 로봇 트윈은 [`robot_twin`](../robot_twin/README.md) 이다.
 의존은 이 패키지 → `robot_control` 한 방향이며, 분리 근거는 설계서
-[§7.6](../../docs/rdfp_프레임워크_전체_구조와_설계.md) 참고. 서비스 · 메시지 인터페이스는
+[§7.1](../../docs/rdfp_프레임워크_전체_구조와_설계.md) 참고. 서비스 · 메시지 인터페이스는
 `rdfp_msgs` 에 있으므로 함께 빌드한다.
 
 > 워크스페이스 전체는 [../../README.md](../../README.md), 데이터를 만드는 흐름(생성 → 수집 → 적재 →
@@ -603,16 +603,19 @@ GUI 동작 특성:
 - 종료 시 use-after-destroy 방지 가드: 워커 스레드가 2초 안에 종료되지 못하면 publisher destroy
   와 `cv2.VideoCapture.release()` 를 건너뛰고 warning 으로 leak 을 가시화한다.
 
-## 11. 데이터셋 관리 GUI (`dataset_manager`)
+## 11. 데이터셋 관리 GUI (`dataset_gui`)
 
-별도 패키지 [rdfp_gui_codex](../rdfp_gui_codex/README.md)에서 제공한다. 저장된 MCAP 토픽과 PostgreSQL 테이블을 한 화면에서 비교하고, 선택 토픽 Import와 에피소드 단위 Export를 수행하는 데스크톱 도구다. 메시지 정의·테이블 스키마·실제 데이터 조회, JSONB/CDR 범용 테이블 등록, 매핑 해제, 영상 프레임 미리보기를 지원한다. 학습 데이터는 NPZ 또는 LeRobot v3로 내보낸다.
+별도 패키지 [rdfp_gui](../rdfp_gui/README.md)에서 제공한다. bag 토픽과 DB 테이블을 매핑 선으로 잇고, stamp 진단 ·
+미완료 세션 · 에피소드 점검으로 **적재에서 조용히 빠지는 데이터**를 보이게 한다. 적재 · export · 동적 매핑 · 에피소드
+삭제는 이 패키지의 CLI(`import` · `export` · `mapping` · `episode-delete`)를 서브프로세스로 돌리므로 GUI 와 CLI 의
+결과가 같다. 조회 · 점검 코드는 `rdfp.dataset.inspect` 에 있다 (ROS 없음).
 
 ```bash
-# rdfp_ws 루트에서 실행한다. 설치·DB 설정은 아래 가이드를 참고한다.
-./scripts/run_dataset_manager.sh
+ros2 run rdfp init-db            # 적재 메타 테이블 (2026-11-23 — 한 번, 기존 행은 그대로다)
+./scripts/run_dataset_gui.sh     # = ros2 run rdfp_gui dataset_gui --config config/dataset_config.yaml
 ```
 
-실행 환경과 사용 방법은 [Dataset Manager 사용자 가이드](../../docs/collect/Dataset_Manager_사용자_가이드.md)에 정리했다. 기존 적재 CLI와는 중복 처리 정책이 다르며, Manager의 교체는 선택한 에피소드·토픽에만 적용한다. 같은 schema에 대한 CLI 적재와 GUI의 쓰기·Export 작업은 동시에 실행하지 않는다.
+설계 · 구현 현황: [docs/collect/데이터셋_관리_GUI_설계안.md](../../docs/collect/데이터셋_관리_GUI_설계안.md).
 
 ## 12. 라이선스
 

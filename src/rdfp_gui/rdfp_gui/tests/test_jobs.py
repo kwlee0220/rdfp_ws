@@ -87,3 +87,56 @@ def test_parse_summary_json_takes_the_trailing_object() -> None:
     assert parse_summary_json(out) == {'episodes': 2, 'inserted': {'joint_states': 10}}
     assert parse_summary_json('plain text') is None
     assert parse_summary_json('') is None
+
+
+# ----- 통합 (2026-11-23) — 매핑 · 토픽 교체 · LeRobot · 영상 복사 ----------------------------
+
+def test_import_topic_replace_needs_topics() -> None:
+    spec = build_import_command('c.yaml', topics=['/joint_states'], only_topics_replace=True,
+                                prefer_ros2=True)
+    assert spec.argv[-3:] == ['--topics', '/joint_states', '--only-topics-replace'][-3:]
+    assert '--only-topics-replace' in spec.argv
+    with pytest.raises(ValueError):
+        build_import_command('c.yaml', only_topics_replace=True, prefer_ros2=True)
+
+
+def test_mapping_commands_carry_their_confirmations() -> None:
+    from rdfp_gui.jobs import build_mapping_command
+
+    reg = build_mapping_command('c.yaml', 'register', 'a/msg/B', table='bs', prefer_ros2=True)
+    assert reg.argv == ['ros2', 'run', 'rdfp', 'mapping', 'register', '--config', 'c.yaml',
+                        '--type', 'a/msg/B', '--table', 'bs']
+    unreg = build_mapping_command('c.yaml', 'unregister', 'a/msg/B', prefer_ros2=True)
+    assert unreg.argv[-1] == '--yes'
+    drop = build_mapping_command('c.yaml', 'drop', 'a/msg/B', confirm_table='bs',
+                                 prefer_ros2=True)
+    assert drop.argv[-3:] == ['--yes', '--confirm', 'bs']
+    with pytest.raises(ValueError):
+        build_mapping_command('c.yaml', 'drop', 'a/msg/B', prefer_ros2=True)
+    with pytest.raises(ValueError):
+        build_mapping_command('c.yaml', 'nuke', 'a/msg/B', prefer_ros2=True)
+
+
+def test_export_copy_media_flag() -> None:
+    spec = build_export_command('c.yaml', '/out', episode_ids=[1], copy_media=True,
+                                prefer_ros2=True)
+    assert spec.argv[-1] == '--copy-media'
+    assert spec.env == {}
+
+
+def test_lerobot_export_runs_in_the_lerobot_python(monkeypatch) -> None:
+    from rdfp_gui.jobs import LEROBOT_PYTHON_ENV
+
+    monkeypatch.delenv(LEROBOT_PYTHON_ENV, raising=False)
+    with pytest.raises(ValueError, match=LEROBOT_PYTHON_ENV):
+        build_export_command('c.yaml', '/out', episode_ids=[1], fmt='lerobot_v3')
+    monkeypatch.setenv(LEROBOT_PYTHON_ENV, 'uv run --no-project --python /v/bin/python python')
+    spec = build_export_command('c.yaml', '/out', episode_ids=[1, 2], fmt='lerobot_v3', fps=5,
+                                max_skew_sec=0.5, copy_media=True)
+    assert spec.argv[:7] == ['uv', 'run', '--no-project', '--python', '/v/bin/python',
+                             'python', '-m']
+    assert spec.argv[7] == 'rdfp.dataset.export_cmd'
+    assert spec.argv[-6:] == ['--format', 'lerobot_v3', '--fps', '5', '--max-skew-sec', '0.5']
+    assert '--copy-media' not in spec.argv            # LeRobot 은 언제나 영상을 품는다
+    assert spec.env['PYTHONPATH'].endswith('src/rdfp') or 'rdfp' in spec.env['PYTHONPATH']
+    assert spec.command_line().startswith('PYTHONPATH=')

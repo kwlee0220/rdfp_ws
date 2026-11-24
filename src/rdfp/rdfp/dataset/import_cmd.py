@@ -70,8 +70,12 @@ def _build_parser() -> argparse.ArgumentParser:
                    help='이 자연키(start_ns)의 에피소드만 적재한다. 여러 번 줄 수 있다 — '
                         '`rosbag export` 와 데이터셋 GUI 가 선택을 넘기는 길이다')
     p.add_argument('--topics', nargs='+', metavar='TOPIC',
-                   help='설정의 토픽 목록 대신 이 토픽만 적재한다 (/session 은 자동 포함). '
-                        '⚠️ 적재는 에피소드 단위라 빠진 토픽은 그 에피소드에 빈 채로 커밋된다')
+                   help='설정의 토픽 목록 대신 이 토픽만 적재한다 (/session 은 자동 포함). 레코더 '
+                        'mp4 도 여기 든 카메라만 등록한다. 이미 있는 에피소드에는 **빠진 토픽만** '
+                        '채운다 (적재 단위 = 에피소드 × 토픽)')
+    p.add_argument('--only-topics-replace', action='store_true',
+                   help='이미 있는 에피소드에서 --topics 로 고른 토픽의 행만 지우고 다시 넣는다. '
+                        '다른 토픽과 에피소드 id 는 그대로다')
     p.add_argument('--on-existing', choices=('skip', 'replace', 'error'), dest='on_existing',
                    help='설정의 on_existing_episode 를 이번 실행만 바꾼다')
     return p
@@ -124,8 +128,13 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
     # 더한다). 파이프라인은 그대로 `cfg.effective_topics()` 만 보므로 적재 경로가 둘이 되지 않는다.
     topics = list(getattr(args, 'topics', None) or [])
     if topics:
-        cfg = cfg.model_copy(update={'topics': topics})
+        cfg = cfg.model_copy(update={'topic_selection': topics})
         _logger.info('topic selection: %d topic(s) from the caller', len(topics))
+    if getattr(args, 'only_topics_replace', False):
+        if not topics:
+            logging.error('--only-topics-replace needs --topics')
+            return 2
+        cfg = cfg.model_copy(update={'only_topics_replace': True})
     on_existing = getattr(args, 'on_existing', None)
     if on_existing:
         cfg = cfg.model_copy(update={'on_existing_episode': on_existing})
@@ -135,22 +144,23 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
     # ROS-free 서브커맨드들이 sensor_msgs 없이도 동작하도록).
     # ``discover_splits`` 는 가벼워 module top-level 에 둔다 (테스트 patch).
     from rdfp.dataset.db.connection import open_connection
-    from rdfp.dataset.db.schema_check import SchemaCheckError, ensure_schema
+    from rdfp.dataset.db.dynamic import load_mappings
+    from rdfp.dataset.db.schema_check import META_TABLES, SchemaCheckError, ensure_schema
     from rdfp.dataset.db.topics import upsert_topic_ids
     from .ingest.exceptions import PostProcError
-    from .ingest.media.frame_router import FrameRouter
     from .ingest.pipeline import (
         _apply_episode_filters,
         _delete_used_splits,
-        _detect_all_episodes,
+        _detect_episodes_with_origin,
         _determine_topic_classification,
         _empty_summary,
         _run_ingestion,
         _run_parallel,
     )
     from .ingest.run_log import RunLog
+    from .ingest.units import META_HINT
     from .inspect.findings import LEVEL_ERROR, LEVEL_WARNING
-    from .inspect.preflight import check_import
+    from .inspect.preflight import check_dynamic_schemas, check_import
 
     try:
         splits = discover_splits(cfg.rosbag_dir,
@@ -160,7 +170,7 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
         if not splits:
             summary = _empty_summary()
         else:
-            episodes = _detect_all_episodes(splits)
+            episodes, origins = _detect_episodes_with_origin(splits)
             detected = len(episodes)
             _logger.info('detected %d episode(s)', detected)
 
@@ -170,8 +180,14 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
             if not episodes:
                 summary = _empty_summary(splits=len(splits))
             else:
+                # 동적 매핑(JSONB, `topic_tables`)을 먼저 읽는다 — registry 에 없는 타입이 그쪽에
+                # 있으면 무시하지 않고 적재한다. 표가 없는 옛 DB 면 빈 dict 이고, 아래 스키마
+                # 검사가 init-db 안내와 함께 멈춘다.
+                with open_connection(cfg.db) as conn:
+                    dynamic = load_mappings(conn)
+                    conn.rollback()
                 required_tables, topic_entries, image_topic_types = (
-                    _determine_topic_classification(splits, cfg))
+                    _determine_topic_classification(splits, cfg, dynamic))
                 image_topics = set(image_topic_types)
 
                 # 사전 점검 — 데이터셋 GUI 와 **같은 함수**다 (`inspect/preflight.py`). 죽는 조합
@@ -182,7 +198,11 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                 windows = [(ep.start_ns, ep.stop_ns) for ep in episodes
                            if hasattr(ep, 'start_ns')]
                 findings = check_import(cfg, topic_types=known_types,
-                                        episode_windows=windows or None)
+                                        selected_topics=cfg.topic_selection,
+                                        episode_windows=windows or None,
+                                        dynamic_types=set(dynamic),
+                                        only_topics_replace=cfg.only_topics_replace)
+                findings += check_dynamic_schemas(splits, topic_entries, dynamic)
                 for f in findings:
                     if f.level == LEVEL_WARNING:
                         _logger.warning('preflight %s: %s', f.code, f.message)
@@ -206,6 +226,7 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                     'episodes': 0, 'splits': len(splits),
                     'inserted': {t: 0 for t in required_tables},
                     'skipped': 0, 'replaced': 0, 'failed': 0, 'mp4_files': 0,
+                    'adopted': 0,
                 }
 
                 # 스키마 검증 + topics 룩업 동기화를 단일 커넥션으로 선행한다
@@ -213,9 +234,10 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                 # 으로 쓰이므로 여기서 commit 하여 워커 프로세스에서도 보이게 한다.
                 with open_connection(cfg.db) as conn:
                     try:
-                        ensure_schema(conn, required_tables)
+                        ensure_schema(conn, set(required_tables) | META_TABLES)
                     except SchemaCheckError as e:
-                        raise PostProcError(str(e)) from e
+                        hint = META_HINT if any(t in str(e) for t in META_TABLES) else ''
+                        raise PostProcError(f'{e}; {hint}' if hint else str(e)) from e
                     topics_to_register: dict[str, str] = {
                         topic: type_name
                         for topic, (_, type_name) in topic_entries.items()
@@ -227,16 +249,22 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                 if cfg.parallelism > 1:
                     _run_parallel(
                         cfg, splits, episodes, topic_entries, topic_ids,
-                        image_topics, run_log_path, summary)
+                        image_topics, run_log_path, summary, origins)
                 else:
                     with open_connection(cfg.db) as conn:
-                        router = FrameRouter(
-                            Path(cfg.output_mp4_dir),
-                            conn=conn,
-                            topic_ids={t: topic_ids[t]
-                                       for t in image_topics if t in topic_ids},
-                            fps=cfg.mp4.nominal_fps,
-                            codec=cfg.mp4.codec)
+                        # FrameRouter 는 `sensor_msgs` 를 끌어온다 — bag 에 이미지 토픽이 있을
+                        # 때만 만든다. 영상을 레코더 mp4 로 받는 평소 적재는 ROS 없이 돈다.
+                        router = None
+                        if image_topics:
+                            from .ingest.media.frame_router import FrameRouter
+
+                            router = FrameRouter(
+                                Path(cfg.output_mp4_dir),
+                                conn=conn,
+                                topic_ids={t: topic_ids[t]
+                                           for t in image_topics if t in topic_ids},
+                                fps=cfg.mp4.nominal_fps,
+                                codec=cfg.mp4.codec)
                         _run_ingestion(
                             conn, splits, episodes,
                             topic_entries=topic_entries,
@@ -245,7 +273,8 @@ def cmd_import(args: argparse.Namespace, config_path: str) -> int:
                             router=router,
                             run_log=run_log,
                             cfg=cfg,
-                            summary=summary)
+                            summary=summary,
+                            origins=origins)
 
                 # 사용한 split 은 그 안의 에피소드가 전부 들어갔다고 말할 수 있을 때만 지운다.
                 if cfg.delete_splits_after_import:

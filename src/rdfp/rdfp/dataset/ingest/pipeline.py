@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
 import logging
 from pathlib import Path
-from typing import Optional
 
 import psycopg
 
@@ -30,8 +31,13 @@ from .episode.dispatcher import AssignedMessage, DispatchEvent, assign_and_dispa
 from .episode.from_bag import episodes_from_splits
 from .exceptions import PostProcError
 from .run_log import RunLog
-from .media.frame_router import FrameRouter
 from .media.recorder_registry import RecorderRegistrar
+from .units import Opening, Origin, finish_units, make_writer, open_episode, register_recordings
+
+if TYPE_CHECKING:
+    # FrameRouter 는 `sensor_msgs` 를 끌어온다 — bag 에 이미지 토픽이 있을 때만 만든다. 그래야
+    # 영상을 레코더 mp4 로 받는 평소 적재(I4)가 ROS 없이 돈다 (2026-11-23).
+    from .media.frame_router import FrameRouter
 
 
 _logger = logging.getLogger(__name__)
@@ -40,7 +46,7 @@ _logger = logging.getLogger(__name__)
 def _run_parallel(cfg: DatasetConfig, splits: list, episodes: list[Episode],
                   topic_entries: dict[str, tuple[str, str]], topic_ids: dict[str, int],
                   image_topics: set[str], run_log_path: Path,
-                  summary: dict) -> None:
+                  summary: dict, origins: Optional[dict] = None) -> None:
     """`multiprocessing.Pool` 로 에피소드별 처리를 분산한다."""
     from multiprocessing import get_context
 
@@ -53,9 +59,10 @@ def _run_parallel(cfg: DatasetConfig, splits: list, episodes: list[Episode],
     )
 
     ctx = get_context('spawn')
+    origins = origins or {}
     args_iter = [
         (cfg, ep, split_paths, dict(topic_entries), dict(topic_ids),
-         set(image_topics), run_log_path)
+         set(image_topics), run_log_path, origins.get(ep.start_ns))
         for ep in episodes
     ]
     with ctx.Pool(processes=workers) as pool:
@@ -74,6 +81,8 @@ def _apply_result_to_summary(
     result: dict, summary: dict, policy: str,
 ) -> None:
     status = result.get('status')
+    if result.get('adopted'):
+        summary['adopted'] = summary.get('adopted', 0) + 1
     if status == 'done':
         summary['episodes'] += 1
         summary['mp4_files'] += len(result.get('mp4_files', []))
@@ -93,6 +102,7 @@ def _empty_summary(splits: int = 0) -> dict:
     return {
         'episodes': 0, 'splits': splits,
         'inserted': {}, 'skipped': 0, 'replaced': 0, 'failed': 0, 'mp4_files': 0,
+        'adopted': 0,
     }
 
 
@@ -157,6 +167,25 @@ def _detect_all_episodes(splits: list) -> list[Episode]:
     return [be.episode for be in bag_episodes]
 
 
+def _detect_episodes_with_origin(splits: list) -> tuple:
+    """`_detect_all_episodes` + 에피소드별 출처(녹화본).
+
+    출처는 시작 `/session` 메시지가 있던 세션 디렉터리다 (`BagEpisode.session_name`). 적재가 그
+    값으로 **다른 녹화본이 같은 에피소드 키를 낸 경우**(sim 시계 되감김)를 가려낸다.
+
+    Returns:
+        `(episodes, origins)` — origins 는 `start_ns → Origin`.
+    """
+    bag_episodes = episodes_from_splits(splits)
+    if not bag_episodes:
+        raise PostProcError(
+            'no /session messages found within rosbag_dir; cannot detect episodes'
+        )
+    origins = {be.start_ns: Origin(be.session_name, be.session_path)
+               for be in bag_episodes if be.session_name}
+    return [be.episode for be in bag_episodes], origins
+
+
 def _apply_episode_filters(
     episodes: list[Episode], filt: EpisodeFilter,
 ) -> list[Episode]:
@@ -182,7 +211,7 @@ def _apply_episode_filters(
 
 
 def _determine_topic_classification(
-    splits: list, cfg: DatasetConfig
+    splits: list, cfg: DatasetConfig, dynamic: Optional[dict] = None
 ) -> tuple[set[str], dict[str, tuple[str, str]], dict[str, str]]:
     """토픽을 DB / mp4 / 무시 로 분류한다.
 
@@ -203,8 +232,12 @@ def _determine_topic_classification(
     from rdfp.rosbag.mcap_reader import iter_split_messages
 
     want_topics = set(cfg.effective_topics()) if cfg.effective_topics() else None
-    topic_types: dict[str, str] = {}
+    # 타입은 MCAP summary 에서 먼저 읽는다 — 메시지를 풀지 않는다 (2026-11-23). 예전에는 타입을
+    # 알려고 bag 을 거의 한 번 통째로 디코드했다 (실측 37만 건 bag 에서 ~29 초).
+    topic_types: dict[str, str] = _summary_topic_types(splits, want_topics)
     for sp in splits:
+        if topic_types:
+            break
         if want_topics is not None and len(topic_types) == len(want_topics):
             break
         for m in iter_split_messages(
@@ -226,6 +259,13 @@ def _determine_topic_classification(
             continue
         binding = resolve_message_type(type_name)
         if binding is None:
+            # registry 에 없으면 동적 매핑(`topic_tables`)을 본다 — **내장이 이긴다**.
+            # 동적 테이블은 `REQUIRED_COLUMNS` 에 없으므로 `required` 에 넣지 않고 호출자가
+            # 따로 존재를 확인한다.
+            mapping = (dynamic or {}).get(type_name)
+            if mapping is not None:
+                topic_entries[topic] = (mapping.table_name, type_name)
+                continue
             _logger.warning(
                 'no writer registered for topic %s (type=%s); messages will be ignored',
                 topic, type_name,
@@ -236,35 +276,146 @@ def _determine_topic_classification(
     return required, topic_entries, image_topic_types
 
 
+def _units_for(topic_entries: dict[str, tuple[str, str]], topic_ids: dict[str, int],
+               image_topics: set[str]) -> dict[str, tuple]:
+    """이번 실행이 적재할 수 있는 단위 — 토픽 → (테이블, topic_id)."""
+    units = {t: (table, topic_ids[t]) for t, (table, _) in topic_entries.items()}
+    units.update({t: ('image_streams', topic_ids[t]) for t in image_topics if t in topic_ids})
+    return units
+
+
+def _replace_topics(cfg: DatasetConfig, image_topics: set[str]) -> Optional[frozenset]:
+    """`--only-topics-replace` 대상. 꺼져 있으면 ``None``."""
+    if not cfg.only_topics_replace:
+        return None
+    selection = frozenset(cfg.topic_selection or ()) - {SESSION_TOPIC}
+    if not selection:
+        raise PostProcError('only_topics_replace needs an explicit topic selection (--topics)')
+    bag_images = selection & image_topics
+    if bag_images:
+        # bag 이미지 인코딩 mp4 는 에피소드 디렉터리 단위로 쓰여 토픽 하나만 갈아 끼울 수 없다.
+        raise PostProcError(f'cannot replace bag image topics one by one: {sorted(bag_images)}; '
+                            f'use on_existing_episode=replace')
+    return selection
+
+
+def _media_selection(cfg: DatasetConfig) -> Optional[frozenset]:
+    """레코더 mp4 를 어느 카메라까지 등록하나. 토픽을 고르지 않았으면 전부(``None``)."""
+    if cfg.topic_selection is None:
+        return None
+    return frozenset(cfg.topic_selection)
+
+
+def _summary_topic_types(splits: list, want_topics: Optional[set]) -> dict[str, str]:
+    """split 들의 MCAP summary 에서 토픽 → 타입. summary 가 없는 split 이 있으면 빈 dict —
+    호출자가 메시지를 풀어 알아낸다 (쓰다 끊긴 파일)."""
+    from mcap.reader import make_reader
+
+    found: dict[str, str] = {}
+    for sp in splits:
+        try:
+            with open(sp.path, 'rb') as fp:
+                summary = make_reader(fp).get_summary()
+        except Exception:  # noqa: BLE001 — 읽을 수 없으면 느린 길로 간다
+            return {}
+        if summary is None:
+            return {}
+        for ch in summary.channels.values():
+            if want_topics is not None and ch.topic not in want_topics:
+                continue
+            schema = summary.schemas.get(ch.schema_id)
+            if schema is not None:
+                found.setdefault(ch.topic, schema.name)
+    return found
+
+
+def _settle_finished(conn: psycopg.Connection, episodes: list[Episode], *, cfg: DatasetConfig,
+                     units: dict, registrar, origins: dict,
+                     replace_topics: Optional[frozenset], media_only: Optional[frozenset],
+                     summary: dict, run_log: RunLog) -> list[Episode]:
+    """이미 **전부** 적재된 에피소드를 bag 을 읽기 전에 정리하고, 일이 남은 것만 돌려준다.
+
+    다시 돌린 `import` 가 아무것도 안 넣으면서 bag 을 통째로 읽던 것을 막는다(실측 79 초 → 몇 초).
+    출처 연결(adopt)과 옛 단위의 이력 채우기는 여기서 커밋된다.
+    """
+    if replace_topics is not None or cfg.on_existing_episode != 'skip':
+        return episodes
+    sess_writer = SessionWriter(conn)
+    remaining: list[Episode] = []
+    for ep in episodes:
+        if sess_writer.find_existing(ep.start_ns) is None:
+            remaining.append(ep)
+            continue
+        opening = open_episode(conn, sess_writer, ep, origin=origins.get(ep.start_ns),
+                               policy='skip', units=units)
+        missing = set(units) - set(opening.skip_topics)
+        if not missing and registrar is not None:
+            missing = set(registrar.pending(opening.episode_id, ep.start_ns,
+                                            only_topics=media_only))
+        if missing:
+            conn.rollback()
+            remaining.append(ep)
+            continue
+        conn.commit()
+        summary['skipped'] += 1
+        if opening.adopted:
+            summary['adopted'] = summary.get('adopted', 0) + 1
+        run_log.episode_skipped(episode_id=opening.episode_id, start_ns=ep.start_ns,
+                                stop_ns=ep.stop_ns, task_label=ep.task_label)
+    settled = len(episodes) - len(remaining)
+    if settled:
+        _logger.info('%d episode(s) already fully loaded; %d left to stream',
+                     settled, len(remaining))
+    return remaining
+
+
 def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episode], *,
                    topic_entries: dict[str, tuple[str, str]],
                    topic_ids: dict[str, int],
                    image_topics: set[str],
-                   router: FrameRouter,
+                   router: Optional['FrameRouter'],
                    run_log: RunLog,
                    cfg: DatasetConfig,
-                   summary: dict,) -> None:
-    """에피소드 단위 트랜잭션으로 실제 INSERT 와 mp4 인코딩을 수행한다."""
+                   summary: dict,
+                   origins: Optional[dict] = None) -> None:
+    """에피소드 단위 트랜잭션으로 실제 INSERT 와 mp4 인코딩을 수행한다.
+
+    무엇을 넣고 무엇을 건너뛸지는 `units.open_episode` 가 정한다 (병렬 경로와 같은 함수).
+    `router` 는 bag 에 이미지 토픽이 있을 때만 있다.
+    """
     sess_writer = SessionWriter(conn)
     # 레코더 출력은 **루프 밖에서 한 번만 훑는다** — 에피소드마다 디렉터리를 다시
     # 읽으면 파일 수에 비례해 느려진다. 설정에 경로가 없으면 등록하지 않는다(I4).
     registrar = (RecorderRegistrar(conn, cfg.recordings_dir)
                  if cfg.recordings_dir else None)
+    origins = origins or {}
+    units = _units_for(topic_entries, topic_ids, image_topics)
+    replace_topics = _replace_topics(cfg, image_topics)
+    media_only = _media_selection(cfg)
+
+    episodes = _settle_finished(conn, episodes, cfg=cfg, units=units, registrar=registrar,
+                                origins=origins, replace_topics=replace_topics,
+                                media_only=media_only, summary=summary, run_log=run_log)
+    if not episodes:
+        return
 
     # topic → writer instance. 각 writer 가 자신의 table 속성을 갖는다.
-    writers: dict[str, WriterBase] = {}
-    for topic, (table_name, type_name) in topic_entries.items():
-        binding = resolve_message_type(type_name)
-        if binding is None:
-            continue
-        writers[topic] = binding.writer_cls(
-            conn, table=table_name, topic_id=topic_ids[topic],
-        )
+    writers: dict[str, WriterBase] = {
+        topic: make_writer(conn, table_name, type_name, topic_ids[topic])
+        for topic, (table_name, type_name) in topic_entries.items()
+    }
 
     # 현재 에피소드 컨텍스트.
     cur_episode_id: Optional[int] = None
     cur_episode_ep: Episode | None = None
-    cur_ignored = False
+    cur_opening: Optional[Opening] = None
+    cur_skip: frozenset = frozenset()
+
+    def _fail(ep: Episode, error: Exception, what: str) -> None:
+        _rollback_all(writers, router, conn)
+        _logger.exception(what)
+        run_log.episode_failed(start_ns=ep.start_ns, stop_ns=ep.stop_ns,
+                               task_label=ep.task_label, error=str(error))
 
     all_topics = cfg.effective_topics() or None
     raw_stream = merge_split_streams(
@@ -278,46 +429,35 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
             ep = episodes[ev.episode_index]
             cur_episode_ep = ep
             try:
-                cur_episode_id = _open_episode(
-                    sess_writer, ep, cfg.on_existing_episode, router, summary,
-                )
+                cur_opening = open_episode(
+                    conn, sess_writer, ep, origin=origins.get(ep.start_ns),
+                    policy=cfg.on_existing_episode, units=units,
+                    replace_topics=replace_topics,
+                    remove_episode_dir=(router.remove_existing_episode_dir
+                                        if router is not None else None))
             except Exception as e:
-                _rollback_all(writers, router, conn)
-                _logger.exception('failed to open episode %d', ev.episode_index)
-                run_log.episode_failed(
-                    start_ns=ep.start_ns, stop_ns=ep.stop_ns,
-                    task_label=ep.task_label, error=str(e),
-                )
+                _fail(ep, e, f'failed to open episode {ev.episode_index}')
                 raise
-            cur_ignored = cur_episode_id is None
-            if cur_ignored:
-                conn.rollback()
-                run_log.episode_skipped(
-                    episode_id=-1,
-                    start_ns=ep.start_ns, stop_ns=ep.stop_ns,
-                    task_label=ep.task_label,
-                )
-                continue
-            router.open_episode(cur_episode_id)
+            cur_episode_id = cur_opening.episode_id
+            cur_skip = cur_opening.skip_topics
+            if cur_opening.replaced:
+                summary['replaced'] += 1
+            if cur_opening.adopted:
+                summary['adopted'] = summary.get('adopted', 0) + 1
+            if router is not None:
+                router.open_episode(cur_episode_id)
         elif kind == 'message':
-            if cur_ignored:
-                continue
             am: AssignedMessage = payload
-            if am.topic == SESSION_TOPIC:
+            if am.topic == SESSION_TOPIC or am.topic in cur_skip:
                 continue
             if am.topic in image_topics:
+                if router is None:
+                    continue
                 try:
                     router.on_image(am.topic, am.type_name, am.msg)
                 except Exception as e:
-                    _rollback_all(writers, router, conn)
-                    _logger.exception('image encoding failed')
                     assert cur_episode_ep is not None
-                    run_log.episode_failed(
-                        start_ns=cur_episode_ep.start_ns,
-                        stop_ns=cur_episode_ep.stop_ns,
-                        task_label=cur_episode_ep.task_label,
-                        error=str(e),
-                    )
+                    _fail(cur_episode_ep, e, 'image encoding failed')
                     raise
                 continue
             writer = writers.get(am.topic)
@@ -326,130 +466,82 @@ def _run_ingestion(conn: psycopg.Connection, splits: list, episodes: list[Episod
             try:
                 writer.append(cur_episode_id, am.msg)
             except Exception as e:
-                _rollback_all(writers, router, conn)
-                _logger.exception(
-                    'insert failed for topic=%s (type=%s) in episode %d',
-                    am.topic, am.type_name, am.episode_index,
-                )
                 assert cur_episode_ep is not None
-                run_log.episode_failed(
-                    start_ns=cur_episode_ep.start_ns,
-                    stop_ns=cur_episode_ep.stop_ns,
-                    task_label=cur_episode_ep.task_label,
-                    error=str(e),
-                )
+                _fail(cur_episode_ep, e,
+                      f'insert failed for topic={am.topic} (type={am.type_name}) '
+                      f'in episode {am.episode_index}')
                 raise
         elif kind == 'exit':
-            if cur_ignored:
-                cur_episode_id = None
-                cur_episode_ep = None
-                cur_ignored = False
-                continue
-            assert cur_episode_ep is not None
+            assert cur_episode_ep is not None and cur_opening is not None
             try:
                 for w in writers.values():
                     w.flush()
-                mp4_files = router.finalize_episode()
-                # **레코더 mp4 등록은 커밋 직전, 같은 트랜잭션 안에서** (I4).
-                if registrar is not None:
-                    registrar.register(cur_episode_id, cur_episode_ep.start_ns)
-                conn.commit()
+                mp4_files = router.finalize_episode() if router is not None else []
                 row_counts: dict[str, int] = {}
-                for w in writers.values():
+                written: dict[str, tuple] = {}
+                for topic, w in writers.items():
                     n = w.consume_inserted_count()
-                    row_counts[w.table] = n
-                    summary['inserted'][w.table] = (
-                        summary['inserted'].get(w.table, 0) + n
-                    )
+                    if topic not in cur_skip:
+                        written[topic] = (w.table, topic_ids[topic], n)
+                        row_counts[w.table] = row_counts.get(w.table, 0) + n
+                finish_units(conn, cur_opening, written)
                 # FrameRouter 가 finalize 단계에서 INSERT 한 image_streams / image_frames 행도
-                # summary 에 합산한다 (message-writer 가 아닌 경로라 위 루프에서 누락된다).
-                for table, n in router.consume_inserted_count().items():
-                    row_counts[table] = row_counts.get(table, 0) + n
-                    summary['inserted'][table] = (
-                        summary['inserted'].get(table, 0) + n
-                    )
-                # 레코더 등록분도 같은 이유로 합산한다 — 빼먹으면 DB 에는 행이
-                # 있는데 요약은 0 으로 보고한다.
+                # 합산한다 (message-writer 가 아닌 경로라 위 루프에서 누락된다).
+                if router is not None:
+                    for table, n in router.consume_inserted_count().items():
+                        row_counts[table] = row_counts.get(table, 0) + n
+                # **레코더 mp4 등록은 커밋 직전, 같은 트랜잭션 안에서** (I4). 이미 등록된
+                # 카메라는 건너뛴다 — 두 번 넣으면 UNIQUE 위반으로 에피소드가 통째로 실패한다.
                 if registrar is not None:
+                    register_recordings(conn, registrar, cur_opening,
+                                        cur_episode_ep.start_ns, only_topics=media_only)
+                    # 레코더 등록분도 합산한다 — 빼먹으면 DB 에는 행이 있는데 요약은 0 이다.
                     for table, n in registrar.consume_inserted_count().items():
                         row_counts[table] = row_counts.get(table, 0) + n
-                        summary['inserted'][table] = (
-                            summary['inserted'].get(table, 0) + n
-                        )
+                conn.commit()
+            except Exception as e:
+                _fail(cur_episode_ep, e, f'commit failed for episode_id={cur_episode_id}')
+                raise
+            for table, n in row_counts.items():
+                summary['inserted'][table] = summary['inserted'].get(table, 0) + n
+            nothing_new = cur_opening.existed and not cur_opening.replaced and not any(
+                row_counts.values())
+            if nothing_new:
+                # 이미 전부 적재된 에피소드다 — 예전 `skip` 과 같은 결과. 연결(adopt)은 커밋됐다.
+                summary['skipped'] += 1
+                _logger.info('episode already present (start_ns=%d, id=%d); nothing new',
+                             cur_episode_ep.start_ns, cur_episode_id)
+                run_log.episode_skipped(episode_id=cur_episode_id,
+                                        start_ns=cur_episode_ep.start_ns,
+                                        stop_ns=cur_episode_ep.stop_ns,
+                                        task_label=cur_episode_ep.task_label)
+            else:
                 summary['episodes'] += 1
                 summary['mp4_files'] += len(mp4_files)
-                _logger.info(
-                    'episode committed: id=%d rows=%s mp4=%d',
-                    cur_episode_id, row_counts, len(mp4_files),
-                )
-                run_log.episode_done(
-                    episode_id=cur_episode_id,
-                    start_ns=cur_episode_ep.start_ns,
-                    stop_ns=cur_episode_ep.stop_ns,
-                    task_label=cur_episode_ep.task_label,
-                    row_counts=row_counts,
-                    mp4_files=mp4_files,
-                )
-            except Exception as e:
-                _rollback_all(writers, router, conn)
-                _logger.exception('commit failed for episode_id=%s', cur_episode_id)
-                run_log.episode_failed(
-                    start_ns=cur_episode_ep.start_ns,
-                    stop_ns=cur_episode_ep.stop_ns,
-                    task_label=cur_episode_ep.task_label,
-                    error=str(e),
-                )
-                raise
+                _logger.info('episode committed: id=%d rows=%s mp4=%d',
+                             cur_episode_id, row_counts, len(mp4_files))
+                run_log.episode_done(episode_id=cur_episode_id,
+                                     start_ns=cur_episode_ep.start_ns,
+                                     stop_ns=cur_episode_ep.stop_ns,
+                                     task_label=cur_episode_ep.task_label,
+                                     row_counts=row_counts, mp4_files=mp4_files)
             cur_episode_id = None
             cur_episode_ep = None
+            cur_opening = None
+            cur_skip = frozenset()
 
 
 def _rollback_all(
     writers: dict[str, WriterBase],
-    router: FrameRouter,
+    router: Optional['FrameRouter'],
     conn: psycopg.Connection,
 ) -> None:
     """에피소드 트랜잭션 실패 시 모든 상태를 되돌린다."""
     for w in writers.values():
         w.drop_pending()
-    router.abort_episode()
+    if router is not None:
+        router.abort_episode()
     conn.rollback()
-
-
-def _open_episode(sess_writer: SessionWriter, ep: Episode, policy: str, router: FrameRouter,
-                  summary: dict,) -> Optional[int]:
-    """에피소드에 해당하는 sessions 행을 확보한다.
-
-    단일 에피소드 트랜잭션의 첫 단계. 커밋은 `exit` 단계에서 수행되며,
-    본 함수의 모든 DB 변경은 아직 미커밋 상태다. `replace` 정책은 FK cascade
-    로 자식 row 를 제거하고, mp4 디렉터리도 함께 삭제한다.
-
-    Returns:
-        새/기존 에피소드 id. `skip` 정책으로 건너뛴 경우 None.
-    """
-    existing = sess_writer.find_existing(ep.start_ns)
-    if existing is None:
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
-                                          ep.success, ep.metadata)
-
-    if policy == 'skip':
-        summary['skipped'] += 1
-        _logger.info(
-            'episode already present (start_ns=%d, id=%d); skipped',
-            ep.start_ns, existing,
-        )
-        return None
-    if policy == 'error':
-        raise PostProcError(
-            f'episode already present (start_ns={ep.start_ns}, id={existing})'
-        )
-    if policy == 'replace':
-        sess_writer.delete_by_id(existing)
-        router.remove_existing_episode_dir(existing)
-        summary['replaced'] += 1
-        return sess_writer.insert_episode(ep.start_ns, ep.stop_ns, ep.task_label,
-                                          ep.success, ep.metadata)
-    raise PostProcError(f'unknown on_existing_episode policy: {policy!r}')
 
 
 __all__ = ['PostProcError']

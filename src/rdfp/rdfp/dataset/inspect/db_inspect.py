@@ -21,7 +21,7 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from rdfp.dataset.db.schema_check import REQUIRED_COLUMNS
+from rdfp.dataset.db.schema_check import META_TABLES, REQUIRED_COLUMNS
 from rdfp.dataset.episode_key import join_ns
 
 from .findings import LEVEL_INFO, LEVEL_WARNING, Finding
@@ -31,7 +31,8 @@ _logger = logging.getLogger(__name__)
 
 #: 에피소드 단위로 행 수를 세는 메시지 테이블 (sessions · topics · 영상 제외).
 MESSAGE_TABLES: tuple = tuple(sorted(
-    t for t in REQUIRED_COLUMNS if t not in SYSTEM_TABLES and t not in MEDIA_TABLES))
+    t for t in REQUIRED_COLUMNS
+    if t not in SYSTEM_TABLES and t not in MEDIA_TABLES and t not in META_TABLES))
 
 
 def _ident(name: str) -> sql.Identifier:
@@ -264,6 +265,12 @@ class EpisodeSummary:
     streams: list = field(default_factory=list)
     unpaired_trajectories: int = 0
     unpaired_events: int = 0
+    #: 녹화본(세션 디렉터리 이름). ``None`` 이면 출처를 기록하기 전에 적재돼 아직 연결 안 됐다.
+    source_id: Optional[str] = None
+    #: 출처를 나중에 연결했나 (시작 · 종료 시각 일치로만 연결했다는 뜻).
+    adopted: bool = False
+    #: 동적 매핑 테이블의 행 수 (테이블 → 행). 메시지 행 합에 더한다.
+    dynamic_rows: dict = field(default_factory=dict)
 
     @property
     def duration_sec(self) -> float:
@@ -276,8 +283,9 @@ class EpisodeSummary:
 
     @property
     def message_rows(self) -> int:
-        """메시지 테이블 행의 합 (영상 제외)."""
-        return sum(self.row_counts.get(t, 0) for t in MESSAGE_TABLES)
+        """메시지 테이블 행의 합 (영상 제외, 동적 매핑 테이블 포함)."""
+        return (sum(self.row_counts.get(t, 0) for t in MESSAGE_TABLES)
+                + sum(self.dynamic_rows.values()))
 
     @property
     def frames(self) -> int:
@@ -303,7 +311,11 @@ def episode_summaries(conn: psycopg.Connection, *, tables: Sequence[str] = MESSA
     질의 수는 테이블 수에 비례하고 에피소드 수와 무관하다 (`GROUP BY episode_id`).
     없는 테이블은 건너뛴다 — 스키마가 옛것이어도 목록은 나와야 한다.
     """
+    from rdfp.dataset.db.dynamic import load_mappings
+
     present = set(list_tables(conn))
+    dynamic_tables = [m.table_name for m in load_mappings(conn, active_only=False).values()
+                      if m.table_name in present]
     with conn.cursor() as cur:
         cur.execute('SELECT id, start_sec, start_nanosec, stop_sec, stop_nanosec, task_label, '
                     '       success, metadata FROM sessions ORDER BY start_sec, start_nanosec, id')
@@ -315,15 +327,26 @@ def episode_summaries(conn: psycopg.Connection, *, tables: Sequence[str] = MESSA
                 task_label=task, success=success,
                 metadata=meta if isinstance(meta, dict) else {})
 
-        for table in [*tables, 'image_frames']:
+        for table in [*tables, 'image_frames', *dynamic_tables]:
             if table not in present:
                 continue
             cur.execute(sql.SQL('SELECT episode_id, COUNT(*) FROM {} GROUP BY episode_id').format(
                 _ident(table)))
             for eid, n in cur.fetchall():
                 s = summaries.get(int(eid))
-                if s is not None:
+                if s is None:
+                    continue
+                if table in dynamic_tables:
+                    s.dynamic_rows[table] = int(n)
+                else:
                     s.row_counts[table] = int(n)
+
+        if 'episode_sources' in present:
+            cur.execute('SELECT episode_id, source_id, adopted FROM episode_sources')
+            for eid, source_id, adopted in cur.fetchall():
+                s = summaries.get(int(eid))
+                if s is not None:
+                    s.source_id, s.adopted = str(source_id), bool(adopted)
 
         if 'image_streams' in present:
             cur.execute(

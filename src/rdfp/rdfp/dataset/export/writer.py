@@ -1,6 +1,6 @@
 """저장 형식 (E7) — 학습기가 읽을 파일로 내보낸다.
 
-설계는 [E7_저장_형식_설계.md](../../../../docs/learning/저장_형식.md) §6 이다.
+저장 형식 스키마는 [저장_형식.md §4](../../../../../docs/learning/저장_형식.md#4-저장-형식-스키마) 이다.
 
 ```
 <dataset_root>/
@@ -27,9 +27,14 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional, Sequence
 
 import dataclasses
+import hashlib
 import json
 import os
+import shutil
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -51,6 +56,86 @@ DEFAULT_COMMAND_TOPIC = '/target_joint_cmds'
 
 class ExportError(RuntimeError):
     """내보내기를 계속할 수 없을 때."""
+
+
+#: `manifest.json` 의 `media_root` 값. 학습 로더(`rdfp-train`)가 mp4 를 어디 기준으로 찾을지 정한다.
+MEDIA_ROOT_RECORDINGS = 'recordings_dir'   # episodes.jsonl 의 mp4 는 recordings_dir 기준 (기본)
+MEDIA_ROOT_DATASET = 'dataset'             # --copy-media — mp4 를 트리 안 videos/ 로 복사했다
+MANIFEST_NAME = 'manifest.json'
+
+
+# ----- 원자적 게시 ---------------------------------------------------------
+
+@contextmanager
+def staged_output(out_dir: str):
+    """출력을 옆의 임시 디렉터리에 쓰고, 끝까지 성공했을 때만 `out_dir` 로 **이름을 바꿔** 게시한다.
+
+    실패 · 취소된 export 가 완성본처럼 보이면 학습이 반쪽 데이터셋을 읽는다(2026-11-23 — 예전에는
+    `out_dir` 에 바로 써서 중간에 죽으면 일부 `.npz` 만 남았다). **이미 내용이 있는 `out_dir` 는
+    거부한다** — 덮어쓰면 이전 결과와 섞인다. 빈 디렉터리는 받는다.
+    """
+    final = os.path.abspath(out_dir)
+    if os.path.isdir(final) and os.listdir(final):
+        raise ExportError(f'output directory is not empty: {final} — choose a new path')
+    if os.path.exists(final) and not os.path.isdir(final):
+        raise ExportError(f'output path exists and is not a directory: {final}')
+    parent = os.path.dirname(final)
+    os.makedirs(parent, exist_ok=True)
+    staging = os.path.join(parent, f'.{os.path.basename(final)}.partial-{uuid.uuid4().hex[:8]}')
+    os.makedirs(staging)
+    try:
+        yield staging
+        if os.path.isdir(final):
+            os.rmdir(final)        # 비어 있음을 위에서 확인했다
+        os.rename(staging, final)
+    finally:
+        if os.path.isdir(staging):
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, 'rb') as fp:
+        for block in iter(lambda: fp.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def write_manifest(root: str, *, fmt: str, media_root: str, requested: Sequence[int],
+                   kept: Sequence[int], excluded: Sequence[dict], extra: Optional[dict] = None
+                   ) -> dict:
+    """`manifest.json` — 무엇을 요청했고 무엇이 들어갔으며 어느 파일이 어떤 내용인가.
+
+    파일별 sha256 이 있어 학습 기계로 옮긴 뒤 손상 · 누락을 확인할 수 있다.
+    """
+    files = {}
+    for dirpath, _dirs, names in os.walk(root):
+        for name in sorted(names):
+            path = os.path.join(dirpath, name)
+            files[os.path.relpath(path, root)] = sha256_file(path)
+    manifest = {'version': 1, 'format': fmt,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'media_root': media_root, 'requested_episodes': list(requested),
+                'kept_episodes': list(kept), 'excluded': list(excluded),
+                'files': dict(sorted(files.items()))}
+    manifest.update(extra or {})
+    with open(os.path.join(root, MANIFEST_NAME), 'w', encoding='utf-8') as fp:
+        json.dump(manifest, fp, ensure_ascii=False, indent=2)
+        fp.write('\n')
+    return manifest
+
+
+def resolve_media(mp4_path: str, roots: Sequence[str]) -> str:
+    """`image_streams.mp4_path`(출력 루트 기준 상대)를 실제 파일로. 못 찾으면 `ExportError`."""
+    if os.path.isabs(mp4_path):
+        if os.path.isfile(mp4_path):
+            return mp4_path
+    else:
+        for root in roots:
+            candidate = os.path.join(root, mp4_path)
+            if root and os.path.isfile(candidate):
+                return candidate
+    raise ExportError(f'mp4 not found: {mp4_path} (looked under {list(roots)})')
 
 
 @dataclass(frozen=True)
@@ -271,6 +356,11 @@ def export_episode(conn: Any, episode_id: int, *, out_dir: str, spec: ExportSpec
                          metadata=_session_metadata(conn, episode_id), notes=notes)
 
 
+def _stream_path(conn: Any, episode_id: int, camera_topic: str) -> str:
+    """그 에피소드 · 카메라의 `image_streams.mp4_path` (출력 루트 기준 상대)."""
+    return load_frame_clock(conn, episode_id, topic=camera_topic or None).stream.mp4_path
+
+
 def _session_metadata(conn: Any, episode_id: int) -> dict:
     """`sessions.metadata` 를 **통째로** 가져온다.
 
@@ -293,11 +383,18 @@ def export_dataset(conn: Any, episode_ids: Iterable[int], *, out_dir: str,
                    joint_topic: str = DEFAULT_JOINT_TOPIC,
                    command_topic: str = DEFAULT_COMMAND_TOPIC,
                    recordings_dir: Optional[str] = None,
-                   skip_untrustworthy: bool = True) -> tuple:
+                   skip_untrustworthy: bool = True,
+                   copy_media: bool = False,
+                   media_roots: Sequence[str] = ()) -> tuple:
     """에피소드 여러 개를 하나의 데이터셋 트리로 내보낸다.
 
     **`skip_untrustworthy` 는 파일을 안 쓰는 것이 아니라 통계와 목록에서 뺀다** —
     이미 쓴 `.npz` 는 남겨 둬야 왜 뺐는지 들여다볼 수 있다.
+
+    **원자적으로 게시한다** (:func:`staged_output`) — 끝까지 성공해야 `out_dir` 가 생기고,
+    `manifest.json` 에 파일별 sha256 이 남는다. `copy_media` 면 mp4 를 트리 안 `videos/` 로
+    복사하고 `episodes.jsonl` 의 `mp4` 가 트리 기준이 된다(`manifest.media_root = 'dataset'`) —
+    학습 기계로 옮길 때 recordings 디렉터리를 따로 챙기지 않아도 된다.
 
     Returns:
         `(DatasetMetadata, [EpisodeExport])`. 뒤엣것은 **뺀 것까지 전부**이고 각
@@ -306,7 +403,29 @@ def export_dataset(conn: Any, episode_ids: Iterable[int], *, out_dir: str,
     ids = list(episode_ids)
     if not ids:
         raise ExportError('no episodes to export')
-    os.makedirs(out_dir, exist_ok=True)
+    roots = [r for r in (*media_roots, recordings_dir) if r]
+    with staged_output(out_dir) as staging:
+        meta, lines = _export_into(conn, ids, staging, label=label, delta_sec=delta_sec,
+                                   step_sec=step_sec, chunk_len=chunk_len,
+                                   arm_joints=arm_joints, camera_topic=camera_topic,
+                                   joint_topic=joint_topic, command_topic=command_topic,
+                                   recordings_dir=recordings_dir,
+                                   skip_untrustworthy=skip_untrustworthy,
+                                   copy_media=copy_media, media_roots=roots)
+        write_manifest(staging, fmt='rdfp_npz',
+                       media_root=MEDIA_ROOT_DATASET if copy_media else MEDIA_ROOT_RECORDINGS,
+                       requested=ids, kept=meta.episodes,
+                       excluded=[{'episode_id': e.episode_id,
+                                  'reason': 'assumed_full_duration'}
+                                 for e in lines if e.episode_id not in meta.episodes])
+    return meta, lines
+
+
+def _export_into(conn: Any, ids: list, out_dir: str, *, label: str, delta_sec: float,
+                 step_sec: float, chunk_len: int, arm_joints: Sequence[str], camera_topic: str,
+                 joint_topic: str, command_topic: str, recordings_dir: Optional[str],
+                 skip_untrustworthy: bool, copy_media: bool, media_roots: Sequence[str]) -> tuple:
+    """`export_dataset` 의 본문 — `out_dir` 는 임시 디렉터리다."""
 
     first = load_frame_clock(conn, ids[0], topic=camera_topic or None)
     arm = tuple(arm_joints) or default_arm_joints(
@@ -326,6 +445,12 @@ def export_dataset(conn: Any, episode_ids: Iterable[int], *, out_dir: str,
                               qpos_stats=qpos_stats, action_stats=action_stats,
                               joint_topic=joint_topic, command_topic=command_topic,
                               recordings_dir=recordings_dir)
+        if copy_media:
+            src = resolve_media(_stream_path(conn, episode_id, spec.camera_topic), media_roots)
+            rel = os.path.join('videos', f'{episode_id}.mp4')
+            os.makedirs(os.path.join(out_dir, 'videos'), exist_ok=True)
+            shutil.copyfile(src, os.path.join(out_dir, rel))
+            line = dataclasses.replace(line, mp4=rel)
         lines.append(line)
         if line.trustworthy or not skip_untrustworthy:
             kept.append(line.episode_id)
@@ -362,5 +487,7 @@ def load_episode(path: str) -> EpisodeArrays:
 
 
 __all__ = ['DEFAULT_COMMAND_TOPIC', 'DEFAULT_JOINT_TOPIC', 'EpisodeArrays',
-           'EpisodeExport', 'ExportError', 'LABEL_COMMAND', 'LABEL_PLAN',
-           'default_arm_joints', 'export_dataset', 'export_episode', 'load_episode']
+           'EpisodeExport', 'ExportError', 'LABEL_COMMAND', 'LABEL_PLAN', 'MANIFEST_NAME',
+           'MEDIA_ROOT_DATASET', 'MEDIA_ROOT_RECORDINGS', 'default_arm_joints',
+           'export_dataset', 'export_episode', 'load_episode', 'resolve_media',
+           'sha256_file', 'staged_output', 'write_manifest']

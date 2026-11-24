@@ -45,7 +45,9 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
                  selected_topics: Optional[Iterable[str]] = None,
                  episode_windows: Optional[Sequence[tuple[int, int]]] = (),
                  existing_keys: Optional[Iterable[int]] = None,
-                 policy: Optional[str] = None) -> list[Finding]:
+                 policy: Optional[str] = None,
+                 dynamic_types: Optional[Iterable[str]] = None,
+                 only_topics_replace: bool = False) -> list[Finding]:
     """import 를 돌리기 전에 설정과 선택을 점검한다 (DB 접속 없음).
 
     Args:
@@ -56,6 +58,8 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
             (빈 목록과 다르다 — 빈 목록은 '하나도 없다' 라 막는다).
         existing_keys: DB 에 이미 있는 에피소드의 `start_ns`. ``None`` 이면 확인하지 않았다.
         policy: `on_existing_episode` 재정의. ``None`` 이면 설정값.
+        dynamic_types: 동적 매핑(`topic_tables`)에 등록된 타입 — 매핑 없음으로 경고하지 않는다.
+        only_topics_replace: 고른 토픽만 교체하는 실행인가.
     """
     findings: list[Finding] = []
     policy = policy or cfg.on_existing_episode
@@ -66,7 +70,8 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
             'output_mp4_dir is required for import; add it to the dataset config'))
 
     chosen = set(selected_topics) if selected_topics is not None else set(topic_types)
-    infos = classify_topics({t: ty for t, ty in topic_types.items() if t in chosen})
+    dynamic = {t: _DynamicStub(t) for t in (dynamic_types or ())}
+    infos = classify_topics({t: ty for t, ty in topic_types.items() if t in chosen}, dynamic)
     images = sorted(t for t, ty in topic_types.items() if t in chosen and is_image_type(ty))
     if images and cfg.recordings_dir:
         findings.append(Finding(
@@ -84,10 +89,12 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
 
     if selected_topics is not None and chosen < set(topic_types):
         left_out = sorted(set(topic_types) - chosen)
-        findings.append(Finding(LEVEL_WARNING, 'partial_topics',
-                                f'토픽 일부만 적재한다 (제외: {left_out}). 적재는 에피소드 단위라 '
-                                f'제외한 토픽은 그 에피소드에 **빈 채로** 커밋되고, 뒤에 채우려면 '
-                                f'`replace` 로 에피소드를 통째로 다시 넣어야 한다.'))
+        findings.append(Finding(LEVEL_INFO, 'partial_topics',
+                                f'토픽 일부만 적재한다 (제외: {left_out}). 제외한 토픽은 나중에 '
+                                f'같은 에피소드에 채울 수 있다 — 적재 단위가 (에피소드, 토픽)이다.'))
+    if only_topics_replace and selected_topics is None:
+        findings.append(Finding(LEVEL_ERROR, 'replace_needs_topics',
+                                '선택 토픽 교체는 토픽을 골라야 한다 (--topics).'))
 
     # ``None`` 은 "창을 안 봤다" 다 — 호출자가 에피소드 유무를 따로 안다는 뜻이라 여기서 판정하지
     # 않는다. 빈 목록은 "하나도 없다" 라 막는다.
@@ -109,7 +116,11 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
     if existing_keys is not None and episode_windows:
         dup = sorted({w[0] for w in episode_windows} & set(existing_keys))
         if dup:
-            if policy == 'replace':
+            if only_topics_replace:
+                findings.append(Finding(LEVEL_WARNING, 'existing_topic_replace',
+                                        f'이미 적재된 에피소드 {len(dup)}개에서 고른 토픽의 행을 '
+                                        f'지우고 다시 넣는다 — 다른 토픽과 에피소드 id 는 그대로다.'))
+            elif policy == 'replace':
                 findings.append(Finding(LEVEL_WARNING, 'existing_replace',
                                         f'이미 적재된 에피소드 {len(dup)}개를 **덮어쓴다** (replace): '
                                         f'기존 행과 mp4 디렉터리가 지워지고 id 가 바뀐다.'))
@@ -119,7 +130,47 @@ def check_import(cfg: DatasetConfig, *, topic_types: Mapping[str, str],
                                         f'첫 중복에서 멈춘다. `skip` 또는 `replace` 를 고른다.'))
             else:
                 findings.append(Finding(LEVEL_INFO, 'existing_skip',
-                                        f'이미 적재된 에피소드 {len(dup)}개는 건너뛴다 (skip).'))
+                                        f'이미 적재된 에피소드 {len(dup)}개는 **빠진 토픽만** '
+                                        f'채우고 이미 들어간 토픽은 건너뛴다 (skip).'))
+    return findings
+
+
+class _DynamicStub:
+    """`classify_topics` 에 '동적 매핑이 있다'만 알리는 자리표. 테이블 이름은 몰라도 된다."""
+
+    def __init__(self, type_name: str) -> None:
+        self.table_name = '(dynamic)'
+        self.type_name = type_name
+
+
+def check_dynamic_schemas(splits: Sequence, topic_entries: Mapping[str, tuple],
+                          dynamic: Mapping[str, object]) -> list[Finding]:
+    """동적 매핑 토픽의 bag `.msg` 정의가 등록할 때 본 것과 같은가.
+
+    다르면 **막는다** — 필드가 바뀐 정의를 같은 테이블에 넣으면 어느 행이 어느 정의인지 모른다.
+    """
+    from rdfp.dataset.db.dynamic import schema_hash
+
+    from .bag_inspect import read_schema_text
+
+    findings: list[Finding] = []
+    for topic, (_table, type_name) in sorted(topic_entries.items()):
+        mapping = dynamic.get(type_name)
+        if mapping is None:
+            continue
+        for sp in splits:
+            if topic not in getattr(sp, 'topics', {topic}):
+                continue
+            schema = read_schema_text(sp.path, topic)
+            if schema is None:
+                continue
+            if schema_hash(type_name, schema.text) != getattr(mapping, 'schema_hash'):
+                findings.append(Finding(
+                    LEVEL_ERROR, 'dynamic_schema_changed',
+                    f'{topic} ({type_name}): {sp.path.name} 의 메시지 정의가 동적 매핑을 등록할 '
+                    f'때와 다르다 — 같은 테이블에 섞지 않는다. 매핑을 지우고 다시 등록하거나 '
+                    f'토픽을 빼고 적재한다.'))
+                break
     return findings
 
 
@@ -223,5 +274,5 @@ def check_topics_file(config_path: str | Path, *,
                     f'적재하는 것이 어긋난다.')]
 
 
-__all__ = ['REFERENCE_TOPICS_LIST', 'check_db', 'check_export', 'check_import',
-           'check_topics_file', 'overlapping_windows']
+__all__ = ['REFERENCE_TOPICS_LIST', 'check_db', 'check_dynamic_schemas', 'check_export',
+           'check_import', 'check_topics_file', 'overlapping_windows']

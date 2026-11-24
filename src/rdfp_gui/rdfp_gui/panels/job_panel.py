@@ -1,21 +1,31 @@
-"""하단 작업 패널 — 진행률 · 로그 · **"이 조작과 같은 CLI 명령"** · 중단 (설계안 §3 · §6.4)."""
+"""하단 작업 패널 — 진행률 · 로그 · **"이 조작과 같은 CLI 명령"** · 중단 · 작업 이력 (설계안 §3 · §6.4).
+
+이력은 `rdfp_gui.history` 의 로컬 SQLite 에 남는다 (Codex Manager 의 Journal 을 가져왔다, 2026-11-23).
+"""
 
 from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar,
-                               QPushButton, QVBoxLayout, QWidget)
+from datetime import datetime
 
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit,
+                               QProgressBar, QPushButton, QTabWidget, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout, QWidget)
+
+from ..history import JobHistory
 from ..jobs import JobRunner, JobSpec
-from .common import mono_font
+from .common import brush, mono_font
 
 
 class JobPanel(QWidget):
-    def __init__(self, runner: JobRunner, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, runner: JobRunner, parent: Optional[QWidget] = None, *,
+                 history: Optional[JobHistory] = None) -> None:
         super().__init__(parent)
         self._runner = runner
+        self._history = history
+        self._job_id: Optional[int] = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
@@ -51,7 +61,17 @@ class JobPanel(QWidget):
         self._log.setReadOnly(True)
         self._log.setFont(mono_font())
         self._log.setMaximumBlockCount(5000)
-        layout.addWidget(self._log, 1)
+        self._past = QTreeWidget()
+        self._past.setHeaderLabels(['시작', '작업', '결과', '명령'])
+        self._past.setRootIsDecorated(False)
+        self._past.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self._past.itemDoubleClicked.connect(lambda item, _c: self._command.setText(item.text(3)))
+        self._past.setToolTip('더블클릭하면 그 명령을 위 칸에 올린다 (복사해 터미널에서 다시 돌릴 수 있다)')
+        tabs = QTabWidget()
+        tabs.addTab(self._log, '로그')
+        tabs.addTab(self._past, '작업 이력')
+        layout.addWidget(tabs, 1)
+        self._refresh_history()
 
         runner.started.connect(self._on_started)
         runner.line.connect(self._log.appendPlainText)
@@ -66,7 +86,23 @@ class JobPanel(QWidget):
     def _copy(self) -> None:
         QGuiApplication.clipboard().setText(self._command.text())
 
+    def _refresh_history(self) -> None:
+        self._past.clear()
+        if self._history is None:
+            return
+        for rec in self._history.recent():
+            started = datetime.fromtimestamp(rec.started).strftime('%m-%d %H:%M:%S')
+            item = QTreeWidgetItem([started, rec.title, rec.state, rec.command])
+            if rec.exit_code not in (None, 0):
+                item.setForeground(2, brush('error'))
+            if rec.summary:
+                item.setToolTip(2, ', '.join(f'{k}={v}' for k, v in rec.summary.items()
+                                             if k != 'inserted'))
+            self._past.addTopLevelItem(item)
+
     def _on_started(self, spec: JobSpec) -> None:
+        if self._history is not None:
+            self._job_id = self._history.start(spec.title, spec.command_line())
         self._title.setText(f'작업: {spec.title}')
         self._status.setText('')
         self._cancel.setEnabled(True)
@@ -83,6 +119,10 @@ class JobPanel(QWidget):
         self._status.setText(status)
 
     def _on_finished(self, code: int, summary: Optional[dict]) -> None:
+        if self._history is not None and self._job_id is not None:
+            self._history.finish(self._job_id, code, summary)
+            self._job_id = None
+            self._refresh_history()
         self._cancel.setEnabled(False)
         if self._progress.maximum() == 0:
             self._progress.setRange(0, 1)

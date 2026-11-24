@@ -1,24 +1,17 @@
 """``import`` 독립 CLI 단위 테스트 (argparse + main 흐름).
 
-모듈 대부분은 ROS 없이 돈다. `cmd_import` 본문까지 들어가는 테스트만 예외로,
-파이프라인 헬퍼가 lazy import 하는 `sensor_msgs` 가 필요해 개별 skip 한다.
+**전부 ROS 없이 돈다** (2026-11-23) — `cmd_import` 가 `sensor_msgs` 를 끌어오는 `FrameRouter` 를
+bag 에 이미지 토픽이 있을 때만 만들게 바뀌어, 예전의 개별 skip 이 필요 없어졌다.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 
 import pytest
 
 import rdfp.dataset.cli_common as cli_common
 import rdfp.dataset.import_cmd as import_cmd_mod
-
-# cmd_import 는 split 목록이 비어도 파이프라인 헬퍼를 먼저 import 하므로, stub 을
-# 끼워도 ROS 의존이 남는다.
-requires_ros = pytest.mark.skipif(
-    importlib.util.find_spec('sensor_msgs') is None,
-    reason='cmd_import lazy-imports the ingest pipeline (sensor_msgs)')
 
 
 def _isolate_default_config(monkeypatch, tmp_path) -> None:
@@ -56,7 +49,6 @@ def test_import_parser_rejects_dry_run_flag() -> None:
 
 # ---- main flow ---------------------------------------------------------
 
-@requires_ros
 def test_main_auto_uses_default_config(monkeypatch, tmp_path) -> None:
     """--config 미지정 시 기본 경로(DEFAULT_CONFIG_FILE_PATH)의 설정을 자동 사용한다.
 
@@ -82,7 +74,6 @@ def test_main_auto_uses_default_config(monkeypatch, tmp_path) -> None:
     assert called == ['/tmp/x']
 
 
-@requires_ros
 def test_cmd_import_prefers_root_from_caller(monkeypatch, tmp_path) -> None:
     """`rosbag export --rosbag-dir` 가 보낸 루트가 설정의 `rosbag_dir` 보다 앞선다.
 
@@ -145,6 +136,7 @@ def _stub_pipeline(monkeypatch, tmp_path, *, failed: int, keep: int) -> tuple[st
     from contextlib import contextmanager
 
     import rdfp.dataset.db.connection as connection_mod
+    import rdfp.dataset.db.dynamic as dynamic_mod
     import rdfp.dataset.db.schema_check as schema_check_mod
     import rdfp.dataset.db.topics as topics_mod
     import rdfp.dataset.ingest.pipeline as pipeline_mod
@@ -153,22 +145,27 @@ def _stub_pipeline(monkeypatch, tmp_path, *, failed: int, keep: int) -> tuple[st
         def commit(self) -> None:
             pass
 
+        def rollback(self) -> None:
+            pass
+
     @contextmanager
     def _open(_db):
         yield _Conn()
 
     def _parallel(cfg, splits, episodes, topic_entries, topic_ids, image_topics,
-                  run_log_path, summary) -> None:
+                  run_log_path, summary, origins=None) -> None:
         summary['episodes'] += len(episodes) - failed
         summary['failed'] += failed
 
     deleted: list = []
     monkeypatch.setattr(import_cmd_mod, 'discover_splits',
                         lambda rosbag_dir, dates=None, topics=None: ['split0'])
-    monkeypatch.setattr(pipeline_mod, '_detect_all_episodes', lambda splits: ['ep1', 'ep2'])
+    monkeypatch.setattr(pipeline_mod, '_detect_episodes_with_origin',
+                        lambda splits: (['ep1', 'ep2'], {}))
+    monkeypatch.setattr(dynamic_mod, 'load_mappings', lambda conn: {})
     monkeypatch.setattr(pipeline_mod, '_apply_episode_filters', lambda eps, f: eps[:keep])
     monkeypatch.setattr(pipeline_mod, '_determine_topic_classification',
-                        lambda splits, cfg: (set(), {}, {}))
+                        lambda splits, cfg, dynamic=None: (set(), {}, {}))
     monkeypatch.setattr(pipeline_mod, '_run_parallel', _parallel)
     monkeypatch.setattr(pipeline_mod, '_delete_used_splits',
                         lambda splits: deleted.append(list(splits)) or len(splits))
@@ -186,7 +183,6 @@ def _stub_pipeline(monkeypatch, tmp_path, *, failed: int, keep: int) -> tuple[st
     return str(cfg_path), deleted
 
 
-@requires_ros
 def test_parallel_failure_returns_1_and_keeps_splits(monkeypatch, tmp_path, capsys) -> None:
     """병렬 모드에서 에피소드가 실패하면 종료 코드 1 이고 split 을 지우지 않는다.
 
@@ -204,7 +200,6 @@ def test_parallel_failure_returns_1_and_keeps_splits(monkeypatch, tmp_path, caps
     assert '"delete_skipped"' in out
 
 
-@requires_ros
 def test_filtered_out_episodes_keep_splits(monkeypatch, tmp_path, capsys) -> None:
     """필터가 에피소드 일부를 뺐으면 지우지 않는다 — 같은 split 에 있을 수 있다.
 
@@ -220,7 +215,6 @@ def test_filtered_out_episodes_keep_splits(monkeypatch, tmp_path, capsys) -> Non
     assert 'excluded 1' in capsys.readouterr().out
 
 
-@requires_ros
 def test_clean_run_deletes_splits(monkeypatch, tmp_path) -> None:
     """실패도, 빠진 에피소드도 없으면 예전처럼 지운다."""
     cfg_path, deleted = _stub_pipeline(monkeypatch, tmp_path, failed=0, keep=2)

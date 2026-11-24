@@ -1,3 +1,0 @@
--r requirements.txt
-# Validated official v3 writer/loader. CPU wheels suffice for export.
-lerobot==0.4.4

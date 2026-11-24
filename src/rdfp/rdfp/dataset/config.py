@@ -11,7 +11,7 @@ DB 접속 설정(`DbConfig`) 및 `resolve_dsn` 은 DB 계층의 관심사이므�
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
 import os
 import re
@@ -125,17 +125,27 @@ class DatasetConfig(BaseModel):
     # 비게 된 세션 디렉터리(metadata.yaml 만 남은 경우) 를 제거한다.
     delete_splits_after_import: bool = False
 
+    # 실행마다 정하는 값 — YAML 에 적는 키가 아니다 (`import --topics` · `--only-topics-replace`
+    # 가 `model_copy` 로 넣는다). 2026-11-23 데이터셋 GUI 통합.
+    #: 이번 실행만 적재할 토픽. 주면 `topics`(= `topics_file`)를 **대신하고**, 레코더 mp4 도 이
+    #: 목록에 든 카메라만 등록한다. ``None`` 이면 예전처럼 설정의 토픽 전부 + 레코더 전부다.
+    topic_selection: Optional[list[str]] = None
+    #: 이미 있는 에피소드의 **고른 토픽만** 지우고 다시 넣는다. 다른 토픽과 에피소드 id 는 그대로다.
+    only_topics_replace: bool = False
+
     def effective_topics(self) -> list[str]:
         """`/session` 자동 포함을 적용한 대상 토픽 목록을 반환한다.
 
-        원 `topics` 가 비어 있으면 (전 토픽 대상) 빈 목록 그대로 반환한다.
-        호출 측은 빈 목록을 "rosbag 의 모든 토픽" 으로 해석한다.
+        `topic_selection` 이 있으면 그것이, 없으면 원 `topics` 가 기준이다. 기준이 비어 있으면
+        (전 토픽 대상) 빈 목록 그대로 반환한다 — 호출 측은 빈 목록을 "rosbag 의 모든 토픽" 으로
+        해석한다.
         """
-        if not self.topics:
+        base = self.topic_selection if self.topic_selection is not None else self.topics
+        if not base:
             return []
-        if SESSION_TOPIC not in self.topics:
-            return [SESSION_TOPIC, *self.topics]
-        return list(self.topics)
+        if SESSION_TOPIC not in base:
+            return [SESSION_TOPIC, *base]
+        return list(base)
 
     def mp4_roots(self) -> list[str]:
         """재생이 `image_streams.mp4_path` 를 찾을 루트 — 레코더 출력 먼저, bag 인코딩 다음.

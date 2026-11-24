@@ -439,3 +439,63 @@ CREATE TABLE IF NOT EXISTS image_frames (
 CREATE INDEX IF NOT EXISTS idx_image_frames_episode  ON image_frames (episode_id);
 CREATE INDEX IF NOT EXISTS idx_image_frames_topic    ON image_frames (topic_id);
 CREATE INDEX IF NOT EXISTS idx_image_frames_stamp_ts ON image_frames (stamp_ts);
+
+
+-- ===== 적재 출처 · 적재 이력 · 동적 매핑 (2026-11-23) ==========================
+-- 데이터셋 GUI 통합(docs/collect/데이터셋_관리_GUI_설계안.md §4.3 · §4.4)이 쓰는 메타 테이블이다.
+-- 메시지 테이블이 아니라 **적재가 무엇을 언제 어디서 넣었는가**를 적는다.
+-- 이 블록 이전에 만든 DB 는 `ros2 run rdfp init-db` 를 한 번 더 돌리면 생긴다 (IF NOT EXISTS 라
+-- 기존 행은 그대로다). 없으면 `import` 가 그 안내와 함께 멈춘다.
+
+-- 녹화본. **식별자는 세션 디렉터리 이름**(`session_YYYY-MM-DD_HH-MM-SS`)이다 — 녹화를 시작한
+-- 벽시계 시각이라 녹화본마다 다르고, 디렉터리를 옮기거나 `rosbag delete` 가 split 을 다시 써도
+-- 바뀌지 않는다. 내용 해시를 쓰지 않는 이유가 그 둘째다: 에피소드 하나를 bag 에서 지우면 해시가
+-- 바뀌어, 같은 녹화본의 다른 에피소드에 토픽을 보탤 때 '다른 출처'로 오판한다.
+CREATE TABLE IF NOT EXISTS ingest_sources (
+    source_id       TEXT          PRIMARY KEY,
+    location        TEXT          NOT NULL,     -- 마지막으로 본 세션 경로 (참고용 — 식별에 안 쓴다)
+    first_seen      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    last_seen       TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+-- 에피소드가 어느 녹화본에서 왔나. **에피소드 키 `(start_sec, start_nanosec)` 가 녹화본 사이에
+-- 유일하지 않기 때문에 있다** — sim 시계는 시뮬레이터 재기동마다 0 으로 되감긴다. 출처가 다른
+-- 녹화본이 같은 키를 내밀면 적재가 **거부한다** (예전에는 조용히 속이 빈 에피소드가 됐다).
+-- `adopted` 는 이 테이블 이전에 적재된 에피소드를 나중에 연결했다는 표시다 — 그때는 출처를
+-- 몰랐으므로 '시작·종료 시각이 일치한다'는 근거로만 연결했다.
+CREATE TABLE IF NOT EXISTS episode_sources (
+    episode_id      BIGINT        PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    source_id       TEXT          NOT NULL REFERENCES ingest_sources(source_id) ON DELETE RESTRICT,
+    adopted         BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+-- 적재 단위 = (에피소드, 토픽). **토픽을 나중에 채우는 길**이 이것으로 열린다 — 이미 적재된
+-- 단위는 건너뛰고 빠진 단위만 넣는다(`import --topics`), 고른 단위만 지우고 다시 넣는다
+-- (`--only-topics-replace`). 이 테이블 이전에 적재된 단위는 행이 있으면 적재된 것으로 보고
+-- `adopted` 로 채워 넣는다.
+CREATE TABLE IF NOT EXISTS ingest_units (
+    episode_id      BIGINT        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    topic_id        BIGINT        NOT NULL REFERENCES topics(id)   ON DELETE RESTRICT,
+    table_name      TEXT          NOT NULL,
+    rows            BIGINT        NOT NULL,
+    adopted         BOOLEAN       NOT NULL DEFAULT FALSE,
+    completed_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    PRIMARY KEY (episode_id, topic_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_units_table ON ingest_units (table_name);
+
+-- 동적 매핑 — registry(`db/registry.py`)에 writer 가 없는 타입을 **JSONB 로 담는** 길.
+-- **키는 타입이다**(토픽이 아니다) — 내장 registry 와 같은 원칙이라 같은 타입의 토픽들이 한
+-- 테이블로 가고 `topic_id` 로 갈린다. **내장이 이긴다**: registry 에 있는 타입은 여기 적어도
+-- 쓰이지 않는다. `schema_hash` 는 등록할 때 본 `.msg` 정의의 지문이며, 정의가 다른 bag 이 오면
+-- 적재가 거부한다 (조용히 빈 열이 되는 `getattr` 함정과 같은 종류를 막는다).
+-- `active=false` 는 '등록 해제' — 테이블과 행은 남고 다음 적재부터 그 타입을 무시한다.
+-- 테이블 삭제(`DROP`)는 이 표에 행이 있는 테이블만 할 수 있다 (내장 테이블은 못 지운다).
+CREATE TABLE IF NOT EXISTS topic_tables (
+    type_name       TEXT          PRIMARY KEY,
+    table_name      TEXT          NOT NULL UNIQUE,
+    schema_hash     TEXT          NOT NULL,
+    schema_text     TEXT          NOT NULL,
+    active          BOOLEAN       NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT now()
+);

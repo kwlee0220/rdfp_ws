@@ -1,4 +1,4 @@
-"""`episode-delete` 콘솔 스크립트 — DB 의 에피소드를 지운다 (운영 가이드 §8.6 의 SQL 을 명령으로).
+"""`episode-delete` 콘솔 스크립트 — DB 의 에피소드를 지운다 (운영 가이드 §8.7 의 SQL 을 명령으로).
 
 ```bash
 ros2 run rdfp episode-delete --config config/dataset_config.yaml --ids 11,12-13 --dry-run

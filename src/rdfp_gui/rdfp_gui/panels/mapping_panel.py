@@ -11,7 +11,8 @@ from typing import Optional
 
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
+                               QDialogButtonBox, QHBoxLayout, QMessageBox, QPlainTextEdit,
                                QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QPushButton, QSplitter, QToolBar, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
@@ -19,15 +20,17 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
 from rdfp.dataset.inspect.bag_inspect import read_schema_text
 from rdfp.dataset.inspect.db_inspect import rows_per_topic, table_schema
 from rdfp.dataset.inspect.mapping import STATUS_SUSPECT, STATUS_UNMAPPED, TableInfo
+from rdfp.dataset.db.dynamic import create_table_sql, default_table_name, validate_table_name
+from rdfp.dataset.inspect.findings import LEVEL_ERROR, Finding
 from rdfp.dataset.inspect.preflight import check_db, check_import
 
 from ..context import AppContext, fmt_time
-from ..jobs import build_import_command
+from ..jobs import build_import_command, build_mapping_command
 from ..snapshot import BagSnapshot, DbSnapshot, TableEntry, TopicEntry, exported_flag
 from ..store import DataStore
 from ..workers import Background
 from .browser_panel import BagSource, BrowserDialog, DbSource
-from .common import COLORS, FindingsList, brush, color, mono_font
+from .common import COLORS, FindingsList, TypedConfirmDialog, brush, color, esc, mono_font
 from .detail_panel import DetailPanel
 
 _ROLE_KEY = Qt.ItemDataRole.UserRole
@@ -136,6 +139,9 @@ class MappingPanel(QWidget):
 
         self.detail = DetailPanel()
         self.detail.browse_requested.connect(self._browse)
+        self.detail.create_requested.connect(self._create_table)
+        self.detail.unregister_requested.connect(self._unregister)
+        self.detail.drop_requested.connect(self._drop_table)
         self.detail.diagnose_requested.connect(self._diagnose_current)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -358,6 +364,37 @@ class MappingPanel(QWidget):
             dialog = BrowserDialog(self.ctx, self.bg, source, self)
             dialog.show()
 
+    # ----- 동적 매핑 (rdfp mapping 서브프로세스) ------------------------------------
+
+    def _create_table(self, type_name: str) -> None:
+        if self.ctx.cfg is None or not type_name:
+            return
+        dialog = CreateTableDialog(type_name, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.job_requested.emit(build_mapping_command(
+                str(self.ctx.config_path), 'register', type_name, table=dialog.table_name()))
+
+    def _unregister(self, type_name: str, table: str) -> None:
+        if self.ctx.cfg is None or not type_name:
+            return
+        reply = QMessageBox.question(
+            self, '등록 해제', f'{type_name} → {table}\n\n다음 적재부터 이 타입을 무시한다. '
+            f'테이블과 행은 남는다 — 같은 정의로 다시 등록하면 이어 쓴다.')
+        if reply == QMessageBox.StandardButton.Yes:
+            self.job_requested.emit(build_mapping_command(
+                str(self.ctx.config_path), 'unregister', type_name))
+
+    def _drop_table(self, type_name: str, table: str) -> None:
+        if self.ctx.cfg is None or not type_name or not table:
+            return
+        entry = self.store.db.entry(table) if self.store.db else None
+        rows = '?' if entry is None or entry.rows is None else f'{entry.rows:,}'
+        text = (f'동적 테이블 <b>{esc(table)}</b> ({esc(type_name)}) 를 <b>DROP</b> 한다 — 행 '
+                f'<b>{rows}</b> 개가 사라지고 되돌릴 수 없다. 매핑 등록도 함께 지운다.')
+        if TypedConfirmDialog.ask(self, '테이블 삭제', text, table):
+            self.job_requested.emit(build_mapping_command(
+                str(self.ctx.config_path), 'drop', type_name, confirm_table=table))
+
     def checked_topics(self) -> list:
         out = []
         for name, item in self._topic_items.items():
@@ -437,6 +474,10 @@ class ImportDialog(QDialog):
             self._policy.addItem(p, p)
         self._policy.setCurrentIndex(self._policy.findData(ctx.cfg.on_existing_episode))
         row.addWidget(self._policy)
+        self._replace = QCheckBox('고른 토픽만 교체 (--only-topics-replace)')
+        self._replace.setToolTip('이미 있는 에피소드에서 체크한 토픽의 행만 지우고 다시 넣는다. '
+                                 '다른 토픽과 에피소드 id 는 그대로다.')
+        row.addWidget(self._replace)
         layout.addLayout(row)
 
         layout.addWidget(QLabel('<b>사전 점검</b>'))
@@ -459,6 +500,7 @@ class ImportDialog(QDialog):
 
         self._episodes.itemChanged.connect(lambda *_: self._recompute())
         self._policy.currentIndexChanged.connect(lambda *_: self._recompute())
+        self._replace.toggled.connect(lambda *_: self._recompute())
         self._recompute()
         self.bg.run(check_db, self._db_checked, None, ctx.cfg)
 
@@ -487,22 +529,32 @@ class ImportDialog(QDialog):
         windows = [(be.start_ns, be.episode.stop_ns) for be in self.bag.episodes
                    if be.start_ns in set(keys)]
         policy = self._policy.currentData()
+        replace = self._replace.isChecked()
         all_ingestible = sorted(t.name for t in self.bag.topics if t.checkable)
         topic_types = self.bag.topic_types()
         findings = check_import(cfg, topic_types=topic_types,
                                 selected_topics=[*self.topics, '/session'] if self.topics else [],
                                 episode_windows=windows,
                                 existing_keys=self.db.exported_keys if self.db else None,
-                                policy=policy)
+                                policy=policy,
+                                dynamic_types=set(self.db.dynamic) if self.db else (),
+                                only_topics_replace=replace)
+        if self.db is not None and not self.db.error and not self.db.meta_ready:
+            findings.insert(0, Finding(LEVEL_ERROR, 'meta_missing',
+                                       '적재 메타 테이블이 없다 — `ros2 run rdfp init-db` 를 한 번 '
+                                       '돌린다 (기존 행은 그대로다).'))
         findings = [*self._db_findings, *findings]
         self._findings.set_findings(findings)
 
-        topics_arg = () if sorted(self.topics) == all_ingestible else tuple(self.topics)
+        # 교체는 무엇을 교체하는지 명시해야 한다 — 전부 골랐어도 토픽을 적는다.
+        topics_arg = (tuple(self.topics) if replace or sorted(self.topics) != all_ingestible
+                      else ())
         all_keys = [be.start_ns for be in self.bag.episodes]
         start_arg = () if sorted(keys) == sorted(all_keys) else tuple(keys)
         on_existing = policy if policy != cfg.on_existing_episode else None
         self.spec = build_import_command(str(self.ctx.config_path), start_ns=start_arg,
-                                         topics=topics_arg, on_existing=on_existing)
+                                         topics=topics_arg, on_existing=on_existing,
+                                         only_topics_replace=replace and bool(topics_arg))
         if not start_arg:
             self.spec.total_hint = len(keys) or None
         self._command.setText(self.spec.command_line())
@@ -510,4 +562,57 @@ class ImportDialog(QDialog):
         ok.setEnabled(bool(keys) and not self._findings.has_errors())
 
 
-__all__ = ['ImportDialog', 'LinkCanvas', 'MappingPanel']
+class CreateTableDialog(QDialog):
+    """동적 테이블 생성 확인 — 이름을 고치고 실행될 DDL 을 미리 본다 (설계안 §4.3.1)."""
+
+    def __init__(self, type_name: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f'테이블 생성 — {type_name}')
+        self.resize(720, 520)
+        layout = QVBoxLayout(self)
+        intro = QLabel(f'<b>{esc(type_name)}</b> 를 JSONB 테이블에 담는다. 메시지 전체가 '
+                       f'<code>payload</code> 한 열에 들어가고(NaN · 바이트도 잃지 않는다), 같은 타입의 '
+                       f'다른 토픽도 이 테이블로 간다. 이미 적재된 에피소드에는 다음 Import 에서 '
+                       f'채워진다. 학습 export 가 이 테이블을 자동으로 쓰지는 않는다.')
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        row = QHBoxLayout()
+        row.addWidget(QLabel('테이블 이름'))
+        self._name = QLineEdit(default_table_name(type_name))
+        self._name.setFont(mono_font())
+        row.addWidget(self._name, 1)
+        layout.addLayout(row)
+        self._ddl = QPlainTextEdit()
+        self._ddl.setReadOnly(True)
+        self._ddl.setFont(mono_font())
+        layout.addWidget(self._ddl, 1)
+        self._error = QLabel('')
+        self._error.setStyleSheet(f'color: {COLORS["error"]}')
+        layout.addWidget(self._error)
+        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                         | QDialogButtonBox.StandardButton.Cancel)
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText('생성')
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+        self._name.textChanged.connect(self._update)
+        self._update()
+
+    def table_name(self) -> str:
+        return self._name.text().strip()
+
+    def _update(self) -> None:
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        try:
+            name = validate_table_name(self.table_name())
+        except Exception as exc:  # noqa: BLE001 — 이름 규칙 위반 메시지를 그대로 보인다
+            self._error.setText(str(exc))
+            self._ddl.setPlainText('')
+            ok.setEnabled(False)
+            return
+        self._error.setText('')
+        self._ddl.setPlainText(create_table_sql(name).as_string(None))
+        ok.setEnabled(True)
+
+
+__all__ = ['CreateTableDialog', 'ImportDialog', 'LinkCanvas', 'MappingPanel']
