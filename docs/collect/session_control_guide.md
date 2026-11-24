@@ -85,8 +85,9 @@ stateDiagram-v2
 | `get_session_state` | 전부 | (발행 없음) | 조회 |
 
 `<L>` 은 현재 `task_label`. 허용되지 않은 상태에서 부르면 `success=false`,
-`message='invalid command'` 이고 상태도 토픽도 변하지 않는다. 노드는 **발행한 뒤** 내부
-상태를 바꾸므로, 토픽을 받은 시점에 서버는 이미 그 상태다.
+`message='invalid command'` 이고 상태도 토픽도 변하지 않는다. 노드는 **발행한 뒤** 같은
+서비스 콜백 안에서 곧바로 내부 상태를 바꾼다. 단일 스레드 executor 라 그 사이에 다른 서비스
+호출이 끼어들지 못하므로, 구독자가 토픽을 받고 서버에 묻는 시점에는 서버가 이미 그 상태다.
 
 ### 2.2 라벨은 에피소드 전에 정한다
 
@@ -101,8 +102,9 @@ stateDiagram-v2
 
 ### 3.1 서비스 6종
 
-서버는 `~/` 로 열므로 실제 경로는 **`/session_control/<name>`** 이다 (§4.3 의 namespace 를
-주면 `/<ns>/session_control/<name>`).
+서버는 `~/` 로 열므로 실제 경로는 **`/session_control/<name>`** 이다. 서버를 namespace 안에
+띄우면 `/<ns>/session_control/<name>` 이 되지만 그렇게 하지 않는다(§4.3) — 클라이언트 기본값이
+절대 경로 `/session_control` 이라 그런 서버를 찾지 못한다(§6.1).
 
 | 서비스 | 타입 | 요청 | 응답 |
 |---|---|---|---|
@@ -157,10 +159,14 @@ string metadata          # stop_episode 전이에서만 채워진다. 그 외 ''
 > `SYSTEM_QOS`(depth 1) 로 구독한 쪽은 **`IDLE` 만 받는다**. 실측(2026-09-06): depth 1 은
 > `['IN_EPISODE', 'IDLE']`, depth 10 은 `['IN_EPISODE', 'IN_SESSION', 'IDLE']`.
 >
-> 그래서 **구독자는 `IDLE` 도 에피소드 종료로 처리해야 한다.** 레코더·카메라 노드·후처리기가
+> 그래서 **실시간 구독자는 `IDLE` 도 에피소드 종료로 처리해야 한다.** 레코더·카메라 노드가
 > 그렇게 되어 있다 ([rdfp_image_recorder_node.py](../../src/rdfp/rdfp/recorder/rdfp_image_recorder_node.py)
-> `_on_session`, 후처리기 설계서 §7.4). "두 메시지를 받아 에피소드 후처리와 세션 후처리를
-> 나눈다"는 설계는 depth 를 올리지 않는 한 성립하지 않는다.
+> `_on_session`, [rdfp_camera_node.py](../../src/rdfp/rdfp/camera/rdfp_camera_node.py)).
+> 적재의 에피소드 감지기는 다르다 — bag 에는 중간 `IN_SESSION` 이 남으므로
+> `IN_EPISODE → IN_SESSION` 만 종료로 본다
+> ([데이터셋_적재_시스템_설계서.md §7.4](데이터셋_적재_시스템_설계서.md#74-비정상-상황-처리)).
+> "두 메시지를 받아 에피소드 후처리와 세션 후처리를 나눈다"는 설계는 실시간 구독자에게는
+> depth 를 올리지 않는 한 성립하지 않는다.
 
 ---
 
@@ -179,8 +185,8 @@ source install/setup.bash
 
 ```bash
 ros2 run rdfp session_control_node          # 단독
-ros2 launch rdfp rdfp_collect.launch.py     # 수집 launch 는 전부 이 노드를 포함한다
-#   절차: docs/collect/수집_계층_얹기_절차서.md §4
+ros2 launch rdfp rdfp_collect.launch.py     # 수집 launch(rdfp_collect)와 replay_panda_mock 이 포함한다
+#   절차: docs/collect/수집_계층_얹기_절차서.md §3.1
 
 ros2 node list | grep session_control
 ros2 service list | grep session_control    # /session_control/start_session ...
@@ -265,13 +271,13 @@ from rdfp.session import SessionControlClient
 ### 6.1 생성
 
 ```python
-client = SessionControlClient.create(node, namespace='session_control', wait_timeout_sec=10.0)
+client = SessionControlClient.create(node, namespace='/session_control', wait_timeout_sec=10.0)
 ```
 
 | 인자 | 뜻 |
 |---|---|
 | `node` | 클라이언트를 붙일 노드. 필수 |
-| `namespace` | 서버 노드 이름(서비스 prefix). 기본 `'session_control'` 이고 **보통 그대로 둔다** — 세션 서버는 시스템에 하나다(§4.3). 서버를 다른 이름·namespace 로 띄운 경우에만 `'/other/session_control'` 처럼 **절대 경로**로 준다 |
+| `namespace` | 서버 노드 이름(서비스 prefix). 기본 `'/session_control'`(절대 경로)이고 **보통 그대로 둔다** — 세션 서버는 시스템에 하나다(§4.3). 서버를 다른 이름·namespace 로 띄운 경우에만 `'/other/session_control'` 처럼 **절대 경로**로 준다 |
 | `wait_timeout_sec` | 서비스 5개가 모두 뜰 때까지 기다리는 **총** 예산. 넘기면 `RuntimeError` (어느 서비스인지 메시지에 있다). **`0` 이하이면 기다리지 않는다** |
 
 예산은 서비스마다 **남은 시간 전체**를 주므로, 앞의 것이 오래 걸리면 뒤의 것에 남는 시간이
@@ -400,7 +406,7 @@ class SessionSubscriber(Node):
     def __init__(self) -> None:
         super().__init__('session_subscriber')
         self._prev = 'IDLE'
-        self.create_subscription(SessionCommand, 'session', self._on_msg, SYSTEM_QOS)
+        self.create_subscription(SessionCommand, '/session', self._on_msg, SYSTEM_QOS)
 
     def _on_msg(self, msg: SessionCommand) -> None:
         if msg.state == 'IN_EPISODE' and self._prev != 'IN_EPISODE':
@@ -411,8 +417,9 @@ class SessionSubscriber(Node):
         self._prev = msg.state
 ```
 
-토픽 이름은 `session` 을 **루트 상대**로 둔다. 그래야 namespace(§4.3) 가 붙었을 때 서버와
-같이 옮겨간다. `~/session` 으로 두면 노드 이름이 붙어 어긋난다.
+토픽 이름은 **절대 이름 `/session`** 으로 둔다(§4.3). 상대 이름 `session` 은 구독자가
+namespace 안에 들어가면 `/<ns>/session` 을 찾고, `~/session` 은 노드 이름이 붙어 어느 쪽이든
+**조용히 아무것도 못 받는다.**
 
 ---
 
@@ -447,10 +454,13 @@ launch 순서 문제를 빨리 드러내기 위한 것이며, 견뎌야 하는 �
 - 단일 스레드 executor 라 서비스 콜백은 순차 처리된다. 다만 "조회 → 명령" 사이에 다른
   클라이언트가 끼어들 수 있으므로, 그 race 가 문제면 상위에서 조율한다.
 - 클라이언트는 연결 상태를 추적하지 않고 상태도 캐시하지 않는다 (§6.4, §6.5).
-- 노드 상태 머신에는 단위 테스트가 없다. 클라이언트는
+- 노드 상태 머신은 [session/tests/test_session_control_node.py](../../src/rdfp/rdfp/session/tests/test_session_control_node.py)
+  (§2.1 표를 파라미터화 · QoS · 절대 토픽), 클라이언트는
+  [session/tests/test_session_control_client.py](../../src/rdfp/rdfp/session/tests/test_session_control_client.py)
+  가 덮는다. 호출자 쪽은
   [teleop/tests/test_session_optional.py](../../src/rdfp/rdfp/teleop/tests/test_session_optional.py)
   와 트윈의 [test_session_operations.py](../../src/robot_twin/robot_twin/tests/test_session_operations.py)
-  (stub) 로 덮인다.
+  (stub) 가 보조로 덮는다.
 
 ---
 
@@ -502,8 +512,8 @@ echo` 도 두 플래그가 필요하다. 그래도 안 오면 `ros2 daemon stop`
 
 - [session_control_node.py](../../src/rdfp/rdfp/session/session_control_node.py) · [session_control_client.py](../../src/rdfp/rdfp/session/session_control_client.py)
 - [../../src/rdfp_msgs/](../../src/rdfp_msgs/) — `SessionCommand.msg`, `StopEpisode.srv`, `SetString.srv`, `GetSessionState.srv`
-- [../recorder/rdfp_image_recorder_node_guide.md](rdfp_image_recorder_node_guide.md) — `/session` 을 따라 자동 분절하는 레코더
-- [../camera/rdfp_session_camera_nodes_guide.md](session_camera_nodes_guide.md) — 세션에 맞춰 켜고 끄는 카메라
-- [../rosbag2/데이터셋_적재_시스템_설계서.md](데이터셋_적재_시스템_설계서.md) — `/session` 으로 에피소드를 자르는 규칙과 `outcome`/`metadata` 의 적재
+- [rdfp_image_recorder_node_guide.md](rdfp_image_recorder_node_guide.md) — `/session` 을 따라 자동 분절하는 레코더
+- [session_camera_nodes_guide.md](session_camera_nodes_guide.md) — 세션에 맞춰 켜고 끄는 카메라
+- [데이터셋_적재_시스템_설계서.md](데이터셋_적재_시스템_설계서.md) — `/session` 으로 에피소드를 자르는 규칙과 `outcome`/`metadata` 의 적재
 - [../twin/로봇_트윈_설계서.md](../twin/로봇_트윈_설계서.md) — 트윈이 이 클라이언트를 쓰는 방식 (`robot_twin.backends` 엔트리포인트)
-- [../moveit/servo_client_user_guide.md](../control/servo_client_user_guide.md) — 같은 Node 주입 패턴의 `ServoClient`
+- [../control/servo_client_user_guide.md](../control/servo_client_user_guide.md) — 같은 Node 주입 패턴의 `ServoClient`

@@ -189,5 +189,5 @@ backend is unknown — episode metadata did not record it (R4)
 - [Q13_중력_보상_기록_고려사항.md](Q13_중력_보상_기록_고려사항.md) — §3 이 R4 에 보상 설정을 요구한다
 - [학습_데이터의_좌표_공간_비교.md](학습_데이터의_좌표_공간_비교.md) — 권고 3
 - [MoveIt_명령_체인과_트윈_데이터_생성.md](MoveIt_명령_체인과_트윈_데이터_생성.md) — 권고 5
-- [E7_저장_형식_설계.md](../../learning/저장_형식.md) — §6.1 이 `sessions.metadata` 를 `episodes.jsonl` 로 **통째로 통과**시킨다
+- [E7_저장_형식_설계.md §4.1](../../learning/저장_형식.md#41-디렉터리-구조-및-episodesjsonl) 이 `sessions.metadata` 를 `episodes.jsonl` 로 **통째로 통과**시킨다
 - [수집_계층_얹기_절차서.md](../../collect/수집_계층_얹기_절차서.md) — §4 의 "라벨을 먼저 정한다" 함정

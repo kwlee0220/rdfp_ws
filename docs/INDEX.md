@@ -8,7 +8,7 @@
 > 인터페이스 계약을 다루는 최상위 문서다. **학습 데이터를 만드는 전 과정(생성 → 수집 → 적재 → export → 학습)** 은
 > [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) 가 한 화면에 잇는다.
 
-- **현행 문서 62개** (이 색인 제외) + `archive/` 보관 22개. 경로는 `docs/` 기준이다.
+- **현행 문서 64개** (이 색인 제외) + `archive/` 보관 25개. 경로는 `docs/` 기준이다.
 - **종류** — `절차`(사람이 실행하며 읽는다) · `사양`(코드와 1:1 인 계약 · 레퍼런스) · `설계`(왜 그렇게 했나) ·
   `현황`(무엇이 남았나 · 정하지 않았나) · `설계안`(코드 미반영) · `기록`(작업 기록 · 교훈). `archive/` 는 전부 `이력`(갱신하지 않는다).
 - 폴더는 코드 계층을 따른다 — `control/`(robot_control) · `collect/`(rdfp) · `learning/`(학습 데이터) · `twin/`(robot_twin) ·
@@ -61,27 +61,25 @@
 | 문서 | 종류 | 한 줄 |
 |---|:-:|---|
 | [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) | 절차 | ⭐ 생성 → 수집 → 적재 → export → 학습 여섯 단계 — 명령 한 화면, 단계별 정본, 단계 *사이*의 함정 |
-| [collect/수집_계층_얹기_절차서.md](collect/수집_계층_얹기_절차서.md) | 절차 | ⭐ `rdfp_collect` — 백엔드별 기동, 에피소드 한 번 수집, rosbag · 적재로 잇기, 함정, 인자 22개 |
+| [collect/수집_계층_얹기_절차서.md](collect/수집_계층_얹기_절차서.md) | 절차 | ⭐ `rdfp_collect` — 백엔드별 기동, 에피소드 한 번 수집, rosbag · 적재로 잇기, 주의사항, Launch 인자 레퍼런스 |
 | [collect/session_control_guide.md](collect/session_control_guide.md) | 사양 | ⭐ `session_control_node` + CLI + `SessionControlClient` — 상태 머신 · 서비스 6종 · TRANSIENT_LOCAL |
 | [collect/session_camera_nodes_guide.md](collect/session_camera_nodes_guide.md) | 사양 | `rdfp_camera_node`(§A) · `rdfp_image_viewer_node`(§B) — `/session` 을 따르는 카메라 · 뷰어 |
 | [collect/rdfp_image_recorder_node_guide.md](collect/rdfp_image_recorder_node_guide.md) | 사양 | `rdfp_image_recorder` — `/session` 자동 녹화, 타임스탬프 분절, sidecar · metadata(`episode_key`), `Image` · `CompressedImage` |
 | [collect/image_recorder_node_guide.md](collect/image_recorder_node_guide.md) | 사양 | `image_recorder_node` — 서비스 구동 레코더 (**보조** — launch 없음, 압축 미지원) |
 | [collect/ffmpeg_mp4_recorder_guide.md](collect/ffmpeg_mp4_recorder_guide.md) | 사양 | `FFMpegMp4Recorder` — ffmpeg subprocess MP4 코어 (ROS 비의존) |
 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) | 절차 | ⭐ `scripts/rosbag.sh` — rosbag2 녹화 · 조회 · 적재 · 삭제의 통합 진입점과 그 아래 `ros2 run rdfp rosbag` 서브커맨드 전부. 녹화 옵션 · 적재 설정 대조 경고, 에피소드 선택(시간 범위는 log time 기준), `export` · `delete` 동작, 활용 절차, Python API |
-| [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6) |
-| [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 14 테이블(§5), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
-| [collect/데이터셋_관리_GUI_설계안.md](collect/데이터셋_관리_GUI_설계안.md) | 설계안 | 데이터셋 관리 GUI — 함정 7개(§2) · 화면(§3) · 기능(§4) · 결정(§6). 구현이 둘이다: [`src/rdfp_gui`](../src/rdfp_gui/README.md)(원안 구조 — `rdfp.dataset.inspect` + CLI 서브프로세스) 와 `rdfp_gui_codex`(§5 가 설명하는 worker 구조) |
-| [collect/design_gpt.md](collect/design_gpt.md) | 설계안 | Dataset Manager 구현의 설계 배경·확장 계획. 현재 코드 배치와 진입점은 §10.3 |
-| [collect/Dataset_Manager_사용자_가이드.md](collect/Dataset_Manager_사용자_가이드.md) | 절차 | `rdfp_gui_codex` 구현의 설치·실행, 토픽·테이블 조회, 매핑, 선택 Import, NPZ·LeRobot v3 Export. 설계 배경은 [design_gpt.md](collect/design_gpt.md) |
+| [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6), 토픽 채우기 · 다시 넣기(§8.7a) |
+| [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 18 테이블(§5 — 적재 메타 4개 포함), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
+| [collect/데이터셋_관리_GUI_설계안.md](collect/데이터셋_관리_GUI_설계안.md) | 설계 | ⭐ 데이터셋 관리 GUI — 함정 7개(§2) · 화면(§3) · 기능(§4: 적재 단위 · 출처 · JSONB 동적 매핑 · 원자적 export · LeRobot v3) · 결정(§6) · 구현 현황(§7). 구현은 [`src/rdfp_gui`](../src/rdfp_gui/README.md) + `rdfp.dataset` (2026-11-23 통합) |
 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) | 절차 | `replay_panda_mock` — 왜 어떤 명령 타입인가(§0), 구조, `replay_arm_path`, 함정 12가지 |
 
 ## learning/ — 학습 데이터
 
 | 문서 | 종류 | 한 줄 |
 |---|:-:|---|
-| [learning/결정_기록.md](learning/결정_기록.md) | 설계 | ⭐ 결정 38건을 한 표로 — 목표 · action 채널 · 샘플 · 형식 · 운영, 각각의 **이유**와 보관본 근거, 폐기한 안 |
+| [learning/결정_기록.md](learning/결정_기록.md) | 설계 | ⭐ 결정 41건을 한 표로 — 목표 · action 채널 · 샘플 · 형식 · 운영, 각각의 **이유**와 보관본 근거, 폐기한 안 |
 | [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) | 사양 | ⭐ 채널(R1 · R2 메시지) · 명령 체인 L0~L4 · 시간 정렬 · 샘플 구조 · `plan(τ)` · 비교 기준 · 배치 규약 · 실측 상수 |
-| [learning/저장_형식.md](learning/저장_형식.md) | 사양 | export 트리 — `metadata.json` · `episodes.jsonl` · `.npz`, chunk 미리 계산, LeRobot 형식을 안 쓰는 이유(§5.3), 인코딩 측정(부록 C) |
+| [learning/저장_형식.md](learning/저장_형식.md) | 사양 | export 트리 — `metadata.json` · `episodes.jsonl` · `.npz`, chunk 미리 계산, LeRobot 형식을 안 쓰는 이유([§3.4](learning/저장_형식.md#34-lerobot-형식-미채택-및-actpolicy-채택-근거)), 인코딩 측정([부록 B](learning/저장_형식.md#부록-b-영상-인코딩-및-디코더-성능-측정-2026-09-19)) |
 | [learning/추론기_배치_목표와_설계_이슈.md](learning/추론기_배치_목표와_설계_이슈.md) | 설계 | ⭐ 목표 — 두 줄(isaac / 펑션베이) 분리, 1차 과제(isaac 쌓기) 정의와 알려진 위험, 2단계(실기) 설계 이슈 여섯 |
 | [learning/추론기_배치_스택_구성.md](learning/추론기_배치_스택_구성.md) | 설계안 | isaac 1단계 추론기를 돌릴 스택 — 관측 · 어댑터(P2) · 추론 노드(P1)의 걸림돌 셋(후처리기 누락 · 앙상블 시각 문제 · 실행 환경) · 조건 대조 · 평가 루프 |
 | [learning/미구현_목록.md](learning/미구현_목록.md) | 현황 | **1차 과제 진척 A~E(§0)**, 남은 항목 R · I · O · P · C 와 코드 확인 근거 (구현된 것은 각 절의 「구현됨」 표) |
@@ -144,6 +142,7 @@
 | 펑션베이 (5) | 미해결 작업 원문 · 인수 체크리스트 이력 20260917 · 20261001 · 벤더 메일 2 |
 | Isaac (2) | Phase 0~11 단계 계획 · 멀티 시뮬레이터 backend 설계안 |
 | 1차 과제 진척 기록 (1) | isaac 쌓기 과제의 A0~D4 실측 · 경위와 옛 결정 D1~D8 (2026-09-19~20) |
+| 데이터셋 GUI 병행 구현 (2) | `rdfp_gui_codex` 설계안(`design_gpt.md`) · 사용자 가이드 — 2026-11-23 통합 후 패키지 삭제 |
 | 그 밖 (5) | recorder 최초 요구사항 · 후처리기 실환경 검증 runbook · rosbag2 운영 방안 · 리더 트리거 그리퍼 매핑 · 제어 계층 분리 기록 |
 | 재편 계획 | [archive/문서_재편_계획.md](archive/문서_재편_계획.md) |
 
@@ -168,7 +167,7 @@
 |---|---|
 | 처음 빌드하고 실행해 본다 | [../README.md](../README.md) → [../src/rdfp/README.md](../src/rdfp/README.md) |
 | 학습 데이터 없이 로봇 제어 스택만 쓴다 | [../src/robot_control/README.md](../src/robot_control/README.md) |
-| 패키지가 왜 넷으로 나뉘어 있는지 | [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) §7.6 |
+| 패키지가 왜 넷으로 나뉘어 있는지 | [rdfp_프레임워크_전체_구조와_설계.md](rdfp_프레임워크_전체_구조와_설계.md) §7.1 |
 | Python venv 와 ROS 2 가 충돌한다 / 24.04 로 옮긴다 | [python_env_guide.md](python_env_guide.md) |
 | 어떤 launch 를 써야 할지 모르겠다 | 제어 → [../src/robot_control/launch/README.md](../src/robot_control/launch/README.md) / 수집 → [collect/수집_계층_얹기_절차서.md](collect/수집_계층_얹기_절차서.md) |
 | 로봇을 특정 pose 로 움직인다 / JGPC 에서 / servo 로 | [control/README.md](control/README.md) |
@@ -183,11 +182,12 @@
 | rosbag 의 에피소드를 보거나 내보내거나 지운다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) §4~§8 |
 | rosbag 을 DB 에 적재한다 / 수집 데이터를 지운다 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) |
 | 적재 파이프라인 내부 · 스키마 | [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) |
-| bag · DB 를 GUI 로 보고 적재 · export 하고 싶다 | [src/rdfp_gui/README.md](../src/rdfp_gui/README.md) (`rdfp_gui` — 매핑 선 · stamp 진단 · 에피소드 점검) · [collect/Dataset_Manager_사용자_가이드.md](collect/Dataset_Manager_사용자_가이드.md) (`rdfp_gui_codex` 구현) |
+| bag · DB 를 GUI 로 보고 적재 · export 하고 싶다 | [src/rdfp_gui/README.md](../src/rdfp_gui/README.md) |
+| 토픽 하나만 나중에 채우거나 다시 넣고 싶다 · 새 메시지 타입을 담고 싶다 | [collect/데이터셋_관리_GUI_설계안.md](collect/데이터셋_관리_GUI_설계안.md) §4.3 · §4.4 (`import --topics` · `--only-topics-replace` · `rdfp mapping`) |
 | 적재된 에피소드를 재생한다 | [collect/replay_mock_stack_guide.md](collect/replay_mock_stack_guide.md) |
 | **왜 관절-계획 · ACT · `.npz` 인가** | [learning/결정_기록.md](learning/결정_기록.md) |
 | 학습 샘플이 정확히 무엇인가 / R1 · R2 필드 / 배치 규약 | [learning/학습_샘플_사양.md](learning/학습_샘플_사양.md) |
-| export 파일의 모양 | [learning/저장_형식.md](learning/저장_형식.md) §6 |
+| export 파일의 모양 | [learning/저장_형식.md §4](learning/저장_형식.md#4-저장-형식-스키마) |
 | 무엇이 남았나 · 무엇을 정해야 하나 | [learning/미구현_목록.md](learning/미구현_목록.md) · [learning/열린_결정.md](learning/열린_결정.md) |
 | 학습을 돌린다 | `rdfp-train/docs/학습_실행_절차.md` |
 | 학습한 추론기를 isaac 에서 돌린다 (스택 구성 · P1 · P2 · P3) | [learning/추론기_배치_스택_구성.md](learning/추론기_배치_스택_구성.md) |

@@ -17,6 +17,8 @@
 
 | 문서 | 무엇이었나 | 현행 정본 |
 |---|---|---|
+| `design_gpt.md` | 데이터셋 관리 GUI 병행 구현(`rdfp_gui_codex`)의 설계안 — 2026-11-23 통합 후 패키지 삭제. §11~§14 의 출처 · 식별자 전환과 인수 테스트 목록은 참고로 남긴다 | [../collect/데이터셋_관리_GUI_설계안.md](../collect/데이터셋_관리_GUI_설계안.md) |
+| `Dataset_Manager_사용자_가이드.md` | 삭제된 `rdfp_gui_codex` 의 사용법 | [../../src/rdfp_gui/README.md](../../src/rdfp_gui/README.md) |
 | `learning/학습_데이터_수집_설계.md` | 팔 action 채널 재검토 — 대안 A · A′ · B 평가와 §0 결정 | [../learning/결정_기록.md](../learning/결정_기록.md) |
 | `learning/MoveIt_명령_체인과_트윈_데이터_생성.md` | 명령 체인 L0~L4 · 대리 환경 실측 · 대안 M1~M3 | [../learning/학습_샘플_사양.md](../learning/학습_샘플_사양.md) |
 | `learning/학습_데이터의_좌표_공간_비교.md` | 관절 대 데카르트 — 저장 · 표현 공간 (106 KB) | 결정은 결정_기록, 보류된 데카르트 단계는 [../learning/열린_결정.md](../learning/열린_결정.md) |

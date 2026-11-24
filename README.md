@@ -22,12 +22,11 @@ Franka Emika Panda 로봇용 ROS 2 (Humble) 워크스페이스. 두 계층으로
 | [`robot_twin`](src/robot_twin/) | 제어 | 로봇 트윈 — 제어 계층을 변수 / 연산 REST API 로 노출한다 |
 | [`rdfp`](src/rdfp/) | **수집** | 세션 · 에피소드, 세션 구동 레코더, rosbag · 데이터셋 CLI(적재 · export · 재생), 텔레오퍼레이션, `rdfp_collect` 등 launch |
 | [`rdfp_gui`](src/rdfp_gui/) | 수집 도구 | 데이터셋 관리 GUI(PySide6) — bag 토픽 ↔ DB 테이블 매핑 선, stamp 진단, 미완료 세션, 에피소드 점검, Import · Export 를 `rdfp` CLI 서브프로세스로. 조회 코드는 `rdfp.dataset.inspect` |
-| [`rdfp_gui_codex`](src/rdfp_gui_codex/) | 수집 도구 | MCAP·DB 비교, 매핑 관리, 선택 Import, NPZ·LeRobot v3 Export GUI. `rdfp`의 공통 기능을 사용 |
 
 의존 방향은 **수집 → 제어 단방향**이다. `robot_control` / `robot_twin` 은 `rdfp` 를
 import 하지 않으며, 각 패키지의 `test_layer_boundary.py` 가 빌드에서 강제한다. 트윈이
 세션 연산을 쓰는 것은 import 가 아니라 entry point(`robot_twin.backends`)를 통해서다.
-근거는 [설계서](docs/rdfp_프레임워크_전체_구조와_설계.md) §7.6.
+근거는 [설계서](docs/rdfp_프레임워크_전체_구조와_설계.md) §7.1.
 
 ### 함께 쓰는 저장소
 
@@ -127,7 +126,6 @@ launch README, 얹는 절차는 [수집_계층_얹기_절차서.md](docs/collect
 | `run_rdfp_panda_functionbay.sh` | 펑션베이 제어 스택 위에 **수집 계층만** 얹는다(녹화 없음) — 확인용 |
 | `run_replay_mock.sh` · `run_replay_gui.sh` | 재생 모드 스택(`replay_panda_mock`) · 재생 GUI |
 | `run_dataset_gui.sh` | `rdfp_gui` 데이터셋 관리 GUI — 매핑 선 · stamp 진단 · 에피소드 점검 · Import · Export(npz). ROS 를 소싱한 셸에서 ([README](src/rdfp_gui/README.md)) |
-| `run_dataset_manager.sh` | `rdfp_gui_codex` 데이터셋 관리 GUI — 토픽·테이블 조회, 매핑, 선택 Import, 학습 데이터셋 Export |
 | `run_teleop_keyboard.sh` | 키보드 텔레오퍼레이션 |
 | `rosbag.sh <record\|list-episodes\|import\|export\|delete\|clear …>` | rosbag 녹화 · 조회 · 적재 · 삭제 통합 진입점 ([가이드](docs/collect/rosbag_명령_가이드.md)). 녹화 구현은 `record_rosbag.sh`(환경변수로만 설정을 받는다) |
 | `kill_stack.sh` | 로봇 스택 · 시뮬레이터 잔여 프로세스 정리 |
@@ -213,21 +211,7 @@ colcon build --packages-select rdfp rdfp_gui && source install/setup.bash
 ros2 run rdfp_gui dataset_gui --config config/dataset_config.yaml    # 또는 ./scripts/run_dataset_gui.sh
 ```
 
-설치 · 화면 · 구현 범위(동적 매핑 · LeRobot v3 는 미구현)는 [src/rdfp_gui/README.md](src/rdfp_gui/README.md).
-
-### 데이터셋 관리 GUI (`rdfp_gui_codex`)
-
-GUI와 관리 서비스는 `src/rdfp_gui_codex` 패키지에 있다. 기존 `rdfp`의 설정·writer·변환 기능을 사용하며, MCAP·DB 조회와 Manager Import는 ROS 노드를 실행하지 않고 사용할 수 있다.
-
-```bash
-# 워크스페이스 루트에서 실행. 전용 Python 환경의 의존성을 먼저 설치한다.
-./scripts/run_dataset_manager.sh
-
-# ROS 패키지를 빌드·환경 소싱한 경우의 진입점
-ros2 run rdfp_gui_codex dataset_manager --config config/dataset_config.yaml
-```
-
-설치 명령은 [패키지 README](src/rdfp_gui_codex/README.md), 화면별 사용법은 [Dataset Manager 사용자 가이드](docs/collect/Dataset_Manager_사용자_가이드.md)에 있다. 기존 CLI와 Manager의 선택 토픽 교체 정책은 다르므로 사용 전 가이드의 Import 규칙을 확인한다.
+설치 · 화면 · 구현 범위는 [src/rdfp_gui/README.md](src/rdfp_gui/README.md). 이 구조 이전 DB 는 `ros2 run rdfp init-db` 를 한 번 더 돌린다(적재 메타 테이블 — 기존 행은 그대로다).
 
 ## 설정 파일
 
@@ -278,8 +262,7 @@ rdfp_ws/
 │   ├── robot_control/           # 제어 계층 (moveit / gripper / camera / scene / backends / launch_helpers)
 │   ├── robot_twin/              # 로봇 트윈 REST 게이트웨이
 │   ├── rdfp/                    # 수집 계층 (session / recorder / camera / rosbag / dataset / teleop)
-│   ├── rdfp_gui/                # 데이터셋 관리 GUI (PySide6; 조회는 rdfp.dataset.inspect, 실행은 rdfp CLI 서브프로세스)
-│   └── rdfp_gui_codex/          # 데이터셋 관리 GUI·서비스 (`rdfp`에 의존)
+│   └── rdfp_gui/                # 데이터셋 관리 GUI (PySide6; 조회는 rdfp.dataset.inspect, 실행은 rdfp CLI 서브프로세스)
 ├── config/                      # 워크스페이스 공용 설정 — dataset_config.yaml · recording_topics.list
 ├── scripts/                     # 실행 래퍼 · 정리 · 점검 (functionbay/ · isaac/)
 ├── docs/                        # 문서 (한국어) — INDEX.md 가 색인
@@ -314,7 +297,6 @@ rdfp_ws/
 - [src/robot_twin/README.md](src/robot_twin/README.md) — 백엔드별 설정 파일, 선택적인 세션 연산.
 - [src/rdfp/README.md](src/rdfp/README.md) — 수집 계층 walkthrough (세션 · 레코더 · 데이터셋 CLI · 재생 GUI).
 - [src/rdfp_gui/README.md](src/rdfp_gui/README.md) — 데이터셋 관리 GUI(`rdfp_gui`) 구조 · 설치 · 화면 · 구현 범위.
-- [src/rdfp_gui_codex/README.md](src/rdfp_gui_codex/README.md) — 데이터셋 관리 GUI 설치·실행·테스트.
   launch 는 [src/rdfp/launch/README.md](src/rdfp/launch/README.md), 레코더 코어는
   [src/rdfp/rdfp/recorder/README.md](src/rdfp/rdfp/recorder/README.md).
 - [src/rdfp_msgs/README.md](src/rdfp_msgs/README.md) — 인터페이스 목록과 변경 시 주의사항.

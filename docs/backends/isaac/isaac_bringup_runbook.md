@@ -228,9 +228,9 @@ find "$RDFP_DATA_ROOT/rosbag" -name '*.mcap' | wc -l
 
 **모은 것을 지우고 다시 시작하려면** — 씬이나 조명을 바꿔 옛 데이터가 새 것과 섞이면
 안 될 때가 그렇다 —
-[데이터셋_적재_운영_가이드.md](../../collect/데이터셋_적재_운영_가이드.md) **§8.6** 이
-다섯 덩어리(DB · 적재 대기 bag · 보관 bag · 레코더 mp4 · 학습 샘플)를 한자리에 모아
-둔다. ⚠️ `scripts/clear_dataset.sh` 는 **절반만 지운다** — mp4 가 남는다.
+[데이터셋_적재_운영_가이드.md](../../collect/데이터셋_적재_운영_가이드.md) **§8.6** 의
+`scripts/reset_dataset.sh --config <적재에 쓴 설정>` 이 여섯 덩어리(DB · 적재 대기 bag · 보관 bag ·
+레코더 mp4 · 적재 출력 · 학습 샘플)를 한 번에 지운다. ⚠️ `scripts/clear_dataset.sh` 는 **절반만 지운다** — mp4 가 남는다.
 
 배선의 정본은 [src/rdfp/launch/README.md](../../../src/rdfp/launch/README.md), 백엔드 중립
 설명은 [docs/collect/수집_계층_얹기_절차서.md](../../collect/수집_계층_얹기_절차서.md) 다.
