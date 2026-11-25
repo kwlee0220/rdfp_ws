@@ -225,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_pose_stampeds_stamp_ts ON pose_stampeds (stamp_ts
 
 -- /motion/trajectory → rdfp_msgs/msg/MotionTrajectory
 -- 팔 동작 연산 하나를 실행할 때 **컨트롤러로 보낸 궤적**(L2). 학습 데이터의 관절-계획
--- 레이블이 여기서 나온다 (docs/collect/R1_실행_궤적_채널_구현_설계.md).
+-- 레이블이 여기서 나온다 (docs/learning/실행_궤적_채널_구현.md).
 --
 -- **주기 토픽이 아니라 이벤트다** — 연산마다 한 행이고, 궤적 전체가 그 한 행에 들어간다.
 -- 그래서 다른 테이블과 달리 행 수가 에피소드 길이가 아니라 **연산 수**를 따른다.
