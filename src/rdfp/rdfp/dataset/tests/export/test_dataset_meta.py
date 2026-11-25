@@ -89,6 +89,37 @@ def test_streaming_matches_a_direct_computation() -> None:
     assert st.std[0] == pytest.approx(statistics.pstdev(xs), rel=1e-6)
 
 
+def test_merge_equals_accumulating_everything_at_once() -> None:
+    """에피소드별 누적을 합친 값이 한 번에 누적한 값과 같다 (NaN 개수 포함)."""
+    rows_a = [[1.0, float('nan')], [2.0, 5.0], [4.0, 7.0]]
+    rows_b = [[10.0, 1.0], [float('nan'), 2.0]]
+    whole = RunningStats(dim=2)
+    whole.update_many(rows_a + rows_b)
+    a, b = RunningStats(dim=2), RunningStats(dim=2)
+    a.update_many(rows_a)
+    b.update_many(rows_b)
+    a.merge(b)
+    assert a.count == whole.count
+    assert a.nan_count == whole.nan_count
+    assert a.mean == pytest.approx(whole.mean)
+    assert a.std == pytest.approx(whole.std)
+
+
+def test_merging_into_empty_and_merging_empty() -> None:
+    src = RunningStats(dim=1)
+    src.update_many([[3.0], [5.0]])
+    empty = RunningStats(dim=1)
+    empty.merge(src)
+    assert empty.mean == pytest.approx((4.0,)) and empty.std == pytest.approx((1.0,))
+    src.merge(RunningStats(dim=1))
+    assert src.count == [2] and src.mean == pytest.approx((4.0,))
+
+
+def test_merge_refuses_another_width() -> None:
+    with pytest.raises(ValueError):
+        RunningStats(dim=1).merge(RunningStats(dim=2))
+
+
 def test_welford_beats_the_naive_sum_of_squares() -> None:
     """**Welford 를 쓰는 이유다.** 단순 누적합은 같은 입력에서 무너진다.
 

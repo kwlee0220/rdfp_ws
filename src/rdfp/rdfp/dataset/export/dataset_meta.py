@@ -75,6 +75,26 @@ class RunningStats:
         for row in rows:
             self.update(row)
 
+    def merge(self, other: 'RunningStats') -> None:
+        """다른 누적값을 합친다 (Chan 의 병렬 결합).
+
+        에피소드마다 따로 누적한 뒤 **포함하기로 한 에피소드만** 합칠 때 쓴다 — 표본을 다시
+        훑지 않고 한 번에 합친 것과 같은 평균 · 표준편차를 얻는다.
+        """
+        if other.dim != self.dim:
+            raise ValueError(f'expected dim {self.dim}, got {other.dim}')
+        for i in range(self.dim):
+            self.nan_count[i] += other.nan_count[i]
+            n_b = other.count[i]
+            if not n_b:
+                continue
+            n_a = self.count[i]
+            n = n_a + n_b
+            delta = other._mean[i] - self._mean[i]
+            self._mean[i] += delta * n_b / n
+            self._m2[i] += other._m2[i] + delta * delta * n_a * n_b / n
+            self.count[i] = n
+
     @property
     def mean(self) -> tuple:
         """차원별 평균. 표본이 없으면 0.0."""

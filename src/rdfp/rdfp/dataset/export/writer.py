@@ -240,8 +240,9 @@ def default_arm_joints(conn: Any, episode_id: int, *, label: str,
     그리퍼를 **두 번** 싣는다(손가락 관절 + `width`).
 
     그래서 정본은 행동 채널이다 — 관절-계획은 실행 궤적(R1), 관절-명령은
-    `/target_joint_cmds` 다. 둘 다 없으면 **넘겨짚지 않고 올린다**: 이름으로
-    손가락을 걸러내는 것은 백엔드마다 다른 추측이고, 틀려도 조용하다.
+    `/target_joint_cmds` 다. 고른 레이블의 채널에 이름이 없으면 **넘겨짚지 않고 올린다**
+    (다른 채널로 대체하지 않는다): 이름으로 손가락을 걸러내는 것은 백엔드마다 다른
+    추측이고, 틀려도 조용하다.
     """
     if label == LABEL_PLAN:
         with conn.cursor() as cur:
@@ -441,8 +442,13 @@ def _export_into(conn: Any, ids: list, out_dir: str, *, label: str, delta_sec: f
     action_stats = RunningStats(dim=len(arm))
     lines, kept, samples = [], [], 0
     for episode_id in ids:
+        # 통계는 에피소드마다 따로 모았다가 **포함한 에피소드만** 합친다 — 신뢰성은
+        # 에피소드를 다 읽은 뒤에야 알 수 있으므로, 바로 누적하면 제외한 에피소드가
+        # 정규화 통계에 섞인다.
+        ep_qpos = RunningStats(dim=qpos_stats.dim)
+        ep_action = RunningStats(dim=action_stats.dim)
         line = export_episode(conn, episode_id, out_dir=out_dir, spec=spec,
-                              qpos_stats=qpos_stats, action_stats=action_stats,
+                              qpos_stats=ep_qpos, action_stats=ep_action,
                               joint_topic=joint_topic, command_topic=command_topic,
                               recordings_dir=recordings_dir)
         if copy_media:
@@ -455,6 +461,8 @@ def _export_into(conn: Any, ids: list, out_dir: str, *, label: str, delta_sec: f
         if line.trustworthy or not skip_untrustworthy:
             kept.append(line.episode_id)
             samples += line.samples
+            qpos_stats.merge(ep_qpos)
+            action_stats.merge(ep_action)
 
     meta = build_metadata(spec, qpos_stats, action_stats, episodes=tuple(kept),
                           samples=samples)

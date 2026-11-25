@@ -3,7 +3,7 @@
 설계는 [E7_저장_형식_설계.md](../../../docs/learning/저장_형식.md) 다.
 
 ```bash
-ros2 run rdfp export --config dataset_config.yaml --out /data/rdfp/datasets/v1
+ros2 run rdfp export --config dataset_config.yaml --out /data/rdfp/datasets/v2
 ros2 run rdfp export --config dataset_config.yaml --out /tmp/cmp --label joint_command
 ```
 

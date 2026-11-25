@@ -204,7 +204,7 @@ cd ~/development/mdtpy/robot-twin-client && .venv/bin/robot-twin-collect --repea
 # 적재 → 학습 샘플
 cd ~/development/ros/rdfp_ws && source ./.rdfprc
 ros2 run rdfp import --config "$RDFP_DATA_ROOT/dataset.yaml"
-ros2 run rdfp export --config "$RDFP_DATA_ROOT/dataset.yaml" --out "$RDFP_DATA_ROOT/datasets/v1"
+ros2 run rdfp export --config "$RDFP_DATA_ROOT/dataset.yaml" --out "$RDFP_DATA_ROOT/datasets/v2"
 ```
 
 **적재한 bag 은 `rosbag_dir` 밖으로 뺀다.** 안 빼면 다음 회차와 함께 적재되어 **새

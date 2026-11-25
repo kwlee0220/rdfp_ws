@@ -202,7 +202,7 @@ ros2 run rdfp rosbag list-episodes --config /data/rdfp/dataset.yaml   # DB 적�
 
 ```bash
 ros2 run rdfp import --config /data/rdfp/dataset.yaml
-ros2 run rdfp export --config /data/rdfp/dataset.yaml --out /data/rdfp/datasets/v1
+ros2 run rdfp export --config /data/rdfp/dataset.yaml --out /data/rdfp/datasets/v2
 ```
 
 `/data/rdfp/dataset.yaml` 은 수집 래퍼가 데이터 루트에 써 두는 설정이다 — 레코더 출력 · rosbag
@@ -517,7 +517,7 @@ rdfp_env      # install/setup.bash + RDFP_DB_DSN 등
 
 # 적재 · export
 ros2 run rdfp import --config /data/rdfp/dataset.yaml
-ros2 run rdfp export --config /data/rdfp/dataset.yaml --out /data/rdfp/datasets/v1
+ros2 run rdfp export --config /data/rdfp/dataset.yaml --out /data/rdfp/datasets/v2
 
 # rosbag 조회 (DB 미사용)
 ros2 run rdfp rosbag list-topics --rosbag-dir /data/rdfp/rosbag

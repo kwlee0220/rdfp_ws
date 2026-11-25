@@ -342,6 +342,27 @@ def test_missing_event_is_counted_and_excluded(conn, tmp_path):
     assert (tmp_path / 'episodes' / f'{ep}.npz').exists()
 
 
+def test_excluded_episode_stays_out_of_the_stats(conn, tmp_path):
+    """제외한 에피소드는 목록뿐 아니라 **정규화 통계에서도** 빠진다.
+
+    길이가 다른 두 에피소드라 통계가 섞이면 평균 · 표본 수가 달라진다.
+    """
+    good, _ = _make_episode(conn)
+    bad, _ = _make_episode(conn, with_event=False, n_frames=30)
+    alone, _ = export_dataset(conn, [good], out_dir=str(tmp_path / 'alone'), arm_joints=ARM,
+                              camera_topic='/camera/image_raw', chunk_len=4)
+    both, _ = export_dataset(conn, [good, bad], out_dir=str(tmp_path / 'both'),
+                             arm_joints=ARM, camera_topic='/camera/image_raw', chunk_len=4)
+    assert both.episodes == (good,)
+    assert both.qpos.mean == pytest.approx(alone.qpos.mean)
+    assert both.qpos.std == pytest.approx(alone.qpos.std)
+    assert both.arm_action.mean == pytest.approx(alone.arm_action.mean)
+    kept, _ = export_dataset(conn, [good, bad], out_dir=str(tmp_path / 'kept'),
+                             arm_joints=ARM, camera_topic='/camera/image_raw', chunk_len=4,
+                             skip_untrustworthy=False)
+    assert kept.qpos.mean != pytest.approx(alone.qpos.mean)   # 포함하면 섞인다
+
+
 def test_keeping_untrustworthy_is_opt_in(conn, tmp_path):
     ep, t0 = _make_episode(conn, with_event=False)
     meta, _ = export_dataset(conn, [ep], out_dir=str(tmp_path), arm_joints=ARM,
