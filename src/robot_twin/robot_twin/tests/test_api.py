@@ -71,6 +71,8 @@ class FakeRuntime:
         self.estop_released = False
         # `?refresh=` 가 런타임까지 전달되는지 확인하기 위한 기록.
         self.refresh_calls: list[bool] = []
+        # API 계층이 남긴 감사 로그 줄.
+        self.audit_lines: list[str] = []
 
     def read_variable(self, name: str, *, refresh: bool = False) -> Optional[dict[str, Any]]:
         if name != 'joint_states':
@@ -116,6 +118,9 @@ class FakeRuntime:
     def release_estop(self) -> None:
         self.estop_released = True
         self.sessions.release_estop()
+
+    def audit(self, line: str) -> None:
+        self.audit_lines.append(line)
 
 
 @pytest.fixture()
@@ -463,4 +468,56 @@ def test_estop_blocks_then_releases(client: TestClient) -> None:
     assert blocked.json()['error']['code'] == 'ESTOP_ENGAGED'
 
     assert client.delete(f'{BASE}/estop').json()['estop'] == 'RELEASED'
+    assert client.post(f'{BASE}/operations/move_gripper_to_target', json={}).status_code == 200
+
+
+# ----------------------------------------------------------------------
+# 감사 로그 (설계서 8.2)
+# ----------------------------------------------------------------------
+
+UA = {'User-Agent': 'robot-twin-client/1.0 (test)'}
+
+
+def test_audit_line_binds_source_and_inputs(client: TestClient, runtime: FakeRuntime) -> None:
+    """출처 · 입력 · 결과가 한 줄에 있어야 시각 대조 없이 "누가 시켰나"를 안다."""
+    sid = client.post(f'{BASE}/operations/move_to_pose', json={'inputs': {'x': 1}},
+                      headers=UA).json()['session_endpoint'].rsplit('/', 1)[-1]
+
+    [line] = runtime.audit_lines
+    assert line.startswith('audit event=operation ')
+    assert 'client=testclient:' in line
+    assert 'user_agent="robot-twin-client/1.0 (test)"' in line
+    assert 'operation="move_to_pose"' in line
+    assert f'session="{sid}"' in line
+    assert 'result=202' in line
+    assert 'inputs={"x": 1}' in line
+
+
+def test_audit_records_rejections(client: TestClient, runtime: FakeRuntime) -> None:
+    client.post(f'{BASE}/operations/move_to_pose', json={})
+    client.post(f'{BASE}/operations/move_to_pose', json={})
+
+    rejected = runtime.audit_lines[-1]
+    assert 'result=409' in rejected
+    assert 'code="RESOURCE_BUSY"' in rejected
+
+
+def test_audit_records_cancel_and_estop(client: TestClient, runtime: FakeRuntime) -> None:
+    endpoint = client.post(f'{BASE}/operations/move_to_pose', json={}).json()['session_endpoint']
+    client.delete(endpoint)
+    client.post(f'{BASE}/estop')
+    client.delete(f'{BASE}/estop')
+
+    events = [line.split()[1] for line in runtime.audit_lines]
+    assert events == ['event=operation', 'event=cancel', 'event=estop.engage',
+                      'event=estop.release']
+    assert 'halted=true' in runtime.audit_lines[2]
+
+
+def test_audit_failure_does_not_break_the_request(client: TestClient,
+                                                  runtime: FakeRuntime) -> None:
+    def broken(line: str) -> None:
+        raise RuntimeError('log sink down')
+
+    runtime.audit = broken
     assert client.post(f'{BASE}/operations/move_gripper_to_target', json={}).status_code == 200

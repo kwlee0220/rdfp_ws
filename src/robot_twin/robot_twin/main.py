@@ -118,6 +118,23 @@ def _bind_http_socket(host: str, port: int) -> socket.socket:
     return sock
 
 
+def _check_schema_validator(config: TwinConfig) -> Optional[str]:
+    """``inputs_schema`` 를 선언한 연산이 있는데 ``jsonschema`` 가 없으면 사유를 돌려준다.
+
+    런타임은 검증기가 없으면 경고만 남기고 스키마 검증을 건너뛴다. 그 상태로 기동하면
+    범위 · ``enum`` · ``additionalProperties`` 위반이 로봇까지 가므로 여기서 막는다.
+    """
+    with_schema = [op.name for op in config.operations if op.inputs_schema]
+    if not with_schema:
+        return None
+    try:
+        import jsonschema  # noqa: F401
+    except ImportError:
+        return (f'python package "jsonschema" is required to validate inputs of '
+                f'{with_schema}; install python3-jsonschema (rosdep) or pip jsonschema')
+    return None
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """콘솔 진입점."""
     args = _parse_args(argv)
@@ -129,6 +146,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         config = load_config(config_path)
     except Exception as exc:
         print(f'twin config error: {exc}', file=sys.stderr)
+        return 2
+
+    # 입력 스키마가 있는데 검증기가 없으면 범위 · enum 검사가 조용히 빠진다 (설계서 6.9).
+    schema_error = _check_schema_validator(config)
+    if schema_error is not None:
+        print(f'twin config error: {schema_error}', file=sys.stderr)
         return 2
 
     host = args.host or config.http.host

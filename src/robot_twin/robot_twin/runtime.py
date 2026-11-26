@@ -186,6 +186,30 @@ class RobotTwinRuntime:
             f'TF {moveit.tip_frame} -> {moveit.ee_frame} not available after '
             f'{timeout_sec:g}s; is the stack up?')
 
+    def lookup_frame_pose(self, parent: str, child: str,
+                          timeout_sec: float = 0.5) -> Optional[tuple]:
+        """``parent`` 기준 ``child`` 의 `(위치, 쿼터니언 xyzw)`. 못 얻으면 ``None``.
+
+        이동 결과의 ``goal_error`` 처럼 **부가 정보**를 채우는 쪽이 쓴다. 그래서 실패를
+        예외로 올리지 않는다 — TF 가 늦었다고 성공한 이동을 실패로 만들면 안 된다.
+        """
+        from rclpy.time import Time
+
+        buffer = self._ensure_tf()
+        deadline = time.time() + timeout_sec
+        while True:
+            try:
+                transform = buffer.lookup_transform(parent, child, Time()).transform
+            except Exception:
+                if time.time() >= deadline:
+                    return None
+                time.sleep(0.05)
+                continue
+            return ((transform.translation.x, transform.translation.y,
+                     transform.translation.z),
+                    (transform.rotation.x, transform.rotation.y,
+                     transform.rotation.z, transform.rotation.w))
+
     def start(self) -> None:
         """구독·발행을 등록하고 주기 타이머를 건다 (기동 2단계)."""
         self.variables.start()
@@ -475,7 +499,7 @@ class RobotTwinRuntime:
 
         session = self.sessions.create(operation=op.name, resources=op.resource_names,
                                        inputs=inputs)
-        # 감사 로그 — 인증이 없으므로 "누가"는 API 계층이 IP 로 남긴다 (설계서 8.2).
+        # 요청 출처를 묶은 감사 로그는 API 계층이 남긴다(`audit`). 이 줄은 세션 추적용이다.
         self._logger.info(f"operation '{op.name}' started (session={session.id}, inputs={inputs})")
 
         if op.kind == 'sync':
@@ -568,6 +592,10 @@ class RobotTwinRuntime:
             )
 
         return {'locked': True, 'halted': halted, 'in_flight_sessions': len(affected)}
+
+    def audit(self, line: str) -> None:
+        """감사 로그 한 줄 — API 계층이 요청 출처와 결과를 묶어 넘긴다 (설계서 8.2)."""
+        self._logger.info(line)
 
     def release_estop(self) -> None:
         """비상정지 해제."""

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import json
+
 from fastapi import FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -74,6 +76,10 @@ class TwinRuntime:
 
     def release_estop(self) -> None:
         """비상정지를 해제한다."""
+        raise NotImplementedError
+
+    def audit(self, line: str) -> None:
+        """감사 로그 한 줄을 남긴다 (설계서 8.2)."""
         raise NotImplementedError
 
 
@@ -277,7 +283,8 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         ]}
 
     @app.post(f'{base}/operations/{{name}}')
-    def start_operation(name: str, payload: Optional[dict[str, Any]] = None) -> Any:
+    def start_operation(name: str, request: Request,
+                        payload: Optional[dict[str, Any]] = None) -> Any:
         """연산을 시작한다.
 
         동기 연산은 ``200`` + 종료 상태, 비동기 연산은 ``202`` + ``RUNNING`` +
@@ -292,11 +299,20 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
             )
 
         inputs = (payload or {}).get('inputs') or {}
-        session = runtime.start_operation(name, inputs)
+        try:
+            session = runtime.start_operation(name, inputs)
+        except TwinError as exc:
+            _audit(runtime, request, 'operation', operation=name, result=exc.http_status,
+                   code=exc.code.value, inputs=inputs)
+            raise
 
         if op.kind == 'sync':
+            _audit(runtime, request, 'operation', operation=name, session=session.id,
+                   result=200, status=session.status.value, inputs=inputs)
             return session_body(session)
 
+        _audit(runtime, request, 'operation', operation=name, session=session.id, result=202,
+               inputs=inputs)
         endpoint = runtime.sessions.endpoint_of(session.id)
         return JSONResponse(
             session_body(session, endpoint=endpoint), status_code=202,
@@ -335,7 +351,7 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         return session_body(session)
 
     @app.delete(f'{base}/operations/sessions/{{session_id}}')
-    def cancel_session(session_id: str) -> Any:
+    def cancel_session(session_id: str, request: Request) -> Any:
         """세션 취소.
 
         로봇은 감속 정지에 시간이 걸리므로 ``202`` + ``phase: CANCELING`` 을 반환하고,
@@ -351,7 +367,14 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
                 status_code=409
             )
 
-        runtime.cancel_session(session)
+        try:
+            runtime.cancel_session(session)
+        except TwinError as exc:
+            _audit(runtime, request, 'cancel', operation=session.operation, session=session.id,
+                   result=exc.http_status, code=exc.code.value)
+            raise
+        _audit(runtime, request, 'cancel', operation=session.operation, session=session.id,
+               result=202)
         return JSONResponse(session_body(session), status_code=202)
 
     # ------------------------------------------------------------------
@@ -359,13 +382,15 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.post(f'{base}/estop')
-    def engage_estop() -> dict[str, Any]:
+    def engage_estop(request: Request) -> dict[str, Any]:
         """비상정지.
 
         세션 id 를 몰라도 호출할 수 있어야 하므로 세션과 무관한 채널이다. 권한
         개념을 두지 않으므로 누구든 호출할 수 있다 (설계서 6.4, 8.4).
         """
         result = runtime.engage_estop()
+        _audit(runtime, request, 'estop.engage', result=200, halted=result.get('halted'),
+               in_flight=result.get('in_flight_sessions'))
         body: dict[str, Any] = {'estop': 'ENGAGED', **result}
         if not result.get('halted') and result.get('in_flight_sessions'):
             # 잠금은 걸렸지만 로봇은 계속 움직인다. 이 사실을 숨기면 클라이언트가
@@ -377,12 +402,36 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         return body
 
     @app.delete(f'{base}/estop')
-    def release_estop() -> dict[str, Any]:
+    def release_estop(request: Request) -> dict[str, Any]:
         """비상정지 해제."""
         runtime.release_estop()
+        _audit(runtime, request, 'estop.release', result=200)
         return {'estop': 'RELEASED'}
 
     return app
+
+
+def _audit(runtime: TwinRuntime, request: Request, event: str, **fields: Any) -> None:
+    """요청 출처와 처리 결과를 **한 줄**로 남긴다 (설계서 8.2).
+
+    인증이 없으므로 "누가"는 요청 IP · 포트와 ``User-Agent`` 다. 연산 접수 · 거부, 취소,
+    E-stop 을 예외 없이 남긴다. 값은 JSON 으로 적어 공백 · 따옴표가 섞여도 줄이 갈라지지
+    않게 한다.
+    """
+    client = request.client
+    source = f'{client.host}:{client.port}' if client is not None else 'unknown'
+    parts = [f'audit event={event}', f'client={source}',
+             f'user_agent={json.dumps(request.headers.get("user-agent"), ensure_ascii=False)}']
+    for key, value in fields.items():
+        if value is None:
+            continue
+        text = value if isinstance(value, (int, float)) and not isinstance(value, bool) \
+            else json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        parts.append(f'{key}={text}')
+    try:
+        runtime.audit(' '.join(parts))
+    except Exception:  # 감사 로그 실패가 요청 처리를 막아서는 안 된다
+        pass
 
 
 def _unknown_variable_body(name: str) -> dict[str, Any]:

@@ -413,6 +413,29 @@ class MoveGroupClient(abc.ABC):
 
     # ----- High-level API -------------------------------------------------
 
+    @property
+    def frame_id(self) -> str:
+        """데카르트 목표를 해석하는 기준 좌표계 이름 (예: ``panda_link0``)."""
+        return self._frame_id
+
+    def cached_named_target_values(self, name: str) -> Optional[dict[str, float]]:
+        """캐시된 SRDF 에서 named target 의 관절값을 돌려준다. **조회 요청을 보내지 않는다.**
+
+        :meth:`move_to_named_target_async` 등이 한 번 SRDF 를 읽은 뒤에만 값이 있다.
+        캐시가 비었거나 이 그룹에 그 이름이 없으면 ``None`` 을 돌려준다 — 결과 보고처럼
+        부가 정보를 채우는 쪽이 쓰므로 예외로 흐름을 끊지 않는다.
+
+        Args:
+            name: SRDF 의 group_state 이름.
+
+        Returns:
+            ``{관절 이름: 값}`` 의 사본 또는 ``None``.
+        """
+        if self._group_states is None:
+            return None
+        values = self._group_states.get(self._moveit_group_name, {}).get(name)
+        return None if values is None else dict(values)
+
     def get_named_targets(self, *, group: Optional[str] = None,
                           timeout: float = READY_TIMEOUT_SEC,
                           externally_spun: bool = False) -> list[str]:

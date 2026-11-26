@@ -220,7 +220,12 @@ def _move_to_named_target(runtime: 'RobotTwinRuntime', client: Optional[Any],
         externally_spun=True
     )
     _await(future, timeout=timeout, what=f"move_to_named_target('{target}')")
-    return _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    # 목표 관절값은 방금 이동이 읽어 둔 SRDF 캐시에서 꺼낸다 — 새 조회를 하지 않는다.
+    lookup = getattr(client, 'cached_named_target_values', None)
+    goal = lookup(target) if callable(lookup) else None
+    _attach_goal_error(outputs, joint_error=_joint_goal_error(outputs, goal))
+    return outputs
 
 
 def _move_to_joints(runtime: 'RobotTwinRuntime', client: Optional[Any],
@@ -235,7 +240,9 @@ def _move_to_joints(runtime: 'RobotTwinRuntime', client: Optional[Any],
         joints, velocity_scaling=_scaling(session, 'velocity_scaling'), externally_spun=True
     )
     _await(future, timeout=timeout, what=f'move_to_joints({len(joints)} joints)')
-    return _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    _attach_goal_error(outputs, joint_error=_joint_goal_error(outputs, joints))
+    return outputs
 
 
 def _resolve_frame(runtime: 'RobotTwinRuntime', pose: dict,
@@ -302,6 +309,8 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
     fraction = getattr(result, 'fraction', None)
     if fraction is not None:
         outputs['fraction'] = float(fraction)
+    if outputs['closed_loop']:
+        _attach_goal_error(outputs, pose_error=_tip_pose_error(runtime, client, pose))
     return outputs
 
 
@@ -951,6 +960,78 @@ def _motion_outputs(runtime: 'RobotTwinRuntime', *, closed_loop: bool) -> dict[s
             outputs['measured_age_ms'] = max(outputs.get('measured_age_ms', 0), status.age_ms)
 
     return outputs
+
+
+def _attach_goal_error(outputs: dict[str, Any], *, joint_error: Optional[float] = None,
+                       pose_error: Optional[tuple[float, float]] = None) -> None:
+    """``goal_error`` 를 ``outputs`` 에 붙인다 (설계서 6.7).
+
+    **closed loop(JTC)에서만 붙인다.** JGPC 는 명령 발행을 끝낸 시점에 결과를 만들고 그때
+    팔이 아직 움직이고 있을 수 있어, 그 시점의 오차는 도달 정도를 나타내지 못한다.
+    구할 수 있는 항목만 싣고, 하나도 없으면 키 자체를 두지 않는다. 트윈은 이 값으로
+    ``COMPLETED`` 를 뒤집지 않는다.
+    """
+    if not outputs.get('closed_loop'):
+        return
+    error: dict[str, Any] = {}
+    if joint_error is not None:
+        error['joint_max_rad'] = joint_error
+    if pose_error is not None:
+        error['position_m'], error['orientation_rad'] = pose_error
+    if error:
+        outputs['goal_error'] = error
+
+
+def _joint_goal_error(outputs: dict[str, Any],
+                      goal: Optional[dict[str, float]]) -> Optional[float]:
+    """목표 관절값과 ``final_joints`` 의 차 중 최댓값(rad). 비교할 수 없으면 ``None``.
+
+    목표에 있는 관절이 측정값에 하나라도 없거나 숫자가 아니면 ``None`` 이다 — 일부
+    관절만으로 최댓값을 내면 빠진 관절의 오차가 숨는다.
+    """
+    if not goal:
+        return None
+    measured = (outputs.get('final_joints') or {}).get('position')
+    if not isinstance(measured, dict):
+        return None
+    worst = 0.0
+    for name, target in goal.items():
+        value = measured.get(name)
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        worst = max(worst, abs(float(value) - float(target)))
+    return worst
+
+
+def _tip_pose_error(runtime: 'RobotTwinRuntime', client: Any,
+                    tip_goal: dict[str, Any]) -> Optional[tuple[float, float]]:
+    """tip 지령 자세와 TF 로 읽은 현재 tip 자세의 차 `(위치 m, 회전 rad)`.
+
+    ``ee_pose`` 변수와 비교하지 않는다 — 그 변수의 프레임은 백엔드마다 다르고(Isaac 은
+    `panda_hand`, 펑션베이는 `grasp_center`) 트윈이 모르는 경우가 있어, tip 지령과 바로
+    비교하면 고정 오프셋이 오차로 잡힌다. 지령이 이미 tip 기준(:func:`_resolve_frame`)이므로
+    같은 프레임을 TF 에서 읽는다. 못 읽으면 ``None``.
+    """
+    base = getattr(client, 'frame_id', None)
+    lookup = getattr(runtime, 'lookup_frame_pose', None)
+    if not isinstance(base, str) or not callable(lookup):
+        return None
+    measured = lookup(base, runtime.config.moveit.tip_frame)
+    if measured is None:
+        return None
+    position, rotation = measured
+    goal_p, goal_q = tip_goal['position'], tip_goal['orientation']
+    distance = math.dist(position, (goal_p['x'], goal_p['y'], goal_p['z']))
+    return distance, _quaternion_angle(rotation, (goal_q['x'], goal_q['y'], goal_q['z'],
+                                                  goal_q['w']))
+
+
+def _quaternion_angle(a: tuple, b: tuple) -> float:
+    """두 자세 사이의 회전각(rad, 0~π). 부호가 반대인 같은 회전은 0 이다."""
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    dot = abs(sum(x * y for x, y in zip(a, b))) / (norm_a * norm_b)
+    return 2.0 * math.acos(min(1.0, dot))
 
 
 __all__ = ['BackendUnavailable', 'PreconditionFailed', 'dispatch', 'requires_move_group',

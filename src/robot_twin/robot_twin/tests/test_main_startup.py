@@ -101,3 +101,34 @@ def test_matching_shell_values_say_nothing(monkeypatch) -> None:
     monkeypatch.setenv('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp')
 
     assert main_module._apply_ros_env(_config()) == []
+
+
+# ----------------------------------------------------------------------
+# 입력 스키마 검증기 (설계서 6.9)
+# ----------------------------------------------------------------------
+
+def _ops_config(with_schema: bool):
+    from types import SimpleNamespace
+    op = SimpleNamespace(name='move_linear',
+                         inputs_schema={'type': 'object'} if with_schema else None)
+    return SimpleNamespace(operations=[op])
+
+
+def test_missing_jsonschema_refuses_startup(monkeypatch) -> None:
+    """검증기가 없으면 범위 · enum 검사가 조용히 빠지므로 기동하지 않는다."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_jsonschema(name, *args, **kwargs):
+        if name == 'jsonschema':
+            raise ImportError('no jsonschema')
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', no_jsonschema)
+    reason = main_module._check_schema_validator(_ops_config(with_schema=True))
+    assert reason is not None and 'jsonschema' in reason and 'move_linear' in reason
+
+
+def test_no_schema_needs_no_validator(monkeypatch) -> None:
+    assert main_module._check_schema_validator(_ops_config(with_schema=False)) is None
