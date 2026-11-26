@@ -411,11 +411,11 @@ with psycopg.connect(os.environ['RDFP_DB_DSN']) as conn:
 
 | 실측 | 고르는 방법 |
 |---|---|
-| `max` 가 `max_skew_sec` 보다 크다 | 허용 시차를 넘을 가능성이 있다. 실제 실패 여부는 선택한 FPS 의 각 격자 시각에서 계산한 시차로 정해지므로, 예를 들어 프레임 타임스탬프가 0 s · 0.21 s 이고 10 FPS · 한도 0.2 s 이면 격자 시차가 0 · 0.1 · 0.2 s 라 통과한다. 실패하면 한도를 올리거나 에피소드를 뺀다 |
+| `max` 가 `max_skew_sec` 보다 크다 | 허용 시차를 넘을 가능성이 있다. 실제 제외 여부는 선택한 FPS 의 각 격자 시각에서 계산한 시차로 정해지므로, 예를 들어 프레임 타임스탬프가 0 s · 0.21 s 이고 10 FPS · 한도 0.2 s 이면 격자 시차가 0 · 0.1 · 0.2 s 라 통과한다. 넘는 에피소드는 `image_gap` 으로 제외되므로, 그 에피소드가 필요하면 한도를 올린다 |
 | `hz` 가 fps 보다 한참 낮다 | 같은 프레임이 여러 행에 반복된다. fps 를 실측 주기에 가깝게 낮춘다 |
 | 학습 쪽 chunk 설계 | 행동 간격은 `1/fps` 의 정수배로 지정해야 한다. 예를 들어 100 ms 간격은 10 FPS 에서 한 행, 50 FPS 에서 다섯 행 간격으로 표현할 수 있다 |
 
-참고로 구현 당시(2026-11-23) 개발 DB 의 isaac 에피소드 세 개를 10 FPS 로 export 한 측정에서는([데이터셋_관리_GUI_설계안.md §6.5](../collect/데이터셋_관리_GUI_설계안.md#65-lerobot-v3-export--결정-28-의-예외)), 중앙 간격이 0.1 s 였지만 최대 1.3 s 공백이 있어 기본 한도 0.2 s 로는 export 가 실패했다. 한도를 1.5 s 로 풀면 544 프레임이 나왔고, 그중 약 절반이 같은 프레임의 반복이었다. 실효 카메라 프레임률이 약 5 Hz 였기 때문이다. 에피소드 번호와 프레임 수는 DB 에 따라 달라진다.
+참고로 구현 당시(2026-11-23) 개발 DB 의 isaac 에피소드 세 개를 10 FPS 로 export 한 측정에서는([데이터셋_관리_GUI_설계안.md §6.5](../collect/데이터셋_관리_GUI_설계안.md#65-lerobot-v3-export--결정-28-의-예외)), 중앙 간격이 0.1 s 였지만 최대 1.3 s 공백이 있어 기본 한도 0.2 s 를 넘었다(당시 구현은 export 전체를 멈췄고, 지금은 그 에피소드를 `image_gap` 으로 제외한다). 한도를 1.5 s 로 풀면 544 프레임이 나왔고, 그중 약 절반이 같은 프레임의 반복이었다. 실효 카메라 프레임률이 약 5 Hz 였기 때문이다. 에피소드 번호와 프레임 수는 DB 에 따라 달라진다.
 
 ### 6.3 명령줄에서 export
 
@@ -513,7 +513,7 @@ jq '.episodes[] | {source_episode_id, episode_index, frames, repeated_frames, ma
 | `non-finite state/action at t=…` | 그 시각에 그리퍼 폭이나 관절 관측이 비어 있는가. `gripper_states` 행이 없는 에피소드는 항상 여기 걸린다 | 해당 에피소드의 적재 상태를 확인하거나 에피소드를 뺀다 |
 | `no frames on the <fps> fps grid` | 에피소드 구간과 카메라 프레임 구간이 겹치는가(§4.2) | 그 에피소드의 `image_frames` 와 에피소드 경계를 확인하거나 에피소드를 뺀다 |
 | `video ended before frame <n>` | 원본 mp4 의 실제 프레임 수가 `image_frames` 의 `frame_index` 보다 적은가 | 레코더 mp4 와 sidecar 를 확인하고 그 에피소드를 다시 적재하거나 뺀다 |
-| `nothing to export after quality checks` | 고른 에피소드가 모두 정상 종료 가정(`assumed_full_duration`) 또는 영상 공백(`image_gap`)으로 제외됐는가 | 출력의 `excluded` 이유를 확인하고, 필요하면 `--keep-untrustworthy` 를 쓴다 |
+| `nothing to export after quality checks` | 고른 에피소드가 모두 정상 종료 가정(`assumed_full_duration`) 또는 영상 공백(`image_gap`)으로 제외됐는가 | 출력의 `excluded` 이유를 확인한다. `assumed_full_duration` 이면 `--keep-untrustworthy` 로 포함하고, `image_gap` 이면 `--max-skew-sec` 를 올린다 |
 | `mp4 not found` | `dataset_config.yaml` 의 영상 루트(`recordings_dir` · `output_mp4_dir`)와 mp4 위치가 맞는가 | 설정을 고치거나 mp4 를 제자리에 둔다 |
 | `output directory is not empty` · `output path exists and is not a directory` | 출력 경로에 이전 결과나 파일이 있는가 | 기존 결과를 지우거나 새 경로를 준다 |
 | `export failed` 와 traceback | `ExportError` 가 아닌 예외(관측 · 레이블 · DB · 영상 · LeRobot)인가(§5.1) | traceback 의 마지막 메시지를 보고 해당 에피소드의 적재 상태를 확인한다 |
