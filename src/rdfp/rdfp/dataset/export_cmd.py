@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
                         '샘플링한다. lerobot==0.4.4 가 있는 파이썬에서 돌린다)')
     p.add_argument('--fps', type=int, default=10, help='lerobot_v3: 격자 fps (실측 주기를 보고 고른다)')
     p.add_argument('--max-skew-sec', type=float, default=0.2,
-                   help='lerobot_v3: 격자 시각과 영상 프레임의 최대 시차 — 넘으면 에피소드를 거부한다')
+                   help='lerobot_v3: 격자 시각과 영상 프레임의 최대 시차 — 넘는 에피소드는 제외하고 manifest 의 excluded 에 남긴다')
     return p
 
 

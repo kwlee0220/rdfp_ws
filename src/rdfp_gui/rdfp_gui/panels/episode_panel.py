@@ -473,8 +473,8 @@ class ExportDialog(QDialog):
         self._skew.setRange(0.001, 10.0)
         self._skew.setSingleStep(0.05)
         self._skew.setValue(0.2)
-        self._skew.setToolTip('격자 시각과 가장 가까운 이전 프레임의 시차 — 넘으면 공백을 메우지 않고 '
-                              '에피소드를 거부한다')
+        self._skew.setToolTip('격자 시각과 가장 가까운 이전 프레임의 시차 — 넘는 에피소드는 공백을 메우지 '
+                              '않고 제외한다(manifest 의 excluded, 나머지는 계속 내보낸다)')
         media_row.addWidget(self._skew)
         layout.addLayout(media_row)
         self._lerobot_note = QLabel('')
@@ -565,10 +565,10 @@ class ExportDialog(QDialog):
             self.spec = None
             self._command.setText('')
             self._lerobot_note.setText(f'<span style="color:{COLORS["error"]}">{esc(exc)}</span>'
-                                       f' — 예: <code>export {LEROBOT_PYTHON_ENV}=\'uv run '
-                                       f'--no-project --python ~/development/rdfp/rdfp-train/.venv/'
-                                       f'bin/python --with psycopg[binary] --with pydantic --with '
-                                       f'pyyaml python\'</code> 로 GUI 를 띄운다')
+                                       f' — 예: <code>export {LEROBOT_PYTHON_ENV}="uv run '
+                                       f'--no-project --python $HOME/development/rdfp/rdfp-train/'
+                                       f'.venv/bin/python --with psycopg[binary] --with pydantic '
+                                       f'--with pyyaml python"</code> 로 GUI 를 띄운다')
         else:
             self._command.setText(self.spec.command_line())
             self._lerobot_note.setText(

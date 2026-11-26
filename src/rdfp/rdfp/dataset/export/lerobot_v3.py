@@ -6,8 +6,9 @@ LeRobot 로더는 프레임이 **고정 fps 격자**에 있다고 전제한다. 
 stamp 라(펑션베이 9.54~9.60 Hz) 그대로 넣을 수 없어, 사용자가 고른 fps 격자 `t_i = t_0 + i/fps`
 위에서 **다시 샘플링한다**:
 
-* 영상 — `t_i` 이전의 가장 가까운 프레임(인과적). 그 시차가 `max_skew_sec` 를 넘으면 공백을
-  메우지 않고 **에피소드를 거부한다**. 같은 프레임을 반복해 쓴 수와 최대 시차를 기록한다.
+* 영상 — `t_i` 이하의 가장 가까운 프레임(인과적). 그 시차가 `max_skew_sec` 를 넘으면 공백을
+  메우지 않고 **그 에피소드를 제외한다**(`manifest.json` 의 `excluded`, 사유 `image_gap`) —
+  다른 에피소드는 계속 내보낸다. 같은 프레임을 반복해 쓴 수와 최대 시차를 기록한다.
 * 관측 — `qpos(t_i)` (팔 관절 선형 보간 + 그리퍼 폭 최근접 — NPZ 와 같은 함수).
 * 행동 — `a(t_i)` = 레이블 함수를 격자 시각에서 평가한 값 + 그리퍼 one-hot. **NPZ 의 미리 계산한
   chunk 를 펴서 쓰지 않는다** — chunk 는 로더가 `delta_timestamps` 로 이어 붙인다.
@@ -41,6 +42,21 @@ from .writer import (DEFAULT_COMMAND_TOPIC, DEFAULT_JOINT_TOPIC, LABEL_COMMAND, 
                      resolve_media, staged_output, write_manifest)
 
 NS = 1_000_000_000
+
+
+class ImageGapError(ExportError):
+    """격자 시각과 고른 프레임의 시차가 `max_skew_sec` 를 넘었다 — 그 에피소드만 제외할 사유다.
+
+    프레임 타임스탬프가 비었거나 증가하지 않는 것(데이터 손상)과 구분하려고 따로 둔다.
+    """
+
+    def __init__(self, skew_sec: float, at_sec: float) -> None:
+        super().__init__(f'video gap exceeds max_skew_sec: {skew_sec:.3f} s at '
+                         f'{at_sec:.3f} s into the episode')
+        self.skew_sec = skew_sec
+        self.at_sec = at_sec
+
+
 #: `observation.images.<key>` 의 key. 카메라 하나를 쓴다 (NPZ 와 같은 frame clock 카메라).
 CAMERA_KEY = 'observation.images.camera'
 
@@ -49,7 +65,8 @@ def grid_frames(clock: FrameClock, fps: int, max_skew_sec: float) -> Iterator[tu
     """격자 시각마다 `(stamp_ns, frame_index, skew_sec)` — 인과적 최근 프레임.
 
     Raises:
-        ExportError: 프레임 시각이 비었거나 증가하지 않을 때, 시차가 허용을 넘을 때.
+        ExportError: 프레임 타임스탬프가 비었거나 증가하지 않을 때.
+        ImageGapError: 시차가 허용을 넘을 때 (`ExportError` 의 하위 클래스).
     """
     stamps = [f.stamp_ns for f in clock.frames]
     if not stamps or any(a >= b for a, b in zip(stamps, stamps[1:])):
@@ -64,8 +81,7 @@ def grid_frames(clock: FrameClock, fps: int, max_skew_sec: float) -> Iterator[tu
         idx = bisect.bisect_right(stamps, stamp) - 1
         skew = (stamp - stamps[idx]) / NS
         if skew > max_skew_sec:
-            raise ExportError(f'video gap exceeds max_skew_sec: {skew:.3f} s at '
-                              f'{(stamp - start) / NS:.3f} s into the episode')
+            raise ImageGapError(skew, (stamp - start) / NS)
         yield stamp, clock.frames[idx].index, skew
 
 
@@ -105,7 +121,7 @@ def _lerobot():
         raise ExportError(
             'LeRobot v3 export needs `lerobot==0.4.4` (+ psycopg) in this Python; run it from '
             'the rdfp-train environment: python -m rdfp.dataset.export_cmd --format lerobot_v3 '
-            '(see docs/collect/데이터셋_관리_GUI_설계안.md §6.5)') from exc
+            '(see docs/learning/LeRobot_형식_데이터셋_만들기.md §6.1)') from exc
     return LeRobotDataset
 
 
@@ -154,6 +170,15 @@ def export_lerobot_v3(conn: Any, episode_ids: Sequence[int], *, out_dir: str, fp
                 excluded.append({'episode_id': ep_id, 'reason': 'assumed_full_duration',
                                  'count': assumed})
                 continue
+            # 격자를 **프레임을 쓰기 전에** 다 계산한다 — 시차 초과를 도중에 알면 이미 넣은
+            # 행을 되돌릴 수 없다. 넘으면 이 에피소드만 빼고 다음으로 간다.
+            try:
+                grid = list(grid_frames(clock, int(fps), max_skew_sec))
+            except ImageGapError as exc:
+                excluded.append({'episode_id': ep_id, 'reason': 'image_gap',
+                                 'skew_sec': round(exc.skew_sec, 6),
+                                 'at_sec': round(exc.at_sec, 6)})
+                continue
             widths = load_gripper_width(conn, ep_id)
             grip = load_gripper_commands(conn, ep_id)
             if dataset is None:
@@ -173,7 +198,7 @@ def export_lerobot_v3(conn: Any, episode_ids: Sequence[int], *, out_dir: str, fp
             first_index = dataset.meta.total_frames
             count, repeats, max_skew, previous, origin = 0, 0, 0.0, None, None
             try:
-                for stamp, frame_index, skew in grid_frames(clock, int(fps), max_skew_sec):
+                for stamp, frame_index, skew in grid:
                     t = stamp / NS
                     state = np.asarray(qpos(joints, widths, t), dtype=np.float32)
                     action = np.asarray((*label_fn.at(t), *grip.one_hot(t)), dtype=np.float32)
@@ -230,4 +255,4 @@ def _task_label(conn: Any, episode_id: int) -> str:
     return (row[0] if row else None) or 'unspecified'
 
 
-__all__ = ['CAMERA_KEY', 'export_lerobot_v3', 'grid_frames']
+__all__ = ['CAMERA_KEY', 'ImageGapError', 'export_lerobot_v3', 'grid_frames']

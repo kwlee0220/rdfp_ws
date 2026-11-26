@@ -32,9 +32,10 @@ RDFP_SCRIPT_MODULES = {
 
 #: LeRobot v3 export 를 돌릴 파이썬(명령 접두). `lerobot==0.4.4` 와 `psycopg` · `pydantic` ·
 #: `pyyaml` 이 있어야 한다 — ROS 파이썬에는 lerobot 이 없다. 예:
-#:   export RDFP_LEROBOT_PYTHON='uv run --no-project \
-#:       --python ~/development/rdfp/rdfp-train/.venv/bin/python \
-#:       --with psycopg[binary] --with pydantic --with pyyaml python'
+#:   export RDFP_LEROBOT_PYTHON="uv run --no-project \
+#:       --python $HOME/development/rdfp/rdfp-train/.venv/bin/python \
+#:       --with psycopg[binary] --with pydantic --with pyyaml python"
+#: 큰따옴표에 `$HOME` 을 쓴다 — 작은따옴표 안의 `~` 는 확장되지 않아 uv 가 `No interpreter found` 로 멈춘다.
 LEROBOT_PYTHON_ENV = 'RDFP_LEROBOT_PYTHON'
 
 KIND_IMPORT = 'import'
