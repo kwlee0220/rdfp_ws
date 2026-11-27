@@ -8,7 +8,7 @@
 > 인터페이스 계약을 다루는 최상위 문서다. **학습 데이터를 만드는 전 과정(생성 → 수집 → 적재 → export → 학습)** 은
 > [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) 가 한 화면에 잇는다.
 
-- **현행 문서 66개** (이 색인 제외) + `archive/` 보관 25개. 경로는 `docs/` 기준이다.
+- **현행 문서 67개** (이 색인 제외) + `archive/` 보관 25개. 경로는 `docs/` 기준이다.
 - **종류** — `절차`(사람이 실행하며 읽는다) · `사양`(코드와 1:1 인 계약 · 레퍼런스) · `설계`(왜 그렇게 했나) ·
   `현황`(무엇이 남았나 · 정하지 않았나) · `설계안`(코드 미반영) · `기록`(작업 기록 · 교훈). `archive/` 는 전부 `이력`(갱신하지 않는다).
 - 폴더는 코드 계층을 따른다 — `control/`(robot_control) · `collect/`(rdfp) · `learning/`(학습 데이터) · `twin/`(robot_twin) ·
@@ -67,6 +67,7 @@
 | [collect/rdfp_image_recorder_node_guide.md](collect/rdfp_image_recorder_node_guide.md) | 사양 | `rdfp_image_recorder` — `/session` 자동 녹화, 타임스탬프 분절, sidecar · metadata(`episode_key`), `Image` · `CompressedImage` |
 | [collect/image_recorder_node_guide.md](collect/image_recorder_node_guide.md) | 사양 | `image_recorder_node` — 서비스 구동 레코더 (**보조** — launch 없음, 압축 미지원) |
 | [collect/ffmpeg_mp4_recorder_guide.md](collect/ffmpeg_mp4_recorder_guide.md) | 사양 | `FFMpegMp4Recorder` — ffmpeg subprocess MP4 코어 (ROS 비의존) |
+| [collect/영상_무손실_보관.md](collect/영상_무손실_보관.md) | 설계 | ⭐ 영상 화질 손실 최소화 — 녹화 무손실 보관(Isaac `libx264rgb -qp 0` · 펑션베이 JPEG 그대로), 설정 · 호환성, 녹화본 가공(배경 · 렌즈 왜곡 보정) 시 색 변환 · 보간 · 출력 인코딩 |
 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) | 절차 | ⭐ `scripts/rosbag.sh` — rosbag2 녹화 · 조회 · 적재 · 삭제의 통합 진입점과 그 아래 `ros2 run rdfp rosbag` 서브커맨드 전부. 녹화 옵션 · 적재 설정 대조 경고, 에피소드 선택(시간 범위는 log time 기준), `export` · `delete` 동작, 활용 절차, Python API |
 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) | 절차 | `init-db` · `import` · `stats` · `list` · `replay` 운영, `dataset_config.yaml`, 삭제 절차(§8.6), 토픽 채우기 · 다시 넣기(§8.7a) |
 | [collect/데이터셋_적재_시스템_설계서.md](collect/데이터셋_적재_시스템_설계서.md) | 설계 | 적재 파이프라인 — rosbag 저장 규칙(§0), 에피소드 분할, 스키마 18 테이블(§5 — 적재 메타 4개 포함), 트랜잭션, 레코더 mp4 등록, sim 시계 겹침 함정 |
@@ -179,6 +180,7 @@
 | **학습 데이터를 만드는 전 과정을 한눈에** | [collect/학습_데이터_파이프라인_개요.md](collect/학습_데이터_파이프라인_개요.md) |
 | 세션 · 에피소드를 시작 · 종료한다 | [collect/session_control_guide.md](collect/session_control_guide.md) |
 | 영상을 MP4 로 녹화한다 | [collect/rdfp_image_recorder_node_guide.md](collect/rdfp_image_recorder_node_guide.md) |
+| 영상 화질 손실을 줄인다 · 녹화본을 가공한다 | [collect/영상_무손실_보관.md](collect/영상_무손실_보관.md) |
 | 수집 토픽을 rosbag 으로 녹화한다 / rosbag 명령을 한곳에서 쓴다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) |
 | rosbag 의 에피소드를 보거나 내보내거나 지운다 | [collect/rosbag_명령_가이드.md](collect/rosbag_명령_가이드.md) §4~§8 |
 | rosbag 을 DB 에 적재한다 / 수집 데이터를 지운다 | [collect/데이터셋_적재_운영_가이드.md](collect/데이터셋_적재_운영_가이드.md) |

@@ -73,6 +73,11 @@ def validate_input_format(input_format: str) -> str:
 
 # 지원 코덱 상수 (probe / 커맨드 빌더 공용)
 CODEC_LIBX264: Final[str] = "libx264"
+# 무손실 보관용 코덱 — `build_lossless_output_args` 만 쓴다. 하드웨어 probe 의
+# 후보가 아니므로 `SUPPORTED_CODECS` 에 넣지 않는다.
+CODEC_LIBX264RGB: Final[str] = "libx264rgb"
+# 스트림 복사(`-c:v copy`)로 담긴 JPEG 의 코덱 이름. metadata 의 `codec` 에 남는다.
+CODEC_MJPEG: Final[str] = "mjpeg"
 CODEC_H264_NVENC: Final[str] = "h264_nvenc"
 CODEC_H264_QSV: Final[str] = "h264_qsv"
 CODEC_H264_VAAPI: Final[str] = "h264_vaapi"
@@ -248,6 +253,80 @@ def build_h264_vaapi_args(
     ]
 
 
+# 무손실 raw 녹화에서 ffmpeg 에 넘길 출력 픽셀 포맷. **입력과 같은 색 표현을 유지해
+# 변환 자체를 없애는 것이 목적이다** — RGB 를 yuv420p 로 바꾸면 색 해상도가 1/4 로
+# 줄고 반올림 오차가 생기는데, 그것은 녹화 뒤에 되돌릴 수 없다. 알파는 버린다(RGB 는
+# 그대로다). 흑백은 `libx264rgb` 가 받지 않아 `libx264` 의 `gray` 로 담는다.
+_LOSSLESS_RAW_TARGETS: Final[dict[str, tuple[str, str]]] = {
+    "bgr8": (CODEC_LIBX264RGB, "bgr24"),
+    "rgb8": (CODEC_LIBX264RGB, "rgb24"),
+    "bgra8": (CODEC_LIBX264RGB, "bgr0"),
+    "rgba8": (CODEC_LIBX264RGB, "bgr0"),
+    "mono8": (CODEC_LIBX264, "gray"),
+}
+
+
+def lossless_codec(*, input_format: str, pixel_format: str) -> str:
+    """무손실 녹화에서 실제로 쓰이는 코덱 이름을 돌려준다.
+
+    `mjpeg` 입력은 JPEG 을 다시 인코딩하지 않고 그대로 담으므로 `mjpeg` 이고,
+    raw 입력은 픽셀 포맷에 따라 `libx264rgb` 또는 `libx264`(흑백) 다.
+
+    Raises:
+        ValueError: 지원하지 않는 input_format · pixel_format 인 경우.
+    """
+    validate_input_format(input_format)
+    if input_format == INPUT_MJPEG:
+        return CODEC_MJPEG
+    return _lossless_raw_target(pixel_format)[0]
+
+
+def build_lossless_output_args(
+    *,
+    input_format: str,
+    pixel_format: str,
+    gop_size: int,
+    preset: str,
+) -> list[str]:
+    """받은 이미지를 **추가 손실 없이** 담는 출력 옵션을 생성한다.
+
+    * ``mjpeg`` — `-c:v copy`. 시뮬레이터가 보낸 JPEG 바이트가 컨테이너 패킷에
+      그대로 들어간다(디코드도 인코드도 없다). GOP · preset 은 쓰이지 않는다.
+    * ``rawvideo`` — x264 무손실(`-qp 0`). 컬러는 `libx264rgb` 로 RGB 를 그대로
+      담아 색공간 변환이 없고, 흑백은 `libx264 -pix_fmt gray` 다. 이 출력은
+      `High 4:4:4 Predictive` 프로파일이라 ffmpeg · PyAV · OpenCV 는 읽지만
+      브라우저 · 하드웨어 디코더는 재생하지 못할 수 있다.
+
+    Raises:
+        ValueError: 지원하지 않는 input_format · pixel_format 이거나 GOP · preset
+            이 유효하지 않은 경우.
+    """
+    validate_input_format(input_format)
+    if input_format == INPUT_MJPEG:
+        return ["-c:v", "copy"]
+    codec, out_pix_fmt = _lossless_raw_target(pixel_format)
+    _validate_gop_size(gop_size)
+    _validate_non_empty(preset, field="preset")
+    return [
+        "-c:v", codec,
+        "-preset", preset,
+        "-qp", "0",
+        "-pix_fmt", out_pix_fmt,
+        "-g", str(gop_size),
+    ]
+
+
+def _lossless_raw_target(pixel_format: str) -> tuple[str, str]:
+    """raw 픽셀 포맷 → (코덱, 출력 `-pix_fmt`)."""
+    try:
+        return _LOSSLESS_RAW_TARGETS[pixel_format]
+    except KeyError as exc:
+        raise ValueError(
+            f"unsupported pixel_format for lossless recording: {pixel_format!r}; "
+            f"expected one of {sorted(_LOSSLESS_RAW_TARGETS)}"
+        ) from exc
+
+
 def build_output_args(
     *,
     codec: str,
@@ -264,8 +343,6 @@ def build_output_args(
         gop_size: GOP 크기 (I-frame 간격). vaapi 에서는 무시된다.
         preset: libx264 preset (그 외 코덱에서는 무시).
         vaapi_device: VAAPI 디바이스 경로 (vaapi 외 코덱에서는 무시).
-        input_format: `rawvideo`(기본) 또는 `mjpeg`. `mjpeg` 면 stdin 으로 JPEG
-            바이트를 그대로 받아 ffmpeg 이 디코드한다 (`build_input_args` 참조).
 
     Returns:
         해당 코덱에 대한 ffmpeg 출력 옵션 리스트.
@@ -300,6 +377,7 @@ def build_ffmpeg_command(
     preset: str = "medium",
     vaapi_device: str = "/dev/dri/renderD128",
     input_format: str = INPUT_RAWVIDEO,
+    lossless: bool = False,
 ) -> list[str]:
     """완전한 ffmpeg 실행 커맨드 리스트를 생성한다.
 
@@ -317,6 +395,9 @@ def build_ffmpeg_command(
         output_path: 출력 MP4 파일 경로.
         preset: libx264 preset (그 외 코덱에서는 무시).
         vaapi_device: VAAPI 디바이스 경로 (vaapi 외 코덱에서는 무시).
+        input_format: `rawvideo`(기본) 또는 `mjpeg`.
+        lossless: True 면 `codec` · `bitrate` 를 쓰지 않고
+            `build_lossless_output_args` 로 받은 이미지를 추가 손실 없이 담는다.
 
     Returns:
         subprocess 에 바로 넘길 수 있는 인자 리스트.
@@ -334,15 +415,20 @@ def build_ffmpeg_command(
             input_format=input_format,
         )
     )
-    cmd.extend(
-        build_output_args(
-            codec=codec,
-            bitrate=bitrate,
-            gop_size=gop_size,
-            preset=preset,
-            vaapi_device=vaapi_device,
+    if lossless:
+        cmd.extend(build_lossless_output_args(
+            input_format=input_format, pixel_format=pixel_format, gop_size=gop_size,
+            preset=preset))
+    else:
+        cmd.extend(
+            build_output_args(
+                codec=codec,
+                bitrate=bitrate,
+                gop_size=gop_size,
+                preset=preset,
+                vaapi_device=vaapi_device,
+            )
         )
-    )
     cmd.extend(["-movflags", "+faststart", output_path])
     return cmd
 

@@ -350,6 +350,7 @@ def _build_actions(context: LaunchContext) -> list[Any]:
             "fps": LaunchConfiguration("image_recorder_fps"),
             "pixel_format": LaunchConfiguration("image_recorder_pixel_format"),
             "bitrate": LaunchConfiguration("image_recorder_bitrate"),
+            "lossless": LaunchConfiguration("image_recorder_lossless"),
             "gop_size": LaunchConfiguration("image_recorder_gop_size"),
             "preset": LaunchConfiguration("image_recorder_preset"),
             "encoder_mode": LaunchConfiguration("image_recorder_encoder_mode"),

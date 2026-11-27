@@ -46,6 +46,7 @@ metadata 가 담는 것:
 ``mp4`` ``sidecar``  같은 묶음의 파일 이름
 ``topic``            어느 토픽의 영상인가
 ``codec``            ffmpeg 이 **실제로 고른** 코덱
+``lossless``         받은 이미지를 추가 손실 없이 담았는가
 ``fps``              컨테이너 fps
 ``input_format``     ``rawvideo`` / ``mjpeg``
 ``resolution``       ``WxH`` 문자열. ``width`` · ``height`` 로도 둔다
@@ -85,7 +86,7 @@ from rdfp_msgs.msg import SessionCommand
 
 from robot_control.types import Fps, Resolution
 from robot_control.ros2_utils import (
-    SYSTEM_QOS, get_parameter, parse_int, parse_str, parse_stripped_str)
+    SYSTEM_QOS, get_parameter, parse_bool, parse_int, parse_str, parse_stripped_str)
 from .exceptions import EncoderUnavailableError, RecorderStateError
 from .ffmpeg_command import INPUT_MJPEG, INPUT_RAWVIDEO
 from .ffmpeg_mp4_recorder import FFMpegMp4Recorder
@@ -173,6 +174,7 @@ class RdfpImageRecorderNode(Node):
             f'resolution={self._resolution.width}x{self._resolution.height} '
             f'pixel_format={self._pixel_format} '
             f'encoder_mode={self._encoder_mode} '
+            f'lossless={self._lossless} '
             f'queue_size={self._queue_size} '
             f'pending_queue_length={self._pending_queue_length}'
         )
@@ -284,6 +286,10 @@ class RdfpImageRecorderNode(Node):
         self.declare_parameter('bitrate', '4M')
         self.declare_parameter('gop_size', 0)
         self.declare_parameter('preset', 'medium')
+        # 받은 이미지를 **추가 손실 없이** 담는다 — raw 는 RGB 무손실(libx264rgb),
+        # mjpeg 는 JPEG 바이트를 그대로 담는다. 켜면 bitrate · 하드웨어 인코더는
+        # 쓰이지 않는다. 녹화 시점에 비가역이다.
+        self.declare_parameter('lossless', False)
         self.declare_parameter('preferred_hw_codec', '')
         self.declare_parameter('ffmpeg_binary', 'ffmpeg')
         self.declare_parameter('vaapi_device', '/dev/dri/renderD128')
@@ -321,6 +327,7 @@ class RdfpImageRecorderNode(Node):
         self._bitrate = get_parameter(self, 'bitrate', parse_str)
         self._gop_size = get_parameter(self, 'gop_size', parse_int)
         self._preset = get_parameter(self, 'preset', parse_str)
+        self._lossless = get_parameter(self, 'lossless', parse_bool)
         self._preferred_hw_codec = get_parameter(self, 'preferred_hw_codec', parse_str)
         self._ffmpeg_binary = get_parameter(self, 'ffmpeg_binary', parse_str)
         self._vaapi_device = get_parameter(self, 'vaapi_device', parse_str)
@@ -369,6 +376,7 @@ class RdfpImageRecorderNode(Node):
                 vaapi_device=self._vaapi_device,
                 queue_size=self._queue_size,
                 input_format=self._input_format,
+                lossless=self._lossless,
             )
         except EncoderUnavailableError as exc:
             raise RuntimeError(f'GPU encoder unavailable: {exc}') from exc
@@ -933,6 +941,9 @@ class RdfpImageRecorderNode(Node):
             'topic_type': self._image_type_name,
             # ffmpeg 이 실제로 고른 코덱. 요청한 값이 아니라 **선택된 값**이다.
             'codec': self._recorder.selected_codec,
+            # 받은 이미지를 추가 손실 없이 담았는가. True 면 raw 는 RGB 무손실,
+            # mjpeg 는 받은 JPEG 바이트 그대로다(`codec` 이 `mjpeg`).
+            'lossless': self._lossless,
             # 컨테이너 fps. 프레임 stamp 와 달라도 되며(카메라가 흔들린다), 재생
             # 쪽이 컨테이너를 읽을 때 쓰는 값이다.
             'fps': self._fps,

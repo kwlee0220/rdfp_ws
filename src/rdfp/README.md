@@ -294,8 +294,10 @@ USB 풋페달 클러치(`clutch_pedal`)를 쓰면 `python3-evdev` 가 더 필요
 
 적재는 이 mp4 를 rosbag 이미지와 별도로 metadata 의 **에피소드 키**로 에피소드에 붙인다
 (설정 `recordings_dir`). 압축 이미지(`CompressedImage`)를 직접 받는 것도 이 노드뿐이다
-(`input_format`). 인코딩 설정(`bitrate` · `gop_size` · `preset` · `encoder_mode`)은
-`image_pipeline.yaml` 의 `image_recorder` 블록이 갖는다.
+(`input_format`). 인코딩 설정(`lossless` · `bitrate` · `gop_size` · `preset` · `encoder_mode`)은
+`image_pipeline.yaml` 의 `image_recorder` 블록이 갖는다. 기본은 `lossless: true` 로, 받은
+이미지를 추가 손실 없이 담는다 — raw 는 `libx264rgb -qp 0`, JPEG 은 바이트 그대로
+([docs/collect/영상_무손실_보관.md](../../docs/collect/영상_무손실_보관.md)).
 
 ⚠️ 선언한 `pixel_format` · 해상도 · fps 와 다른 프레임은 **경고만 남기고 버린다** — mp4 는
 생기고 오류도 없어서, 적재에서 `image_frames: 0` 으로야 드러난다. Isaac 카메라는 `rgb8` 이고

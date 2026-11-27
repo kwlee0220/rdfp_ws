@@ -374,6 +374,7 @@ def test_metadata_carries_topic_codec_and_fps(node) -> None:
     assert meta['fps'] == 10
     assert (meta['width'], meta['height']) == (WIDTH, HEIGHT)
     assert meta['input_format'] == 'rawvideo'
+    assert meta['lossless'] is False, '손실 녹화인지 무손실 보관인지 에피소드마다 남긴다'
 
 
 def test_metadata_is_not_overwritten_between_episodes(node) -> None:

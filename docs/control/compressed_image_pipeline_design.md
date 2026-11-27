@@ -159,13 +159,13 @@ DeclareLaunchArgument('enable_camera', default_value=PythonExpression([...]))
 
 | `input_format` | 구독 | 경로 |
 |---|---|---|
-| `mjpeg` (**압축 백엔드의 기본**) | `CompressedImage` | JPEG → ffmpeg `-f mjpeg` → H.264 |
-| `rawvideo` | `Image` | 픽셀 → ffmpeg `-f rawvideo` → H.264 |
+| `mjpeg` (**압축 백엔드의 기본**) | `CompressedImage` | JPEG → ffmpeg `-f mjpeg` → `lossless: true` 면 JPEG 그대로(`-c:v copy`), 아니면 H.264 |
+| `rawvideo` | `Image` | 픽셀 → ffmpeg `-f rawvideo` → `lossless: true` 면 `libx264rgb -qp 0`, 아니면 H.264 |
 
 `mjpeg` 가 기본인 이유는 **디코드를 우리가 안 하기 때문**만이 아니다. 그 경로는 raw 토픽
 자체를 필요로 하지 않으므로, **헤드리스 수집에서 8.9 MB/s 가 아예 안 생긴다.**
 
-출력은 어느 쪽이든 H.264 라 데이터셋·`Mp4ImageReplayer` 에는 영향이 없다.
+출력 코덱은 `lossless` 에 따라 달라도 데이터셋·`Mp4ImageReplayer` 에는 영향이 없다 — 읽는 쪽(PyAV · OpenCV)이 컨테이너의 코덱으로 디코드한다([영상_무손실_보관.md](../collect/영상_무손실_보관.md) §4).
 
 > ⚠️ 방향이 어긋난 호출(`write_bytes()` on mjpeg / `write_compressed()` on raw)은
 > `InvalidFrameError` 로 거부한다. 조용히 통과시키면 JPEG 이 raw 픽셀로 해석돼 깨진 영상이

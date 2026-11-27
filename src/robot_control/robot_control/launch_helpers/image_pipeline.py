@@ -191,9 +191,15 @@ def declare_image_recorder_arguments(
             description="ffmpeg -b:v value for the recorded MP4 (irreversible once recorded)",
         ),
         DeclareLaunchArgument(
+            "image_recorder_lossless",
+            default_value=as_launch_str(ir["lossless"]),
+            description="If true, store received images without further loss "
+                        "(raw: libx264rgb -qp 0, JPEG: stream copy); bitrate is unused",
+        ),
+        DeclareLaunchArgument(
             "image_recorder_gop_size",
             default_value=as_launch_str(ir["gop_size"]),
-            description="Keyframe interval; 0 leaves the ffmpeg default",
+            description="Keyframe interval; 0 means fps * 2 (the recorder default)",
         ),
         DeclareLaunchArgument(
             "image_recorder_preset",

@@ -18,7 +18,8 @@ from robot_control.types import Resolution
 from .encoder_probe import select_encoder
 from robot_control.types import InvalidFrameError
 from .ffmpeg_command import (INPUT_MJPEG, INPUT_RAWVIDEO, SUPPORTED_ENCODINGS,
-                             build_ffmpeg_command, channels_for, validate_input_format)
+                             build_ffmpeg_command, channels_for, lossless_codec,
+                             validate_input_format)
 from .state import RecorderState, RecorderStateMachine
 
 
@@ -108,6 +109,7 @@ class FFMpegMp4Recorder:
         overflow_policy: str = _OVERFLOW_WAIT,
         logger: Optional[logging.Logger] = None,
         input_format: str = INPUT_RAWVIDEO,
+        lossless: bool = False,
     ) -> None:
         """
         Args:
@@ -134,6 +136,12 @@ class FFMpegMp4Recorder:
                   삽입한다.
                 * ``"drop_newest"`` — 새 프레임을 무시하고 기존 큐를 유지한다.
             logger: 외부 주입 로거. 생략 시 클래스 기본 로거 사용.
+            input_format: `rawvideo`(기본) 또는 `mjpeg`.
+            lossless: True 면 받은 이미지를 **추가 손실 없이** 담는다 — raw 는
+                RGB 무손실(`libx264rgb -qp 0`, 흑백은 `libx264 -pix_fmt gray`),
+                `mjpeg` 는 JPEG 바이트를 그대로 담는다(`-c:v copy`). 이때
+                `bitrate` 와 하드웨어 인코더 선택(`encoder_mode` ·
+                `preferred_hw_codec`)은 쓰이지 않는다.
 
         Raises:
             ValueError: 인자 값이 유효하지 않은 경우.
@@ -182,14 +190,25 @@ class FFMpegMp4Recorder:
         self._queue_size: int = queue_size
         self._overflow_policy: str = overflow_policy
 
-        # 4. 인코더 probe (생성자 1 회)
-        self._selected_codec: str = select_encoder(
-            encoder_mode=encoder_mode,
-            ffmpeg_binary=ffmpeg_binary,
-            preferred_hw_codec=preferred_hw_codec,
-            vaapi_device=vaapi_device,
-            logger=self._logger,
-        )
+        self._lossless: bool = bool(lossless)
+
+        # 4. 인코더 결정 (생성자 1 회). 무손실은 코덱이 입력으로 정해지므로 probe 하지
+        # 않는다 — 하드웨어 인코더에는 같은 보장이 없다.
+        if self._lossless:
+            self._selected_codec: str = lossless_codec(
+                input_format=self._input_format, pixel_format=pixel_format)
+            if encoder_mode != "auto" and encoder_mode != "cpu":
+                self._logger.warning(
+                    "encoder_mode=%r is ignored for lossless recording; using %s",
+                    encoder_mode, self._selected_codec)
+        else:
+            self._selected_codec = select_encoder(
+                encoder_mode=encoder_mode,
+                ffmpeg_binary=ffmpeg_binary,
+                preferred_hw_codec=preferred_hw_codec,
+                vaapi_device=vaapi_device,
+                logger=self._logger,
+            )
 
         # 5. 런타임 상태 (start() 에서 설정)
         self._output_path: Optional[str] = None
@@ -223,6 +242,11 @@ class FFMpegMp4Recorder:
     def selected_codec(self) -> str:
         """생성자 probe 로 선택된 코덱 이름."""
         return self._selected_codec
+
+    @property
+    def lossless(self) -> bool:
+        """받은 이미지를 추가 손실 없이 담는가."""
+        return self._lossless
 
     @property
     def frames_written(self) -> int:
@@ -282,6 +306,7 @@ class FFMpegMp4Recorder:
                 output_path=output_path,
                 preset=self._preset,
                 vaapi_device=self._vaapi_device,
+                lossless=self._lossless,
             )
 
             self._proc = subprocess.Popen(

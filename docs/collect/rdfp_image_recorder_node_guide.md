@@ -129,8 +129,9 @@ ls /data/rdfp/recordings/*.mp4
 | `encoder_mode` | `"auto"` | `auto`/`cpu`/`gpu` |
 | `queue_size` | `120` | FFMpegMp4Recorder 내부 프레임 큐 크기 |
 | `pending_queue_length` | `60` | 타임스탬프 경계 보상 큐 크기 (프레임 수) |
-| `bitrate` | `"4M"` | ffmpeg `-b:v` |
-| `gop_size` | `0` | `0`이면 `fps*2` 적용 |
+| `lossless` | `false` | 받은 이미지를 **추가 손실 없이** 담는다 — raw 는 `libx264rgb -qp 0`(RGB 무손실), `mjpeg` 는 JPEG 바이트 그대로(`-c:v copy`). 켜면 `bitrate` 와 하드웨어 인코더 선택은 쓰이지 않는다. `rdfp_collect` 는 `image_pipeline.yaml` 의 값(`true`)을 넘긴다 — [영상_무손실_보관.md](영상_무손실_보관.md) |
+| `bitrate` | `"4M"` | ffmpeg `-b:v`. `lossless` 가 꺼져 있을 때만 쓴다 |
+| `gop_size` | `0` | `0`이면 `fps*2` 적용. `mjpeg` 무손실에서는 쓰지 않는다 |
 | `preset` | `"medium"` | libx264 preset |
 | `preferred_hw_codec` | `""` | 빈 문자열이면 자동 probe |
 | `ffmpeg_binary` | `"ffmpeg"` | ffmpeg 실행 파일 경로 |
@@ -246,9 +247,7 @@ sequenceDiagram
 
 ### MP4 파일
 
-기존과 동일. `FFMpegMp4Recorder` 를 통해 H.264/H.265 로 인코딩된 lossy
-영상. CFR(Constant Frame Rate) 기반이므로 `fps` 파라미터가 실제 입력
-frame rate 와 일치해야 한다.
+`FFMpegMp4Recorder` 가 쓴 영상. `lossless: true` 면 raw 입력은 RGB 무손실(`libx264rgb`), JPEG 입력은 받은 JPEG 그대로(`mjpeg`)이고, `lossless: false` 면 H.264 손실 압축이다([영상_무손실_보관.md](영상_무손실_보관.md)). CFR(Constant Frame Rate) 기반이므로 `fps` 파라미터가 실제 입력 frame rate 와 일치해야 한다.
 
 ### Sidecar 파일 (`.jsonl`)
 
@@ -281,6 +280,7 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
   "sidecar": "session_20260918-225901.200.jsonl",
   "topic": "camera/image_raw",
   "codec": "libx264",
+  "lossless": false,
   "fps": 10,
   "input_format": "rawvideo",
   "resolution": "640x480",
@@ -301,7 +301,8 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
 | `episode_key` | object | `/session` IN_EPISODE 의 `header.stamp` | **적재가 에피소드를 이 값으로 식별한다**(`sessions` 의 UNIQUE 키). ⚠️ **파일 이름의 `<start_ts>` 와 다르다** — 이름은 벽시계, 이 값은 스택 시계다. `use_sim_time` 스택에서는 둘이 아예 무관하다 |
 | `mp4` · `sidecar` | string | — | 같은 묶음의 파일 이름. 적재가 이름 규칙을 다시 조립하지 않게 한다 |
 | `topic` | string | 파라미터 (`image_topic`) | `image_streams` 가 topic_id 를 붙이는 근거 |
-| `codec` | string | ffmpeg 이 **실제로 고른** 값 | 요청값이 아니다 — 하드웨어 인코더가 없으면 `libx264` 로 떨어진다 |
+| `codec` | string | ffmpeg 이 **실제로 고른** 값 | 요청값이 아니다 — 하드웨어 인코더가 없으면 `libx264` 로 떨어진다. 무손실이면 raw 는 `libx264rgb`(흑백 `libx264`), `mjpeg` 는 `mjpeg` 다 |
+| `lossless` | bool | 파라미터 | 받은 이미지를 추가 손실 없이 담았는가. 이 키가 없으면 이 기능 이전의 손실 녹화본이다 |
 | `fps` | int | 파라미터 | 컨테이너 fps. 프레임 stamp 간격과 달라도 된다 |
 | `input_format` | string | 파라미터 | `rawvideo` / `mjpeg`. 우리가 디코드했는지가 갈린다 |
 | `resolution` | string | 파라미터 | `"WIDTHxHEIGHT"` |
@@ -324,7 +325,7 @@ JSON Lines 파일. mp4 의 N번째 프레임과 sidecar 의 N번째 라인이 1:
 | `encoding` | ✅ | metadata `encoding` |
 | `is_bigendian` | ✅ | metadata `is_bigendian` |
 | `step` | ⚠️ | `width × channels` 로 재계산 (원본 padding 유실) |
-| `data` (픽셀) | ⚠️ | mp4 lossy 압축 — 시각적으로 거의 동일하나 bit-exact 아님 |
+| `data` (픽셀) | ✅ / ⚠️ | `lossless: true` 면 raw 는 비트 단위로 같은 픽셀, `mjpeg` 는 받은 JPEG 바이트 그대로다. `lossless: false` 면 손실 압축이라 시각적으로 거의 같지만 비트 단위로는 다르다 |
 
 ---
 

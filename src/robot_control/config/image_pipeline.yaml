@@ -48,8 +48,16 @@ image_recorder:
   # all-intra 가 9.8배 크다(5.9 → 58 MB / 600프레임). 학습이 무작위 접근 속도를 원하면
   # **그때 JPEG 으로 전개한다**(2.75 ms, 같은 용량인데 더 빠르고 파생물이라 지울 수 있다).
   # AV1 · HEVC 도 이득이 없다(부록 C) — 게다가 시스템 ffmpeg 4.4.2 에 libsvtav1 이 없다.
-  bitrate: 4M
-  gop_size: 0               # 0 = ffmpeg 기본. 짧게 잡지 않는다 (위 근거)
+  #
+  # **무손실 보관**(2026-11-26) — 받은 이미지를 녹화 단계에서 더 잃지 않는다. raw
+  # (Isaac `rgb8`)는 `libx264rgb -qp 0` 으로 RGB 를 비트 단위 그대로, JPEG(펑션베이)은
+  # `-c:v copy` 로 시뮬레이터가 보낸 바이트 그대로 담는다. 켜면 `bitrate` 와
+  # `encoder_mode` 의 하드웨어 선택은 쓰이지 않는다. 손실은 학습용 파생물을 만들
+  # 때 한 번만 생기게 한다 — 근거와 용량:
+  # [영상_무손실_보관.md](../../../docs/collect/영상_무손실_보관.md).
+  lossless: true
+  bitrate: 4M               # lossless: false 일 때만 쓴다 (-b:v)
+  gop_size: 0               # 0 = fps * 2 (레코더 기본값, 10 fps 면 20). 짧게 잡지 않는다
   preset: medium
   encoder_mode: auto        # auto 는 하드웨어 인코더를 고를 수 있다 — 그때 codec 이
                             # 바뀌며, 그 값은 에피소드마다 metadata.json 에 남는다

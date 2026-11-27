@@ -73,7 +73,10 @@ FFMpegMp4Recorder(
     ffmpeg_binary: str = "ffmpeg",
     vaapi_device: str = "/dev/dri/renderD128",
     queue_size: int = 120,
+    overflow_policy: str = "wait",
     logger: logging.Logger | None = None,
+    input_format: str = "rawvideo",
+    lossless: bool = False,
 ) -> None
 ```
 
@@ -89,8 +92,9 @@ FFMpegMp4Recorder(
   - `"auto"` — GPU 인코더를 우선 시도하고 실패 시 CPU(libx264)로 폴백
   - `"cpu"` — 항상 libx264
   - `"gpu"` — GPU 인코더만 허용 (없으면 `EncoderUnavailableError`)
-- `queue_size`는 프레임 백프레셔 큐의 최대 길이입니다. 가득차면 **가장 오래된
-  프레임부터 버립니다** (drop_oldest).
+- `input_format`이 `"mjpeg"`이면 `write_compressed()`로 JPEG 바이트를 받습니다(기본 `"rawvideo"`는 `write()` · `write_bytes()`로 픽셀을 받습니다).
+- `lossless=True`면 받은 이미지를 **추가 손실 없이** 담습니다. raw 입력은 `libx264rgb -qp 0`(RGB 무손실, 흑백은 `libx264 -pix_fmt gray`), `mjpeg` 입력은 JPEG 바이트를 그대로 담습니다(`-c:v copy`). 이때 `bitrate`와 하드웨어 인코더 probe는 쓰이지 않고 `selected_codec`은 `libx264rgb` · `libx264` · `mjpeg` 중 하나가 됩니다. 근거와 검증은 [영상_무손실_보관.md](영상_무손실_보관.md)에 있습니다.
+- `queue_size`는 프레임 백프레셔 큐의 최대 길이입니다. 가득차면 `overflow_policy`를 따릅니다 — 기본 `"wait"`는 공간이 생길 때까지 `write()`가 블록하고, `"drop_oldest"` · `"drop_newest"`는 프레임을 버립니다.
 
 ### 생성 시 발생 가능한 예외
 
