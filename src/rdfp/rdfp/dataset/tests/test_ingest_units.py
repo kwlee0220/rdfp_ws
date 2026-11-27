@@ -77,7 +77,10 @@ def dsn():
 def db(dsn, monkeypatch):
     """시험마다 빈 스키마 — 테이블을 다 지우고 schema.sql 을 다시 올린다."""
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute('DROP SCHEMA public CASCADE; CREATE SCHEMA public')
+        # `DROP SCHEMA public` 을 쓰지 않는다 — PostgreSQL 14 까지는 새 DB 의 `public` 소유자가
+        # `postgres` 라 DB 소유자도 지울 수 없다(`must be owner of schema public`). 이 사용자가 만든
+        # 객체(schema.sql 의 테이블 · CLI 가 만든 동적 테이블)만 지우면 같은 빈 상태가 된다.
+        conn.execute('DROP OWNED BY CURRENT_USER')
         conn.execute(SCHEMA.read_text(encoding='utf-8'))
     monkeypatch.setenv(DSN_ENV, dsn)
     with psycopg.connect(dsn) as conn:
