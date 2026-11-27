@@ -16,6 +16,7 @@ from robot_control.moveit.move_group_client import (
     TRAJECTORY_EXEC_TIMEOUT_SEC,
     CartesianPathResult,
     MoveGroupClient,
+    planning_error,
 )
 from robot_control.moveit.motion_event_publisher import (
     OPERATION_CARTESIAN,
@@ -424,8 +425,9 @@ class MoveGroupJgpcClient(MoveGroupClient):
                         f'Path planning returned error code: {response.error_code.val}'
                     )
                     self._publish_failed(goal, f'error_code={response.error_code.val}')
-                    result_future.set_exception(PlanningError(
-                        f'Path planning failed with error code: {response.error_code.val}'
+                    result_future.set_exception(planning_error(
+                        f'Path planning failed with error code: {response.error_code.val}',
+                        response.error_code.val
                     ))
                     return
 

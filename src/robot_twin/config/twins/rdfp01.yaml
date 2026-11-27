@@ -242,7 +242,8 @@ operations:
     description: >-
       팔을 사전 정의된 이름 자세로 옮긴다. 쓸 수 있는 이름은 named_targets 변수에
       있다. 좌표를 모를 때, 그리고 **작업 시작 전 초기 자세를 고정할 때** 쓴다.
-      완료가 도달을 보장하지 않으므로 확인이 필요하면 ee_pose 를 읽는다.
+      완료가 도달을 보장하지 않으므로 확인이 필요하면 ee_pose 를 읽거나,
+      settle_timeout_sec 를 주어 트윈이 정착을 기다린 뒤 settled · goal_error 를 싣게 한다.
     kind: async
     resource: arm
     idempotent: true
@@ -254,6 +255,9 @@ operations:
         target: { type: string }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 
@@ -263,7 +267,9 @@ operations:
       목표 좌표를 아는 경우에 쓰며, 위에서 접근할 때는 목표 바로 위를 먼저 경유하는
       편이 안전하다.
       **완료가 도달을 뜻하지 않는다** — 이 백엔드는 명령을 개루프로 흘린다. 도달이
-      중요하면 ee_pose 를 읽어 목표와 비교한다.
+      중요하면 settle_timeout_sec(예: 5)를 준다 — 트윈이 팔이 멈출 때까지 기다린 뒤
+      settled 와 목표 대비 goal_error 를 결과에 싣는다. settled 가 false 면 아직
+      흔들리는 중이니 ee_pose 를 다시 읽어 확인한다.
       **pose 는 기본적으로 `grasp_center` 기준이다** — ee_pose 와 같은 프레임이라
       ee_pose 로 읽은 값을 그대로 넣으면 제자리에 머문다. `frame: panda_link8` 을
       주면 MoveIt tip link 기준으로 해석한다(둘은 149 mm 떨어져 있다).
@@ -307,6 +313,9 @@ operations:
         # 생략하면 0.95 (backends.DEFAULT_MIN_FRACTION). 부분 경로를 감수할 때만 낮춘다.
         min_fraction: { type: number, exclusiveMinimum: 0, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 
@@ -389,6 +398,9 @@ operations:
           additionalProperties: { type: number }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 

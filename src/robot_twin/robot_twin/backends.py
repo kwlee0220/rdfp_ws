@@ -18,10 +18,11 @@ import random
 import time
 
 from robot_twin.config import OperationConfig
-from robot_twin.session import Session
+from robot_twin.session import Phase, Session
 
 if TYPE_CHECKING:
     from robot_twin.runtime import RobotTwinRuntime
+    from robot_twin.settle import SettleResult
 
 # 그리퍼 목표 이름이 어느 폭에 대응하는지, 어느 토픽으로 보내는지, 결과를 어느 변수로
 # 받는지는 **설정이 정한다** (`move_gripper_to_target` 의 `backend.*`). 목표 추가가 설정
@@ -170,6 +171,11 @@ def validate_inputs(op_name: str, inputs: dict[str, Any],
     if duration is not None and (not isinstance(duration, (int, float)) or duration <= 0):
         raise ValueError('max_duration_sec must be a positive number')
 
+    settle = inputs.get('settle_timeout_sec')
+    if settle is not None:
+        if _require_finite_number(settle, 'settle_timeout_sec') < 0:
+            raise ValueError(f'settle_timeout_sec must be zero or positive, got {settle!r}')
+
 
 def dispatch(runtime: 'RobotTwinRuntime', client: Optional[Any], op: OperationConfig,
              session: Session, *, timeout: float) -> dict[str, Any]:
@@ -220,7 +226,8 @@ def _move_to_named_target(runtime: 'RobotTwinRuntime', client: Optional[Any],
         externally_spun=True
     )
     _await(future, timeout=timeout, what=f"move_to_named_target('{target}')")
-    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    settle = _settle(runtime, session, timeout=timeout)
+    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime), settle=settle)
     # 목표 관절값은 방금 이동이 읽어 둔 SRDF 캐시에서 꺼낸다 — 새 조회를 하지 않는다.
     lookup = getattr(client, 'cached_named_target_values', None)
     goal = lookup(target) if callable(lookup) else None
@@ -240,7 +247,8 @@ def _move_to_joints(runtime: 'RobotTwinRuntime', client: Optional[Any],
         joints, velocity_scaling=_scaling(session, 'velocity_scaling'), externally_spun=True
     )
     _await(future, timeout=timeout, what=f'move_to_joints({len(joints)} joints)')
-    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    settle = _settle(runtime, session, timeout=timeout)
+    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime), settle=settle)
     _attach_goal_error(outputs, joint_error=_joint_goal_error(outputs, joints))
     return outputs
 
@@ -305,11 +313,12 @@ def _move_linear(runtime: 'RobotTwinRuntime', client: Optional[Any],
     future = client.follow_trajectory_async(waypoints, **kwargs)
     result = _await(future, timeout=timeout, what='move_linear')
 
-    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime))
+    settle = _settle(runtime, session, timeout=timeout)
+    outputs = _motion_outputs(runtime, closed_loop=_is_closed_loop(runtime), settle=settle)
     fraction = getattr(result, 'fraction', None)
     if fraction is not None:
         outputs['fraction'] = float(fraction)
-    if outputs['closed_loop']:
+    if _goal_error_meaningful(outputs):
         _attach_goal_error(outputs, pose_error=_tip_pose_error(runtime, client, pose))
     return outputs
 
@@ -938,14 +947,79 @@ def _is_closed_loop(runtime: 'RobotTwinRuntime') -> bool:
     return runtime.config.moveit.move_group_mode == 'jtc'
 
 
-def _motion_outputs(runtime: 'RobotTwinRuntime', *, closed_loop: bool) -> dict[str, Any]:
+# 정착 대기를 워치독 시한보다 이만큼 먼저 끝낸다(초). 결과를 만들 시간을 남겨, 대기가
+# 시한을 다 쓰고 연산이 `TIMEOUT` 으로 끝나는 일을 막는다.
+_SETTLE_DEADLINE_MARGIN_SEC = 0.25
+
+
+def _settle_timeout(runtime: 'RobotTwinRuntime', session: Session) -> float:
+    """이번 호출의 정착 대기 시간(초). 입력이 없으면 설정 기본값이다."""
+    raw = session.inputs.get('settle_timeout_sec')
+    if raw is not None:
+        return float(raw)
+    settle = getattr(runtime.config.moveit, 'settle', None)
+    return float(getattr(settle, 'timeout_sec', 0.0) or 0.0)
+
+
+def _settle(runtime: 'RobotTwinRuntime', session: Session, *,
+            timeout: float) -> Optional['SettleResult']:
+    """실행 종료 뒤 팔이 멈출 때까지 기다린다 (설계서 6.7 "정착 대기").
+
+    대기 시간이 0 이면 아무것도 하지 않고 ``None`` 을 돌려준다 — 그때 결과에는
+    ``settled`` 가 실리지 않는다. 대기는 연산 시한(``timeout`` = 워치독 시한) 안에서만
+    하며, 그동안 세션은 ``phase: SETTLING`` 이다. 취소나 세션 종료가 오면 바로 끝낸다.
+    """
+    wanted = _settle_timeout(runtime, session)
+    if wanted <= 0.0:
+        return None
+
+    from robot_twin.settle import SettleResult, wait_until_settled
+
+    entry = runtime.variables.entry('ee_pose')
+    if entry is None:
+        # 판정할 근거가 없다 — 정착을 주장하지 않는다.
+        return SettleResult(False)
+
+    elapsed = time.time() - session.started_at
+    budget = min(wanted, timeout - elapsed - _SETTLE_DEADLINE_MARGIN_SEC)
+    if budget <= 0.0:
+        return SettleResult(False)
+
+    if not session.cancel_requested:
+        runtime.sessions.update(session.id, phase=Phase.SETTLING)
+    cfg = runtime.config.moveit.settle
+    return wait_until_settled(
+        entry, timeout_sec=budget, position_tol_m=cfg.position_tol_m,
+        orientation_tol_rad=cfg.orientation_tol_rad, quiet_sec=cfg.quiet_sec,
+        should_stop=lambda: session.cancel_requested or session.is_terminal)
+
+
+def _goal_error_meaningful(outputs: dict[str, Any]) -> bool:
+    """``goal_error`` 가 도달 정도를 말하는가.
+
+    정착을 판정했으면 스택과 무관하게 그렇다. 대기를 요청했는데 정착하지 못했으면
+    JTC 여도 싣지 않는다. 대기를 요청하지 않았으면 closed loop(JTC)일 때만이다 —
+    JGPC 는 반환 시점에 팔이 아직 움직이고 있을 수 있다.
+    """
+    settled = outputs.get('settled')
+    if settled is not None:
+        return bool(settled)
+    return bool(outputs.get('closed_loop'))
+
+
+def _motion_outputs(runtime: 'RobotTwinRuntime', *, closed_loop: bool,
+                    settle: Optional['SettleResult'] = None) -> dict[str, Any]:
     """이동 연산의 공통 ``outputs`` 를 만든다 (설계서 6.7).
 
     측정은 상태 캐시의 최신 스냅샷을 쓴다 — 별도 조회를 하지 않으므로 추가 지연이
     없다. 다만 종료 시각과 정확히 일치하지 않으므로 ``measured_age_ms`` 로
-    신선도를 함께 드러낸다.
+    신선도를 함께 드러낸다. 정착 대기를 했으면 그 판정(또는 만료) 시점의 값이다.
     """
     outputs: dict[str, Any] = {'closed_loop': closed_loop}
+    if settle is not None:
+        outputs['settled'] = settle.settled
+        if settle.settled and settle.settle_ms is not None:
+            outputs['settle_ms'] = settle.settle_ms
 
     for name, key in (('ee_pose', 'final_pose'), ('joint_states', 'final_joints')):
         entry = runtime.variables.entry(name)
@@ -966,12 +1040,12 @@ def _attach_goal_error(outputs: dict[str, Any], *, joint_error: Optional[float] 
                        pose_error: Optional[tuple[float, float]] = None) -> None:
     """``goal_error`` 를 ``outputs`` 에 붙인다 (설계서 6.7).
 
-    **closed loop(JTC)에서만 붙인다.** JGPC 는 명령 발행을 끝낸 시점에 결과를 만들고 그때
-    팔이 아직 움직이고 있을 수 있어, 그 시점의 오차는 도달 정도를 나타내지 못한다.
-    구할 수 있는 항목만 싣고, 하나도 없으면 키 자체를 두지 않는다. 트윈은 이 값으로
-    ``COMPLETED`` 를 뒤집지 않는다.
+    **closed loop(JTC)이거나 정착을 판정했을 때만 붙인다** (:func:`_goal_error_meaningful`).
+    JGPC 는 명령 발행을 끝낸 시점에 결과를 만들고 그때 팔이 아직 움직이고 있을 수 있어,
+    정착을 기다리지 않은 오차는 도달 정도를 나타내지 못한다. 구할 수 있는 항목만 싣고,
+    하나도 없으면 키 자체를 두지 않는다. 트윈은 이 값으로 ``COMPLETED`` 를 뒤집지 않는다.
     """
-    if not outputs.get('closed_loop'):
+    if not _goal_error_meaningful(outputs):
         return
     error: dict[str, Any] = {}
     if joint_error is not None:

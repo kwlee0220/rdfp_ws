@@ -109,7 +109,9 @@ _BLOCK_KEYS = {
     # 관절 제어에는 중력 보상이 없어 `실제 − 지령 = τ_g(q)/Kp` 로 처지는데, `Kp` 를 씬
     # XML 이 알려 주므로(t1·r2 모두 2000) 지령에 `τ_g/Kp` 를 미리 더해 상쇄할 수 있다.
     # **키가 없으면 보상하지 않는다** — 벤더가 A-1 을 반영하면 이 키를 지워 끈다.
-    'motion': {'velocity_scaling', 'gravity_compensation'},
+    # `settle` 은 트윈이 이동 뒤 정착을 판정하는 기준(`timeout_sec` · `position_tol_m` ·
+    # `orientation_tol_rad` · `quiet_sec`)이다. 해석은 트윈 설정(`SettleConfig`)이 한다.
+    'motion': {'velocity_scaling', 'gravity_compensation', 'settle'},
     # 그리퍼 **명령 규약**이 담긴 파일. `/input/gripper_joint` 는 이름 없는 배열이라
     # 순서·단위·packing 이 계약인데 **씬마다 다르다** (t1 은 6축·rad, r2 는 2축·deg).
     # 백엔드를 통째로 복제하는 대신 파일 하나를 가리킨다 — `scene.fixtures_file` 과

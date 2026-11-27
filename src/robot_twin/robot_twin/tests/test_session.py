@@ -243,3 +243,42 @@ def test_known_resources_drives_the_resources_view() -> None:
     store = SessionStore(endpoint_prefix='/api', known_resources=('arm', 'gripper', 'scene'))
 
     assert set(store.resources()) == {'arm', 'gripper', 'scene'}
+
+
+# ----- error.details — MoveIt 원본 오류 코드 (설계서 6.8) ----------------------
+
+def test_failed_session_body_carries_error_details() -> None:
+    pytest.importorskip('fastapi')
+    from robot_twin.api import session_body
+    from robot_twin.errors import ErrorCode
+
+    store = SessionStore()
+    session = store.create(operation='move_linear', resources=('arm',), inputs={})
+    store.finish(session.id, Status.FAILED, error_code=ErrorCode.PLANNING_FAILED,
+                 error_message='collision',
+                 error_details={'moveit_error_code': -12, 'moveit_error_name': 'GOAL_IN_COLLISION'})
+
+    error = session_body(session)['error']
+    assert error == {'code': 'PLANNING_FAILED', 'message': 'collision',
+                     'details': {'moveit_error_code': -12, 'moveit_error_name': 'GOAL_IN_COLLISION'}}
+
+
+def test_failure_without_details_has_no_details_key() -> None:
+    pytest.importorskip('fastapi')
+    from robot_twin.api import session_body
+    from robot_twin.errors import ErrorCode
+
+    store = SessionStore()
+    session = store.create(operation='move_linear', resources=('arm',), inputs={})
+    store.finish(session.id, Status.FAILED, error_code=ErrorCode.EXECUTION_ABORTED,
+                 error_message='Goal rejected')
+
+    assert 'details' not in session_body(session)['error']
+
+
+def test_cancelled_session_drops_error_details() -> None:
+    """취소는 오류가 아니다 — `error` 와 함께 `details` 도 붙이지 않는다."""
+    store = SessionStore()
+    session = store.create(operation='move_linear', resources=('arm',), inputs={})
+    store.finish(session.id, Status.CANCELLED, error_details={'moveit_error_code': -7})
+    assert session.error_details is None

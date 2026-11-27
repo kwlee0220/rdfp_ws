@@ -28,7 +28,7 @@ from robot_twin.config import OperationConfig, TwinConfig
 from robot_twin.errors import (
     ErrorCode, cancel_unsupported, invalid_input, precondition_failed
 )
-from robot_twin.session import Session, SessionStore, Status
+from robot_twin.session import Phase, Session, SessionStore, Status
 from robot_twin.variables import StaticSourceUnavailable, VariableCache
 
 # 소스 가용성(퍼블리셔 존재 여부) 갱신 주기. age 만으로는 "퍼블리셔 없음"과
@@ -97,6 +97,19 @@ def _failure_code(exc: BaseException) -> ErrorCode:
     if isinstance(exc, PlanningError):
         return ErrorCode.PLANNING_FAILED
     return ErrorCode.EXECUTION_ABORTED
+
+
+def _failure_details(exc: BaseException) -> Optional[dict[str, Any]]:
+    """실행 단계 예외의 ``error.details`` — MoveIt 원본 오류 코드가 있으면 싣는다 (설계서 6.8).
+
+    ``PLANNING_FAILED`` 만으로는 충돌 · IK 실패 · 시작 자세 무효를 구분할 수 없어, 재시도할지
+    목표를 바꿀지 판단할 원인을 잃는다. 원인이 없는 실패면 ``None`` 이다.
+    """
+    try:
+        from robot_control.errors import moveit_error_details
+    except ImportError:  # 그 함수가 생기기 전의 제어 계층 설치본
+        return None
+    return moveit_error_details(exc)
 
 
 class RobotTwinRuntime:
@@ -553,6 +566,15 @@ class RobotTwinRuntime:
         # 점유하더라도 이 경로로 장면 초기화나 그리퍼 명령을 취소할 수는 없다.
         if op is None or op.kind != 'async' or not requires_move_group(op):
             raise cancel_unsupported(session.operation)
+        if session.phase is Phase.SETTLING:
+            # 실행이 끝나고 정착을 기다리는 중이라 팔에 나가는 명령이 없다. JGPC 는 이때
+            # `cancel()` 이 멈출 대상이 없어 `False` 를 돌려주므로, 그것으로 거부하면
+            # 대기 중인 연산을 취소할 길이 없어진다. 정지는 그래도 한 번 보낸다(JTC 의 잔여
+            # goal 정리).
+            self._stop_backend()
+            self.sessions.request_cancel(session.id)
+            self._logger.info(f'cancel requested while settling (session={session.id})')
+            return
         if not self._stop_backend():
             self._logger.warning(
                 f'cancel rejected (session={session.id}): no stop mechanism for this backend'
@@ -574,19 +596,26 @@ class RobotTwinRuntime:
         """
         affected = self.sessions.engage_estop()
         halted = self._stop_backend()
+        # 정착을 기다리는 세션은 팔에 나가는 명령이 없다 (설계서 6.7 "정착 대기"). 정지 수단이
+        # 없어도(JGPC 는 실행이 끝나면 `cancel()` 이 `False` 다) 바로 끝낸다 — 그대로 두면
+        # E-stop 뒤에도 대기가 시한까지 이어진다.
+        settling = [s for s in affected if s.phase is Phase.SETTLING]
+        moving = [s for s in affected if s.phase is not Phase.SETTLING]
+        if not halted and settling and not moving:
+            halted = True
 
+        for session in (affected if halted else settling):
+            self.sessions.finish(
+                session.id, Status.FAILED, error_code=ErrorCode.ESTOP_ENGAGED,
+                error_message='aborted by emergency stop', outputs=self._stop_outputs()
+            )
         if halted:
             self._logger.warning(f'E-STOP engaged; halted {len(affected)} session(s)')
-            for session in affected:
-                self.sessions.finish(
-                    session.id, Status.FAILED, error_code=ErrorCode.ESTOP_ENGAGED,
-                    error_message='aborted by emergency stop', outputs=self._stop_outputs()
-                )
         else:
-            # 세션을 종료 상태로 바꾸지 않는다 — 로봇이 실제로 멈추지 않았으므로
+            # 움직이는 세션은 종료 상태로 바꾸지 않는다 — 로봇이 실제로 멈추지 않았으므로
             # FAILED 로 표시하면 상태가 거짓이 된다. 동작은 스스로 끝난다.
             self._logger.error(
-                f'E-STOP engaged but {len(affected)} in-flight motion(s) CANNOT be halted: '
+                f'E-STOP engaged but {len(moving)} in-flight motion(s) CANNOT be halted: '
                 'no stop mechanism for this backend. The robot keeps moving. '
                 'Use a physical emergency stop'
             )
@@ -732,7 +761,8 @@ class RobotTwinRuntime:
                                  error_message=str(exc))
         except Exception as exc:
             self.sessions.finish(session.id, Status.FAILED,
-                                 error_code=_failure_code(exc), error_message=str(exc))
+                                 error_code=_failure_code(exc), error_message=str(exc),
+                                 error_details=_failure_details(exc))
 
     def _run_async(self, op: OperationConfig, session: Session) -> None:
         """비동기 연산을 워커 스레드에서 실행한다."""
@@ -761,7 +791,8 @@ class RobotTwinRuntime:
             else:
                 self.sessions.finish(session.id, Status.FAILED,
                                      error_code=_failure_code(exc),
-                                     error_message=str(exc), outputs=self._stop_outputs())
+                                     error_message=str(exc), error_details=_failure_details(exc),
+                                     outputs=self._stop_outputs())
 
     def _dispatch(self, op: OperationConfig, session: Session, *,
                   timeout: float) -> dict[str, Any]:

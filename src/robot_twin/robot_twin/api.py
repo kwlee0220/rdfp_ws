@@ -102,9 +102,26 @@ def session_body(session: Session, *, endpoint: Optional[str] = None) -> dict[st
     if session.error_code is not None:
         body['error'] = {'code': session.error_code.value,
                          'message': session.error_message or ''}
+        if session.error_details:
+            body['error']['details'] = session.error_details
     if endpoint is not None:
         body['session_endpoint'] = endpoint
     return body
+
+
+def variable_catalog(cfg: TwinConfig) -> list[dict[str, Any]]:
+    """`GET /variables` 의 변수 목록.
+
+    ``stamp_clock`` 은 응답 ``stamp`` 가 어느 시계 기준인지다(``sim`` · ``wall``, 없으면 ``null``).
+    **선언값이지 실측이 아니다** — 트윈 설정이 채우고 발행 노드가 다른 시계를 쓰는 변수만 YAML 에
+    적는다 (설계서 4.2).
+    """
+    return [{'name': v.name, 'description': v.description,
+             'source_type': v.source.type,
+             'staleness_ms': v.staleness_ms, 'units': v.units,
+             'stamp_clock': None if v.stamp_clock in (None, 'none') else v.stamp_clock,
+             'schema_version': v.schema_version}
+            for v in cfg.variables]
 
 
 def create_app(runtime: TwinRuntime) -> FastAPI:
@@ -197,13 +214,7 @@ def create_app(runtime: TwinRuntime) -> FastAPI:
         최신값"이며, 각 값이 같은 시각에 생성되었다는 뜻이 아니다 (설계서 5.4).
         """
         if names is None:
-            return {'variables': [
-                {'name': v.name, 'description': v.description,
-                 'source_type': v.source.type,
-                 'staleness_ms': v.staleness_ms, 'units': v.units,
-                 'schema_version': v.schema_version}
-                for v in cfg.variables
-            ]}
+            return {'variables': variable_catalog(cfg)}
 
         requested = [n.strip() for n in names.split(',') if n.strip()]
         results = runtime.read_variables(requested)

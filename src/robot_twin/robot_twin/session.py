@@ -47,6 +47,9 @@ class Phase(str, Enum):
     """
 
     EXECUTING = 'EXECUTING'
+    # 실행은 끝났고 팔이 멈추기를 기다리는 국면 (설계서 6.7 "정착 대기"). 팔에 나가는
+    # 명령이 없으므로 이 국면의 취소는 정지 수단 없이도 받는다.
+    SETTLING = 'SETTLING'
     CANCELING = 'CANCELING'
 
 
@@ -76,6 +79,8 @@ class Session:
     outputs: dict[str, Any] = field(default_factory=dict)
     error_code: Optional[ErrorCode] = None
     error_message: Optional[str] = None
+    # `error.details` 로 나가는 구조화된 원인 — 예: MoveIt 원본 오류 코드 (설계서 6.8).
+    error_details: Optional[dict[str, Any]] = None
     ended_at: Optional[float] = None
     created_by: Optional[str] = None
     # 예상 총 소요 시간(ms). 409 응답의 `estimated_remaining_ms` 산출에 쓰인다. **지금은
@@ -235,7 +240,8 @@ class SessionStore:
     def finish(self, session_id: str, status: Status, *,
                outputs: Optional[dict[str, Any]] = None,
                error_code: Optional[ErrorCode] = None,
-               error_message: Optional[str] = None) -> Optional[Session]:
+               error_message: Optional[str] = None,
+               error_details: Optional[dict[str, Any]] = None) -> Optional[Session]:
         """세션을 종료 상태로 전이시키고 자원 락을 푼다.
 
         이미 종료된 세션은 그대로 둔다 — 워치독과 실제 완료가 경합할 수 있으므로
@@ -255,6 +261,7 @@ class SessionStore:
             if status is not Status.CANCELLED:
                 session.error_code = error_code
                 session.error_message = error_message
+                session.error_details = error_details
 
             for name in session.resources:
                 if self._holders.get(name) == session.id:

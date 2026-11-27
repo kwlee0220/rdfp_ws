@@ -89,6 +89,14 @@ def import_service_type(type_name: str) -> type:
     return import_message_type(type_name)
 
 
+def _has_header(msg_type: type) -> bool:
+    """메시지 타입에 ``header`` 필드가 있는가. 응답 ``stamp`` 를 꺼내는 곳과 같은 기준이다."""
+    fields = getattr(msg_type, 'get_fields_and_field_types', None)
+    if callable(fields):
+        return 'header' in fields()
+    return hasattr(msg_type, 'header')
+
+
 def import_message_type(type_name: str) -> type:
     """``sensor_msgs/msg/JointState`` 형식의 이름을 메시지 클래스로 해석한다.
 
@@ -271,6 +279,12 @@ class VariableCache:
                 entry.source_available = False
                 entry.unavailable_reason = Reason.NO_PUBLISHER
                 continue
+
+            if entry.config.stamp_clock != 'none' and not _has_header(msg_type):
+                # 헤더가 없으면 응답 `stamp` 가 늘 null 이다 — 시계 표기도 그에 맞춘다 (설계서 4.2).
+                self._logger.info(f"variable '{entry.config.name}': {src.msg} has no header; "
+                                  'stamp_clock set to none')
+                entry.config.stamp_clock = 'none'
 
             sub = self._node.create_subscription(
                 msg_type, src.topic, self._make_callback(entry), build_qos(src.qos)

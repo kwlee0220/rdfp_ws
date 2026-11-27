@@ -187,6 +187,9 @@ operations:
         target: { type: string }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 
@@ -231,6 +234,9 @@ operations:
         # 생략하면 0.95 (backends.DEFAULT_MIN_FRACTION). 부분 경로를 감수할 때만 낮춘다.
         min_fraction: { type: number, exclusiveMinimum: 0, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 
@@ -310,6 +316,9 @@ operations:
           additionalProperties: { type: number }
         velocity_scaling: { type: number, minimum: 0.01, maximum: 1.0 }
         max_duration_sec: { type: number, minimum: 1, maximum: 120 }
+        # 실행 뒤 팔이 멈출 때까지 기다리는 최대 시간(초). 정착하면 결과에 settled · goal_error
+        # 가 실린다(설계서 6.7). 생략하면 백엔드 프로파일의 motion.settle 기본값, 0 은 기다리지 않음.
+        settle_timeout_sec: { type: number, minimum: 0, maximum: 120 }
       additionalProperties: false
     default_timeout_sec: 60
 

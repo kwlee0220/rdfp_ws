@@ -97,6 +97,24 @@ class RosConfig(_Base):
     use_sim_time: bool = False
 
 
+class SettleConfig(_Base):
+    """이동 뒤 정착 대기의 기본값과 판정 기준 (설계서 6.7 "정착 대기").
+
+    **판정 기준은 연산 입력으로 받지 않는다** — 지터 대역과 시뮬레이터의 멈춤(펑션베이
+    `t1` 의 A-17 정지, 최대 2.18 s)은 백엔드의 성질이라 클라이언트가 정할 값이 아니다.
+    연산 입력은 최대 대기 시간(`settle_timeout_sec`)만 받는다. 기본값은 클라이언트
+    `wait_until_still` 과 같다.
+    """
+
+    # 연산 입력 `settle_timeout_sec` 를 생략했을 때의 값. 0 이면 기다리지 않는다.
+    timeout_sec: float = Field(default=0.0, ge=0.0, le=120.0)
+    position_tol_m: float = Field(default=0.0002, gt=0.0)
+    orientation_tol_rad: float = Field(default=0.002, gt=0.0)
+    # 허용량 안에 머물러야 하는 시간. 시뮬레이터가 멈추는 시간보다 길어야 한다 — 짧으면
+    # 이동 중간의 멈춤을 정착으로 오판한다.
+    quiet_sec: float = Field(default=0.6, gt=0.0)
+
+
 class MoveItConfig(_Base):
     """MoveIt 연동 설정.
 
@@ -157,6 +175,12 @@ class MoveItConfig(_Base):
     # 여유 0.5 mm 인 `peg_tray` 삽입이 10 Hz 로는 3회 모두 입구에서 튕겼다 (2026-09-11).
     arm_command_publish_rate: Optional[float] = None
 
+    # --- 이동 뒤 정착 대기 (설계서 6.7) ---
+    #
+    # 생략하면 `backend` 프로파일의 `motion.settle` 이 채우고, 그것도 없으면 코드 기본값
+    # (기다리지 않음)이다. 여기 적으면 프로파일보다 우선한다.
+    settle: SettleConfig = Field(default_factory=SettleConfig)
+
     @model_validator(mode='before')
     @classmethod
     def _expand_backend(cls, data: Any) -> Any:
@@ -193,6 +217,10 @@ class MoveItConfig(_Base):
         motion = profile.get('motion') or {}
         if motion.get('velocity_scaling') is not None:
             filled.setdefault('velocity_scaling', motion['velocity_scaling'])
+        # 정착 판정 기준도 백엔드의 성질이라 프로파일에서 온다. 트윈 YAML 에 `settle` 을
+        # 적으면 블록 통째로 그쪽이 이긴다.
+        if motion.get('settle') is not None:
+            filled.setdefault('settle', motion['settle'])
 
         # **프레임 이름도 프로파일에서 온다.** launch 의 `ee_pose_node` 가 읽는 것과
         # 같은 값이어야 `ee_pose` 가 가리키는 프레임과 트윈의 변환 기준이 일치한다 —
@@ -366,6 +394,14 @@ class VariableConfig(_Base):
     # 정수 enum 상수를 문자열 심볼로 바꾸기 위한 매핑 (설계서 5.5).
     enums: dict[str, dict[int, str]] = Field(default_factory=dict)
     schema_version: int = 1
+    # 응답 `stamp`(원본 `header.stamp`)가 **어느 시계 기준인지** (설계서 4.2). 카탈로그로 나간다.
+    #   sim   시뮬레이션 시각 (`/clock`)
+    #   wall  벽시계 (시스템 시각)
+    #   none  `stamp` 가 없다 — 정적 소스, 헤더 없는 메시지 타입
+    # **선언값이지 실측이 아니다** — 시계는 트윈이 아니라 발행 노드가 정하므로 트윈이 메시지를
+    # 보고 판정하지 않는다. 생략하면 `TwinConfig` 가 채운다(정적 소스는 `none`, 나머지는
+    # `ros.use_sim_time` 에 따라). 발행 노드가 트윈과 다른 시계로 찍는 변수만 적는다.
+    stamp_clock: Optional[Literal['sim', 'wall', 'none']] = None
 
     @field_validator('name')
     @classmethod
@@ -559,6 +595,25 @@ class TwinConfig(_Base):
                 raise ValueError(
                     f"variable {var.name!r} derives from unknown variable {ref!r}"
                 )
+        return self
+
+    @model_validator(mode='after')
+    def _resolve_stamp_clocks(self) -> 'TwinConfig':
+        """변수의 `stamp_clock` 을 채운다 (설계서 4.2). **명시한 값이 이긴다.**
+
+        정적 소스는 `stamp` 가 없으므로 `none` 이고, 그 밖에는 트윈의 `ros.use_sim_time` 을 따른다 —
+        로봇 스택과 같은 시계 축이라는 가정이다(`_apply_backend`). 그 가정이 깨지는 변수만 YAML 에
+        적는다. 헤더 없는 메시지 타입은 기동 때 `VariableCache` 가 `none` 으로 바로잡는다.
+        """
+        default = 'sim' if self.ros.use_sim_time else 'wall'
+        for var in self.variables:
+            if var.source.type == 'static':
+                if var.stamp_clock not in (None, 'none'):
+                    raise ValueError(f"variable {var.name!r}: a static source has no stamp; "
+                                     f"stamp_clock must be 'none', got {var.stamp_clock!r}")
+                var.stamp_clock = 'none'
+            elif var.stamp_clock is None:
+                var.stamp_clock = default
         return self
 
     @model_validator(mode='after')

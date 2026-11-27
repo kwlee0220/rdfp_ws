@@ -263,6 +263,34 @@ def test_execution_failure_stays_execution_aborted(runner: str) -> None:
     assert done.error_code is ErrorCode.EXECUTION_ABORTED
 
 
+@pytest.mark.parametrize('runner', ['_run_sync', '_run_async'])
+def test_moveit_error_code_is_kept_in_error_details(runner: str) -> None:
+    """`PLANNING_FAILED` 만으로는 충돌 · IK 실패를 못 가른다 — 원본 코드를 `error.details` 에 싣는다."""
+    errors = pytest.importorskip('robot_control.errors')
+
+    done = _run(runner, errors.PlanningError('collision', moveit_error_code=-12,
+                                             moveit_error_name='GOAL_IN_COLLISION'))
+
+    assert done.error_code is ErrorCode.PLANNING_FAILED
+    assert done.error_details == {'moveit_error_code': -12, 'moveit_error_name': 'GOAL_IN_COLLISION'}
+
+
+def test_execution_error_code_is_kept_but_stays_execution_aborted() -> None:
+    errors = pytest.importorskip('robot_control.errors')
+
+    done = _run('_run_async', errors.ExecutionError('control failed', moveit_error_code=-4,
+                                                    moveit_error_name='CONTROL_FAILED'))
+
+    assert done.error_code is ErrorCode.EXECUTION_ABORTED
+    assert done.error_details['moveit_error_name'] == 'CONTROL_FAILED'
+
+
+def test_failure_without_a_moveit_code_has_no_details() -> None:
+    done = _run('_run_async', RuntimeError('Goal rejected'))
+
+    assert done.error_details is None
+
+
 def test_cancelled_planning_failure_is_still_cancelled() -> None:
     """취소를 요청했으면 백엔드 예외는 그 결과다 — 실패 코드를 붙이지 않는다."""
     errors = pytest.importorskip('robot_control.errors')
@@ -275,6 +303,7 @@ def test_cancelled_planning_failure_is_still_cancelled() -> None:
     done = runtime.sessions.get(session.id)
     assert done.status is Status.CANCELLED
     assert done.error_code is None
+    assert done.error_details is None
 
 
 def test_async_session_reports_executing_from_the_start() -> None:
@@ -402,6 +431,48 @@ def test_unsupported_cancel_never_stops_the_arm(op) -> None:
     assert session.status is Status.RUNNING
     assert not session.cancel_requested
     assert session.phase.value == 'EXECUTING'
+
+
+@pytest.mark.parametrize('halts', [True, False])
+def test_cancel_while_settling_is_accepted_without_a_stop_target(halts) -> None:
+    """정착 대기 중에는 팔에 나가는 명령이 없다 — JGPC 는 `cancel()` 이 `False` 인데도 받는다.
+
+    거부하면 정착을 기다리는 연산을 취소할 길이 없다 (설계서 6.7 "정착 대기").
+    """
+    from robot_twin.session import Phase
+
+    runtime, client, session = _overdue(ARM_OP, halts=halts)
+    runtime.sessions.update(session.id, phase=Phase.SETTLING)
+
+    runtime.cancel_session(session)
+
+    assert client.cancels == 1
+    assert session.cancel_requested is True
+    assert session.phase.value == 'CANCELING'
+
+
+def test_estop_ends_a_settling_session_without_a_stop_target() -> None:
+    """정착 대기 중이면 정지 수단이 없어도(JGPC) E-stop 이 세션을 바로 끝낸다."""
+    from robot_twin.session import Phase
+
+    runtime, client, session = _overdue(ARM_OP, halts=False)
+    runtime.sessions.update(session.id, phase=Phase.SETTLING)
+
+    result = runtime.engage_estop()
+
+    assert result['halted'] is True
+    assert session.status is Status.FAILED
+    assert session.error_code is ErrorCode.ESTOP_ENGAGED
+
+
+def test_estop_leaves_a_moving_session_running_without_a_stop_target() -> None:
+    """움직이는 세션은 여전히 끝내지 않는다 — 멈추지 않은 로봇을 FAILED 로 적으면 거짓이다."""
+    runtime, client, session = _overdue(ARM_OP, halts=False)
+
+    result = runtime.engage_estop()
+
+    assert result['halted'] is False
+    assert session.status is Status.RUNNING
 
 
 @pytest.mark.parametrize('halts', [True, False])

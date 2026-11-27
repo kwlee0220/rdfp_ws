@@ -20,6 +20,9 @@ sim_scene: r2
 #                                  `null` 이다 — 둘 다 걸면 이중 보정으로 부호가 뒤집힌다
 #                                  (체크리스트 §B-4 상세). `kp` 는 그 씬 XML 의 팔 게인이다 —
 #                                  `./scripts/functionbay/fb_gains.py` 로 대조한다
+#   motion.settle                  트윈이 이동 뒤 정착을 판정하는 기준. `quiet_sec` 는 그 씬에서
+#                                  시뮬레이터가 멈추는 시간보다 길어야 한다 — 짧으면 이동 중간의
+#                                  멈춤을 정착으로 오판한다(t1 은 A-17 정지가 최대 2.18 s, r2 는 0 회)
 #
 # 배경 · 실측: docs/backends/functionbay/펑션베이_중력_보상.md, 체크리스트 §A-19 · §B-4
 sim_scenes:
@@ -32,6 +35,7 @@ sim_scenes:
       profile_file: config/functionbay_gripper_recurdyn.json    # 2축 · 도 · 관절당 p/v/f
     motion:
       gravity_compensation: null
+      settle: { quiet_sec: 0.6 }
   # Crisp(서울대) · `t1__SNU_1_vm.xml`. 벤더 보상이 없어 **우리가 보상한다.** 팔 게인이
   # `MMR-Build_260929` 에서 2000 → **20000** 으로 10배 올랐다 — 틀리면 보상이 그 배수로 걸린다.
   t1:
@@ -43,6 +47,7 @@ sim_scenes:
         urdf_package: panda_ftsensor_robotiq
         urdf_relative_path: urdf/panda_ftsensor_robotiq.urdf
         kp: 20000.0
+      settle: { quiet_sec: 2.5 }
 
 # MoveGroup 클라이언트가 팔에 명령을 보내는 채널.
 arm_command:

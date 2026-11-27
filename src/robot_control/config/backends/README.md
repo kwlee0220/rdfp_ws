@@ -26,7 +26,7 @@
 | `arm_command` | **MoveGroup 클라이언트**가 팔에 명령을 보내는 채널 (`mode`/`topic`/`format`/`joint_names`) | — |
 | `ros2_control` | controller_manager 배선 (`hardware_type`/`controllers_file`/`joint_commands_topic`/`gripper_commands_topic`/`joint_states_topic`) | ros2_control 을 안 쓴다 (펑션베이) |
 | `simulator` | ros2_control 없는 백엔드가 시뮬레이터와 직접 주고받는 채널 (**servo 출력은 여기 없다** — 아래 참조) | — |
-| `motion` | 팔 이동의 **전역 기본** `velocity_scaling` · 중력 보상 `gravity_compensation` | 이 백엔드만의 값이 없다 (코드 기본값 1.0) |
+| `motion` | 팔 이동의 **전역 기본** `velocity_scaling` · 중력 보상 `gravity_compensation` · 트윈의 정착 판정 기준 `settle` | 이 백엔드만의 값이 없다 (코드 기본값 — 속도 1.0, 정착은 기다리지 않음) |
 | `servo` | `linear_scale` / `joint_source` / `command_out_type` / `command_out_topic` | — |
 | `frames` | 팔 끝을 가리키는 **두 프레임** `ee` · `tip` (아래 참조) | 코드 기본값 |
 | `gripper` | 그리퍼 **명령 규약** 파일 `profile_file` (아래 참조) | 규약이 따로 필요 없다 |
@@ -73,6 +73,7 @@
 | `solver` | `RecurDyn` | `Crisp` |
 | `gripper.profile_file` | `config/functionbay_gripper_recurdyn.json` | `config/functionbay_gripper_crisp.json` |
 | `motion.gravity_compensation` | `null` | 블록 (`kp: 20000.0`) |
+| `motion.settle` | `{ quiet_sec: 0.6 }` | `{ quiet_sec: 2.5 }` — A-17 정지(최대 2.18 s)보다 길게 |
 
 로더(`backend_profiles._apply_sim_scene`)가 고른 씬의 값을 공통 블록 위에 키 단위로 얹는다. 지키는 규칙:
 **모든 씬이 같은 키를 정한다**('없다' 는 `null`), **같은 키를 공통 블록과 씬 양쪽에 적지 않는다**,
@@ -157,6 +158,21 @@ motion:
 
 > **벤더가 A-1 을 반영하면 이 블록을 지운다** — 안 지우면 이중 보정이다. 판별·절차:
 > [gravity_compensation](../../../../docs/backends/functionbay/펑션베이_중력_보상.md) §5.
+
+### `motion.settle` — 트윈이 이동 뒤 정착을 판정하는 기준
+
+트윈의 이동 연산은 입력 `settle_timeout_sec` 를 받으면 실행 뒤 `ee_pose` 가 멈출 때까지 기다리고 결과에 `settled` · `goal_error` 를 싣는다. 그 판정 기준이 이 블록이다 — 지터 대역과 시뮬레이터의 멈춤은 백엔드의 성질이라 연산 입력으로 받지 않는다. 해석은 트윈 설정(`robot_twin.config.SettleConfig`)이 한다.
+
+```yaml
+motion:
+  settle:
+    timeout_sec: 0            # 입력을 생략했을 때의 대기 시간 (0 = 기다리지 않음)
+    position_tol_m: 0.0002
+    orientation_tol_rad: 0.002
+    quiet_sec: 0.6            # 허용량 안에 머물러야 하는 시간
+```
+
+적은 키만 바꾸고 나머지는 코드 기본값(위 값)이다. **`quiet_sec` 는 시뮬레이터가 멈추는 시간보다 길어야 한다** — 짧으면 이동 중간의 멈춤을 정착으로 오판한다. 펑션베이 `t1` 은 A-17 정지가 최대 2.18 s 라 2.5 를 쓴다. 상세: [로봇_트윈_설계서.md](../../../../docs/twin/로봇_트윈_설계서.md) 6.7 "정착 대기".
 
 > **~~`motion.sag_calibration_file`~~ 은 2026-09-11 에 삭제됐다.** 지점별로 잰 처짐
 > 계수를 지령에 얹던 방식인데, 잰 지점 ±20 mm 에서만 유효했고 자세를 바꾸면 무효였다.

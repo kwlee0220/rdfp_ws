@@ -14,7 +14,7 @@ from geometry_msgs.msg import Pose
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
 
-from robot_control.errors import PlanningError
+from robot_control.errors import ExecutionError, PlanningError
 from robot_control.moveit.motion_event_publisher import (
     OPERATION_CARTESIAN,
     OPERATION_JOINTS,
@@ -43,6 +43,8 @@ from robot_control.moveit.move_group_client import (
     _JOINT_GOAL_LABEL,
     _validate_joint_values,
     _validate_trajectory,
+    moveit_error_name,
+    planning_error,
 )
 from robot_control.ros2_utils import await_future_spin, check_timeout_and_get_remains
 
@@ -57,10 +59,12 @@ def _moveit_error_name(code: int) -> str:
     연산 이벤트(R2)의 ``reason`` 은 **사람이 읽는 값**이라 숫자보다 이름이 낫다.
     레이블 계산에는 쓰이지 않으므로 모르는 값은 숫자 그대로 남긴다.
     """
-    for name in dir(MoveItErrorCodes):
-        if name.isupper() and getattr(MoveItErrorCodes, name, None) == code:
-            return name
-    return f'error_code={code}'
+    return moveit_error_name(code) or f'error_code={code}'
+
+
+def _execution_error(message: str, code: int) -> ExecutionError:
+    """MoveIt 오류 코드를 실은 :class:`ExecutionError` — 트윈이 ``error.details`` 로 옮긴다."""
+    return ExecutionError(message, moveit_error_code=int(code), moveit_error_name=moveit_error_name(code))
 
 
 class MoveGroupJtcClient(MoveGroupClient):
@@ -565,8 +569,8 @@ class MoveGroupJtcClient(MoveGroupClient):
                     self._finish_motion(
                         ctx, result=RESULT_ABORTED, reason=_moveit_error_name(error_code),
                         truncated_at_sec=self._elapsed_since(ctx.stamp) if ctx else None)
-                    fut.set_exception(RuntimeError(
-                        f'Move to {what} failed with code: {error_code}'
+                    fut.set_exception(_execution_error(
+                        f'Move to {what} failed with code: {error_code}', error_code
                     ))
                     return
                 self._node.get_logger().info(f'Reached {what}')
@@ -757,8 +761,9 @@ class MoveGroupJtcClient(MoveGroupClient):
                         f'Path planning returned error code: {response.error_code.val}'
                     )
                     _plan_failed(_moveit_error_name(response.error_code.val))
-                    result_future.set_exception(PlanningError(
-                        f'Path planning failed with error code: {response.error_code.val}'
+                    result_future.set_exception(planning_error(
+                        f'Path planning failed with error code: {response.error_code.val}',
+                        response.error_code.val
                     ))
                     return
 
@@ -850,8 +855,8 @@ class MoveGroupJtcClient(MoveGroupClient):
                     self._finish_motion(
                         ctx, result=RESULT_ABORTED, reason=_moveit_error_name(error_code),
                         truncated_at_sec=self._elapsed_since(ctx.stamp) if ctx else None)
-                    result_future.set_exception(RuntimeError(
-                        f'Trajectory execution failed with code: {error_code}'
+                    result_future.set_exception(_execution_error(
+                        f'Trajectory execution failed with code: {error_code}', error_code
                     ))
                     return
 
@@ -996,7 +1001,8 @@ class MoveGroupJtcClient(MoveGroupClient):
         if result.error_code.val != MoveItErrorCodes.SUCCESS:
             self._node.get_logger().error(
                 f'Trajectory execution failed with code: {result.error_code.val}')
-            raise RuntimeError(f'Trajectory execution failed with code: {result.error_code.val}')
+            raise _execution_error(f'Trajectory execution failed with code: {result.error_code.val}',
+                                   result.error_code.val)
         self._node.get_logger().info('Trajectory execution completed!')
 
     def execute_trajectory_async(self, trajectory: RobotTrajectory, *,

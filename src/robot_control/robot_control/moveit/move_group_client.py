@@ -35,6 +35,19 @@ from robot_control.ros2_utils import (
 )
 
 
+def moveit_error_name(code: int) -> Optional[str]:
+    """``MoveItErrorCodes`` 값을 이름(예: ``GOAL_IN_COLLISION``)으로 바꾼다. 모르는 값이면 ``None``."""
+    for name in dir(MoveItErrorCodes):
+        if name.isupper() and getattr(MoveItErrorCodes, name, None) == code:
+            return name
+    return None
+
+
+def planning_error(message: str, code: int) -> PlanningError:
+    """MoveIt 오류 코드를 실은 :class:`PlanningError` — 트윈이 ``error.details`` 로 옮긴다."""
+    return PlanningError(message, moveit_error_code=int(code), moveit_error_name=moveit_error_name(code))
+
+
 READY_TIMEOUT_SEC = 30.0
 PLAN_TIMEOUT_SEC = 20.0
 GOAL_ACCEPT_TIMEOUT_SEC = 10.0
@@ -985,7 +998,8 @@ class MoveGroupClient(abc.ABC):
         if response.error_code.val != MoveItErrorCodes.SUCCESS:
             self._node.get_logger().error(
                 f'Path planning returned error code: {response.error_code.val}')
-            raise PlanningError(f'Path planning failed with error code: {response.error_code.val}')
+            raise planning_error(f'Path planning failed with error code: {response.error_code.val}',
+                                 response.error_code.val)
 
         if response.fraction < ft:
             self._node.get_logger().error(f'Path planning failed (fraction: {response.fraction})')
@@ -1287,7 +1301,7 @@ def _extract_planned_trajectory(result, name: str) -> RobotTrajectory:
     """
     error_code = result.error_code.val
     if error_code != MoveItErrorCodes.SUCCESS:
-        raise PlanningError(f'Planning to named target "{name}" failed with code: {error_code}')
+        raise planning_error(f'Planning to named target "{name}" failed with code: {error_code}', error_code)
 
     trajectory = result.planned_trajectory
     if not trajectory.joint_trajectory.points:
