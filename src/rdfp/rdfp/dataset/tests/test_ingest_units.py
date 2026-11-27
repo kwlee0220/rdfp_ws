@@ -65,12 +65,12 @@ def dsn():
     if shutil.which('createdb') is None or shutil.which('psql') is None:
         pytest.skip('PostgreSQL client tools not available')
     name = f'rdfp_units_{uuid.uuid4().hex[:10]}'
-    if subprocess.run(['createdb', name], capture_output=True).returncode != 0:
+    if subprocess.run(['createdb', '-w', name], capture_output=True).returncode != 0:
         pytest.skip('cannot create a scratch database (peer auth unavailable?)')
     try:
         yield f'postgresql:///{name}'
     finally:
-        subprocess.run(['dropdb', '--if-exists', name], capture_output=True)
+        subprocess.run(['dropdb', '-w', '--if-exists', name], capture_output=True)
 
 
 @pytest.fixture()

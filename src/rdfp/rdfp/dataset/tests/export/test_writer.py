@@ -31,7 +31,7 @@ _EPOCH = itertools.count(1000, 1000)
 
 
 def _psql(db: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(['psql', '-d', db, '-v', 'ON_ERROR_STOP=1', '-q', *args],
+    return subprocess.run(['psql', '-w', '-d', db, '-v', 'ON_ERROR_STOP=1', '-q', *args],
                           capture_output=True, text=True)
 
 
@@ -41,7 +41,7 @@ def dsn():
     if subprocess.run(['which', 'psql'], capture_output=True).returncode != 0:
         pytest.skip('psql not available')
     name = f'rdfp_e7_{uuid.uuid4().hex[:10]}'
-    if subprocess.run(['createdb', name], capture_output=True).returncode != 0:
+    if subprocess.run(['createdb', '-w', name], capture_output=True).returncode != 0:
         pytest.skip('cannot create a scratch database (peer auth unavailable?)')
     try:
         out = _psql(name, '-f', os.path.abspath(SCHEMA))
@@ -49,7 +49,7 @@ def dsn():
             pytest.skip(f'schema load failed: {out.stderr[:200]}')
         yield f'postgresql:///{name}'
     finally:
-        subprocess.run(['dropdb', '--if-exists', name], capture_output=True)
+        subprocess.run(['dropdb', '-w', '--if-exists', name], capture_output=True)
 
 
 @pytest.fixture()

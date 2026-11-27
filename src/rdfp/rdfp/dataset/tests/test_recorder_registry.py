@@ -108,11 +108,11 @@ def db():
     name = 'rdfp_i4_test'
     schema = Path(__file__).resolve().parents[1] / 'sql' / 'schema.sql'
     try:
-        subprocess.run(['psql', '-d', 'postgres', '-q', '-c',
+        subprocess.run(['psql', '-w', '-d', 'postgres', '-q', '-c',
                         f'DROP DATABASE IF EXISTS {name};', '-c',
                         f'CREATE DATABASE {name};'], check=True,
                        capture_output=True, timeout=30)
-        subprocess.run(['psql', '-d', name, '-q', '-v', 'ON_ERROR_STOP=1',
+        subprocess.run(['psql', '-w', '-d', name, '-q', '-v', 'ON_ERROR_STOP=1',
                         '-f', str(schema)], check=True, capture_output=True, timeout=60)
     except Exception as exc:                       # noqa: BLE001
         pytest.skip(f'no local postgres: {exc}')
@@ -121,7 +121,7 @@ def db():
         yield conn
     finally:
         conn.close()
-        subprocess.run(['psql', '-d', 'postgres', '-q', '-c',
+        subprocess.run(['psql', '-w', '-d', 'postgres', '-q', '-c',
                         f'DROP DATABASE IF EXISTS {name};'], capture_output=True)
 
 
