@@ -134,8 +134,10 @@ cd src/robot_twin   && PYTHONPATH=.:$PYTHONPATH python3 -m pytest robot_twin/tes
 shell where `install/setup.bash` was sourced, and ROS-dependent modules fail at collection
 with `ModuleNotFoundError`. Appending keeps both.
 
-Test layout — colocated suites across three packages, **1384 tests total** (`robot_control` 520 / `robot_twin` 273 / `rdfp` 591;
-9 skipped, 실패 0 — 2026-09-11 실측):
+Test layout — colocated suites across four packages, **2167 passed** (`robot_control` 653 / `robot_twin` 454 / `rdfp` 1003 /
+`rdfp_gui` 57; 17 skipped, 실패 0 — 2026-11-27 실측). 이 수치는 **로컬 PostgreSQL 에 peer 인증이 되고 PyAV(`av`)가 설치된**
+환경 기준이다 — 둘이 없으면 DB 테스트 64건 · `test_lossless` 3건이 skip 으로 바뀐다(실패가 아니다). `test_episode_key` 의 DB 시험
+3건은 `RDFP_TEST_DB_DSN` 을 줘야 돈다(17 skipped 에 포함):
 
 | package | suites |
 |---|---|
@@ -150,7 +152,7 @@ Test layout — colocated suites across three packages, **1384 tests total** (`r
 
 ROS-dependent tests (anything that imports `rclpy`, `sensor_msgs`, `std_msgs`, etc.) require `source install/setup.bash` first or `colcon test`. Many `dataset/tests/*` deliberately avoid ROS imports so they run in pure-Python envs.
 
-Every ROS-dependent module now self-skips, so `rdfp/dataset/tests/` is green in both environments — **114 passed / 8 skipped** without ROS, **167 passed** with it. Keep it that way when adding tests: guard with `pytest.importorskip('<ros pkg>')` **above** the `rdfp.*` imports (marking the shadowed imports `# noqa: E402`), or `pytest.mark.skipif` a single test when the rest of the module is ROS-free. Without a guard the module raises at collection and **aborts the entire run**, not just itself.
+Every ROS-dependent module now self-skips, so `rdfp/dataset/tests/` is green in both environments — **299 passed / 12 skipped** without ROS, **358 passed / 3 skipped** with it (2026-11-27, 같은 DB · PyAV 조건). Keep it that way when adding tests: guard with `pytest.importorskip('<ros pkg>')` **above** the `rdfp.*` imports (marking the shadowed imports `# noqa: E402`), or `pytest.mark.skipif` a single test when the rest of the module is ROS-free. Without a guard the module raises at collection and **aborts the entire run**, not just itself.
 
 The dependency is often *transitive* — e.g. `ingest/test_filters.py` tests pure-Python filter logic but `pipeline` pulls in `sensor_msgs`, and `test_topic_message_replayer.py` stubs every ROS object yet the module under test imports `builtin_interfaces` at top level.
 
